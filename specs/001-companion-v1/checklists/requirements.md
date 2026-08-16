@@ -31,13 +31,18 @@
 
 ## Notes
 
-- Validated 2026-08-16 against the phase 1 grilling record; no clarification
-  markers were needed because every open decision was resolved in grilling
-  rounds 1 and 2 (D5 to D10).
-- Matching thresholds (92/75, duration windows) are recorded as business
-  rules from the kickoff matching policy, not as implementation detail.
-- WCAG 2.2 AA criteria are present per user-facing story, per the workflow's
-  compliance article; the PII inventory lives in `pii-inventory.md` next to
-  the spec.
-- Phase 2 exit criteria checked: no story contains "etc", "and so on", or a
-  trailing list; every story has directly testable acceptance criteria.
+- Validated 2026-08-16 against the phase 2 exit criteria as well: every story
+  carries acceptance criteria a test can be written from, every user-facing
+  story carries WCAG 2.2 AA criteria, no story trails off, and the PII
+  inventory (`../pii-inventory.md`) covers every personal data element the spec
+  implies, each with lawful basis and retention.
+- Zero [NEEDS CLARIFICATION] markers were needed: the phase 1 grilling record
+  answered scope questions; the two open engineering unknowns (enrichment
+  source choice, Spotify playback on localhost) are behaviour-neutral and
+  recorded as assumptions with their planned spikes, per ADR 0007/0009.
+- Domain constraints named in the spec (Rekordbox 7.2.17 pin, Spotify Premium,
+  NL storefront, mp3/m4a library, delivered design tokens) are delivered
+  inputs and product boundaries, not implementation choices; they stay.
+- Matching thresholds (92/75, 3s/5s, 40/60 weighting) are behavioural
+  parameters from the kickoff spec that tests are written against, not
+  implementation details.
