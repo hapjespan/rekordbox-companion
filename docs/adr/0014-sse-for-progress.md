@@ -1,6 +1,6 @@
 # Progress streaming via Server-Sent Events
 
-Long-running work (sync sessions up to 1.000 tracks, enrichment runs of
+Long-running work (sync sessions up to 999 tracks, enrichment runs of
 hours) reports progress to the SPA over one Server-Sent Events channel
 (`/api/events`); everything else is plain request/response. Considered
 alternatives: WebSockets (rejected: nothing flows client-to-server during a

@@ -7,7 +7,7 @@
 ## Summary
 
 A single local process (FastAPI, `127.0.0.1:8787`) serves a React SPA and owns
-four capabilities: matching Spotify playlists against a 20.000+ track Rekordbox
+four capabilities: matching Spotify playlists against a 30.000+ track Rekordbox
 Collection (fuzzy-primary pipeline gated by a golden set), a guarded add-only
 write path into `master.db` via pyrekordbox, a missing-tracks-to-store-links
 queue, and hand-designed booking structures fed by app-side genre enrichment.
@@ -41,13 +41,15 @@ browser is UI only (ADR 0001)
 **Project Type**: web application, single-process backend + SPA (kickoff §6)
 
 **Performance Goals**: match report ≤ 30s / 100 tracks; collection search
-≤ 100ms/keystroke at 20.000+ (tested at 30.000); playlists to 1.000 tracks
+≤ 100ms/keystroke at 30.000+ (tested at 40.000); playlists to 999 tracks
+(larger refused before the session starts)
 
-**Constraints**: `docs/constraints.md` — keep-all backups (ADR 0010),
+**Constraints**: `docs/constraints.md` — rotating zipped backups, newest 10
+(ADR 0016),
 free-tier-only external services (ADR 0011), NIS2 logging plan (tokens/key
 never logged), ASVS-mapped requirements, localhost-only
 
-**Scale/Scope**: 1 user, 1 machine; 20.000+ tracks; 7 user stories, ~25
+**Scale/Scope**: 1 user, 1 machine; 30.000+ tracks; 7 user stories, ~25
 endpoints (contracts/api.md)
 
 ## Constitution Check
@@ -98,7 +100,7 @@ engine/
     rb/                  # ONLY module importing pyrekordbox (rule 1)
       reader.py          #   collection snapshot, playlist tree, play counts
       writer.py          #   guarded playlist/folder writes, add-only updates
-      backup.py          #   timestamped keep-all backups (ADR 0010)
+      backup.py          #   timestamped zipped backups, newest 10 (ADR 0016)
       guard.py           #   running-check, version pin, disk headroom
       index.py           #   in-memory collection index (R6/ADR 0012)
     matching/
@@ -150,12 +152,12 @@ decision or an explicitly accepted risk with an owner.
 | Constraint | Decision / risk |
 |---|---|
 | 1 user, 1 machine, no concurrency | single process, no auth surface (ADR 0001); SQLite without contention design |
-| Playlists ≤ 1.000 tracks; 30s at 100 | in-memory index + rapidfuzz (R6); Spotify pagination fetch; SSE progress (R4) |
-| Collection 20.000+, tested at 30.000 | index perf test at 30.000 (contracts, quickstart US5); substring search in-process |
+| Playlists ≤ 999 tracks; 30s at 100, 5 min at the cap | in-memory index + rapidfuzz (R6); Spotify pagination fetch; SSE progress (R4); cap enforced before the session starts |
+| Collection 30.000+, tested at 40.000 | index perf test at 40.000 (contracts, quickstart US5); substring search in-process |
 | Match/search latency numbers | budgeted against the index, not the DB; perf tests are tasks, not hopes |
 | Playback start unbounded (accepted) | no preloading work in v1; owner accepted |
 | Best-effort availability, restart as recovery | no supervisor, no health-restart logic; documented in quickstart. Risk accepted, owner: Martien |
-| Keep-all backups (ADR 0010) | `backup.py` has no delete path at all; disk headroom check in `guard.py` refuses writes when a backup would not fit |
+| Rotating zipped backups, newest 10 (ADR 0016) | `backup.py` creates zip, verifies readability, then prunes beyond 10 — prune runs only after a verified create; disk headroom check in `guard.py` refuses writes when a backup would not fit |
 | Free-tier-only services (ADR 0011) | GenreSource adapters: Spotify genres + MusicBrainz at 1 req/s; enrichment incremental + resumable (ADR 0013) |
 | No deadline | spikes ordered first anyway: they gate design, not dates |
 | NIS2 logging plan | structured logs from `guard`/`backup`/`writer` + `write_log` table; token/key redaction is a log-formatter property, tested |

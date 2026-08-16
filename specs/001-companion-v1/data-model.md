@@ -137,7 +137,7 @@ Audit trail for the guarded write path (constraints: NIS2 logging; SC-006).
 | id | int PK | |
 | kind | enum | `sync_apply`, `structure_apply` |
 | subject_id | int | session or structure id |
-| backup_path | text | the Backup taken for this write (ADR 0010: never deleted) |
+| backup_path | text | the Backup taken for this write (ADR 0016: may be pruned by rotation later; the log row remains) |
 | readback_ok | bool | |
 | detail | json | counts written, ids created |
 | created_at | datetime | |

@@ -1,5 +1,9 @@
 # Backups are kept forever; the app never deletes one
 
+**Status: superseded by ADR 0016** (same day, 2026-08-16): the owner reversed
+this in the second phase 3 grilling round — backups are zip-compressed and
+rotate, keeping the newest 10. Kept for the record; do not cite.
+
 Every write to the Rekordbox database is preceded by a timestamped full backup,
 and the companion never deletes any of them: no rotation, no age limit, no cap.
 Disk usage is unbounded and explicitly accepted; cleanup is a manual act by the

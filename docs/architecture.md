@@ -36,7 +36,8 @@ unrepresentable rather than merely forbidden.
 
 **Depth**: very deep. Behind those eight calls sit SQLCipher, pyrekordbox's
 session and update-sequence bookkeeping, version pinning, process detection,
-disk-headroom checks and keep-all backups (ADR 0010). Callers know none of it.
+disk-headroom checks and rotating zipped backups (ADR 0016). Callers know none
+of it.
 
 **Adapters**: (1) the real pyrekordbox implementation, integration-tested
 against the fixture `master.db`; (2) an in-memory fake for API-layer tests.

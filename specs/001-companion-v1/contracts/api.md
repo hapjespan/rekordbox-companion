@@ -103,4 +103,4 @@ itunes_url_chosen, effective_url, no_link_found: bool}`.
   response models; the generated client compiles against it (rule 4).
 - Refusal codes of the two apply endpoints are contract-tested (they encode
   the guard, Principle II).
-- `/api/collection` is perf-tested at 30.000 index entries (constraints).
+- `/api/collection` is perf-tested at 40.000 index entries (constraints).

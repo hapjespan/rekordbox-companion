@@ -52,7 +52,7 @@ Ordered by story priority; each maps to spec acceptance scenarios.
    on the 20-track test set (SC-004); manual override sticks; set a track to
    `ignored`, re-sync, confirm it stays ignored; add a previously missing
    track to the fixture collection, re-sync, confirm it auto-closes (FR-023).
-5. **US5 collection**: `/api/collection?query=` on a 30.000-entry index
+5. **US5 collection**: `/api/collection?query=` on a 40.000-entry index
    answers < 100ms (perf test); an mp3 and an m4a fixture play with seek; the
    ALAC fixture plays via the ffmpeg fallback; a missing file reports
    `file_missing`, no crash.
