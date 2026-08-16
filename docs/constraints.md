@@ -1,135 +1,131 @@
-# Constraints
+# Constraints — Rekordbox Companion v1
 
-Phase 3 deliverable. Sources: owner grilling on 2026-08-16 (non-functionals),
-`specs/001-companion-v1/spec.md` (behavioural numbers), `specs/PROFILE.md`
-(`risk_class: minimal`, which scales the NIS2/OWASP/AVG sections to recorded
-lines with reasons). Every entry is a number, a verdict, or an explicit
-"unbounded, accepted". Constraints that eliminate design options carry an ADR
-reference so phase 4 cites instead of rediscovers.
+Phase 3 deliverable. Every entry is a number or an explicit verdict
+("unbounded, accepted"); adjectives do not count as constraints. Sources: the
+phase 3 grilling record (`docs/grilling/2026-08-16-phase-3.md`, D11–D17), the
+spec (`specs/001-companion-v1/spec.md`) and `specs/PROFILE.md`
+(`risk_class: minimal`). Phase 4 cites these entries by id instead of
+rediscovering them.
 
 ## Load and concurrency
 
-- Users: exactly 1 (the owner), on 1 machine, no concurrent use. Source: owner.
-- Sync input bound: playlists up to 1.000 tracks are supported; the 30-second
-  match-report promise (SC-001) is measured at 100 tracks. Source: owner.
-- Background work (matching, enrichment) never blocks read-only features
-  (FR-040); no other concurrency requirement exists.
+- **C-01** Operators: exactly 1, the owner-DJ. No multi-user path exists
+  (spec FR-037).
+- **C-02** Network exposure: the app binds to 127.0.0.1:8787 only; nothing
+  listens on any other interface.
+- **C-03** Concurrent background work: at most 1 Sync Session and 1 enrichment
+  run at a time; read-only features stay usable meanwhile (spec FR-040).
+- **C-04** Playlist size: 999 tracks maximum per Spotify playlist. A larger
+  playlist is refused before the Sync Session starts, with a message naming
+  the limit (D12).
 
 ## Data volume
 
-- Collection: 20.000+ tracks today and growing. All collection-facing features
-  are dimensioned for 20.000 and tested at 30.000. Source: owner grilling;
-  spec updated (US5, FR-024, SC-005) from its earlier 10.000 assumption.
-- Rekordbox database: order of hundreds of MB; every backup is a full copy.
-- Companion-owned data (sessions, matches, enrichment, structures): small by
-  construction, no bound needed; it references Rekordbox ids instead of
-  duplicating track data.
+- **C-05** Collection: 30.000+ tracks today. Every performance criterion is
+  verified at 30.000 tracks; the spec's "10.000+" figures are a floor,
+  superseded upward (D11). No design may carry a hard limit below 30.000 or
+  scale worse than near-linearly in collection size.
+- **C-06** Companion-owned data (sessions, matches, missing queue, enriched
+  genres, structures): unbounded, accepted (D17). It is text-scale metadata;
+  history is a feature (ignored status must persist), so v1 ships no cleanup.
 
 ## Latency
 
-- Match report: complete within 30 seconds for a 100-track playlist (SC-001).
-- Collection search: results within 100 milliseconds per keystroke at 20.000+
-  tracks (SC-005).
-- Playback start and apply duration: not bounded, accepted; a write's duration
-  is dominated by the backup copy and correctness beats speed there. Source:
-  owner (defaults accepted).
+- **C-07** Collection search: results within 100 ms per keystroke at 30.000
+  tracks (spec SC-005 at the C-05 scale).
+- **C-08** Match report: 100-track playlist complete within 30 seconds (spec
+  SC-001); 999-track playlist (the C-04 cap) complete within 5 minutes (D12).
+- **C-09** Enrichment: full run over the Collection within 12 hours and
+  resumable after interruption; incremental run over new tracks within 30
+  minutes (D14 grilling Q4).
+- **C-10** Apply (guard, backup, write, readback): no numeric bound set;
+  unbounded, accepted. The flow shows progress and the backup step dominates;
+  on the target machine it is expected to be seconds, not minutes.
 
-## Availability and operations
+## Retention and backups
 
-- Availability: best effort. Recovery plan is restarting the process; there is
-  no uptime target, no monitoring service, no on-call. Verdict: accepted.
-- Operational ownership: the owner runs, updates and recovers the app himself.
-- Team: 1 owner plus AI agents under the workflow graph.
+- **C-11** Rekordbox database Backups: one per write (spec FR-016),
+  zip-compressed, the newest 10 kept. Pruning runs only after a new backup has
+  been created and verified readable, never as a standalone background job
+  (D13).
+- **C-12** Backup integrity: a Backup counts as created only when the zip
+  archive verifies as readable; an unverifiable backup blocks the write, the
+  same as insufficient disk space (spec edge case).
+- **C-13** Spotify tokens and account identity: retained until the operator
+  disconnects, then deleted (PII inventory rows 1–2).
 
-## Retention and deletion
+## Availability and recovery
 
-- Rekordbox database backups: keep all, the app never deletes a backup; disk
-  usage is unbounded and accepted; cleanup is a manual act by the owner
-  (ADR 0010). Source: owner grilling.
-- Spotify OAuth tokens and account identity: kept until the owner disconnects
-  the account in the app or revokes at Spotify; the disconnect action deletes
-  them locally. Deletion path: UI action. See
-  `specs/001-companion-v1/pii-inventory.md`.
-- Companion-owned data (sync history, enrichment, structures): kept
-  indefinitely on the owner's machine; not personal data of any third party;
-  deletable by deleting the app's data directory. Verdict: unbounded, accepted.
+- **C-14** Uptime: no requirement; unbounded, accepted. Restarting the process
+  is the recovery mechanism (D17).
+- **C-15** The companion's own database rides the machine backup (Time
+  Machine); the app ships no own-data backup feature (D17).
+- **C-16** Degraded start: a missing `master.db` at the expected path yields a
+  named degraded state blocking Rekordbox-backed features, not per-screen
+  errors (spec edge case).
 
-## Budget and deadline
+## Budget
 
-- Budget: owner's own time plus free API tiers only. Spotify app in developer
-  mode, iTunes Search API, and any enrichment source must be usable without
-  payment; paid services are closed off (ADR 0011). Source: owner grilling.
-- Deadline: none. Quality over speed; the proof-of-value is done when it meets
-  its success criteria. Source: owner grilling.
+- **C-17** Recurring cost: €0 beyond the owner's existing Spotify Premium.
+  External sources (enrichment, store-link lookup) use free API tiers only
+  (D14, ADR 0010).
 
-## NIS2 — logging, monitoring, incident readiness (risk_class: minimal)
+## Deadline
 
-Recorded line: single machine, `127.0.0.1`-only, one operator; incident
-detection is the operator noticing malfunction, notification is self-directed
-and immediate, the channel is the app's UI and the terminal it runs in; no
-separate incident plan is proportional here.
+- **C-18** None; unbounded, accepted. The owner paces the project (D15). The
+  first real booking prepared with the app is the SC-009 measurement, not a
+  date.
 
-Logging plan, binding for implementation:
+## Team and operational ownership
 
-- Logged: every guard refusal with its reason; every backup creation with
-  timestamp and path; every Rekordbox write with its readback verdict; sync
-  session and enrichment run summaries (counts, duration); errors with stack
-  traces.
-- Deliberately not logged: OAuth tokens or any credential, the SQLCipher key,
-  request headers, audio content, and full library dumps. Log lines reference
-  Rekordbox content ids, not file paths, wherever an id suffices.
-- Logs are local files, rotated by size, and are themselves covered by the
-  "keep all, manual cleanup" retention verdict above.
+- **C-19** Team: one human (owner) plus the agent workflow. Operational owner:
+  the owner-DJ, on his own Mac (D17).
 
-## OWASP — security requirements (ASVS-aligned, risk_class: minimal)
+## Target machine
 
-Recorded line: the attack surface is a localhost-bound single-user app whose
-only auth flow is Spotify OAuth PKCE; the full OWASP checklist still runs in
-phase 7 against that reduced surface. Requirements, each traced to its ASVS
-area:
+- **C-20** Apple Silicon M3, 16 GB RAM, macOS, Rekordbox 7.2.17 pinned (ADR
+  0002). Free disk: unbounded, accepted, guarded per write by the pre-backup
+  disk check (D16). Development runs in the Linux container against a fixture
+  `master.db`; anything requiring the real install is verified on the Mac.
+- **C-21** Transcoding: on-the-fly through ffmpeg, no persistent cache in v1
+  (D17). The library is mp3/m4a, so the fallback is a rare path.
 
-- ASVS V2 (authentication): no app-level login exists; out of scope with
-  reason: the app binds to `127.0.0.1` and serves one operator on their own
-  machine. The Spotify flow uses OAuth PKCE with a loopback redirect and no
-  client secret in the repository.
-- ASVS V3 (session management): Spotify tokens live in the local app database
-  with owner-only file permissions, are never written to logs, and die with
-  the disconnect action.
-- ASVS V4 (access control): out of scope with reason: one user, one role; the
-  localhost binding is the access control.
-- ASVS V5 (validation, sanitisation, encoding): every external payload
-  (Spotify API, iTunes Search, enrichment source) is schema-validated at the
-  boundary; database access is parameterised throughout; playlist input is
-  parsed to a playlist id, and raw user-supplied URLs are never fetched.
-- ASVS V6/V12 (secrets, files): no secrets in git (`.env` stays out,
-  `env.example` current); the SQLCipher key and tokens are never committed or
-  logged; streamed file paths always resolve from Rekordbox content ids, never
-  from client-supplied paths.
-- ASVS V10/V14 (dependencies, configuration): boring, pinned dependencies with
-  lockfiles; pyrekordbox is pinned compatible with Rekordbox 7.2.17 (ADR 0002);
-  outbound HTTP is restricted to the fixed set of API hosts (Spotify, Apple,
-  the chosen enrichment source), which also answers SSRF.
+## Compliance (risk_class: minimal — one recorded line per article)
 
-## AVG/GDPR (risk_class: minimal)
+- **NIS2**: Logged, locally and rotating: guard decisions, backup creation and
+  pruning, applies with track counts, errors. Deliberately not logged: OAuth
+  tokens or any credential, request bodies. Incident detection is the single
+  operator noticing misbehaviour; the response, written down here before it is
+  needed: stop the process, restore the newest Backup (the Apply flow names
+  it), no one else to notify because no one else is affected.
+- **AVG/GDPR**: No new personal data enters in this phase; the PII inventory
+  carries forward unchanged except that Backup retention becomes automatic
+  rotation (newest 10, C-11) instead of manual deletion — updated in the
+  inventory in the same commit. Deletion paths: tokens and identity on
+  disconnect (C-13), backups by rotation (C-11).
+- **WCAG 2.2 AA**: No constraint in this phase touches the UI; the per-story
+  accessibility criteria from phase 2 stand unreduced.
+- **OWASP**: Security requirements below, ASVS-aligned at the level this
+  system warrants.
 
-Recorded line: the only personal data is the operator's own Spotify
-authorisation and account identity, held locally, transmitted to no one beyond
-Spotify itself; the PII inventory
-(`specs/001-companion-v1/pii-inventory.md`) records basis, retention and
-processors for each element, and the retention/deletion requirements above
-carry it forward. Processor: Spotify, already contracted by the owner. A
-change that adds a personal data element updates the inventory in the same
-commit (constitution).
+## Security requirements (ASVS-aligned)
 
-## Open unknowns carried into phase 4
-
-These are constraints on the architecture phase, not surprises for
-implementation (phase 1 grilling, "three biggest unknowns"):
-
-1. pyrekordbox write compatibility with Rekordbox 7.2.17 — smoke test against
-   the fixture database before the write path is designed final.
-2. Enrichment coverage on a 20.000+ track mp3/m4a library — spike decides the
-   source(s), within the free-tier constraint (ADR 0011).
-3. Spotify Web Playback SDK on `127.0.0.1` — spike decides whether embedded
-   full-track playback holds; fallback is local preview plus opening the track
-   in Spotify's own client.
+- **SEC-01** (V1/V4, access control): out of scope with reason — a single
+  operator on localhost; no accounts, roles or authorisation model exist to
+  secure (C-01, C-02).
+- **SEC-02** (V2/V3, authentication and sessions): the only authentication is
+  Spotify OAuth with PKCE; tokens are stored only in the companion's local
+  database and never logged or committed. No own session or password handling
+  exists.
+- **SEC-03** (V5, input handling): every Spotify playlist URL is validated
+  before use; audio streaming resolves files only through Rekordbox content
+  ids, never through client-supplied filesystem paths, closing path traversal.
+- **SEC-04** (V10/SSRF): outbound requests go exclusively to the fixed API
+  hosts of Spotify, the iTunes Search API and the chosen enrichment source;
+  no user-supplied host is ever fetched.
+- **SEC-05** (V6/V8, secrets and data): `.env` and the local database stay out
+  of git (project rule 3); backups of `master.db` are treated as the library
+  itself and never leave the machine.
+- **SEC-06** (V14, dependencies): dependencies are pinned through uv and pnpm
+  lockfiles; the guarded write path (guard, backup, readback) is the integrity
+  control for the one irreplaceable asset.
