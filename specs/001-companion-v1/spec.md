@@ -232,7 +232,7 @@ acquired track out of the queue.
 
 ### User Story 5 - Browse and play the Collection (Priority: P5)
 
-The DJ searches and sorts the full Collection (10.000+ tracks) in the browser and
+The DJ searches and sorts the full Collection (20.000+ tracks) in the browser and
 plays any Collection Track directly, to verify matches by ear and to explore the
 library. Playback covers the library's native formats and falls back to
 server-side conversion for formats the browser cannot play directly.
@@ -247,7 +247,7 @@ conversion fallback passes against a non-native fixture file.
 
 **Acceptance Scenarios**:
 
-1. **Given** an indexed Collection of at least 10.000 tracks, **When** the DJ
+1. **Given** an indexed Collection of at least 20.000 tracks, **When** the DJ
    types in the search field, **Then** matching tracks (artist, title) appear
    within 100 milliseconds per keystroke.
 2. **Given** the track table, **When** the DJ sorts by artist, title, BPM or
@@ -480,7 +480,7 @@ folder and playlist tree to a fixture Rekordbox database.
 
 - **FR-024**: The system MUST provide search over artist and title and sorting
   over artist, title, BPM and Play Count across the full Collection, responsive
-  at 10.000+ tracks.
+  at 20.000+ tracks and tested at 30.000.
 - **FR-025**: The system MUST stream and play any Collection Track in the
   browser, with seek support, covering the library's native formats directly
   and other formats through a conversion fallback.
@@ -570,7 +570,7 @@ folder and playlist tree to a fixture Rekordbox database.
 - **SC-004**: At least 90% of Missing Tracks in a 20+ track test set resolve to
   the correct NL store page automatically.
 - **SC-005**: Collection search feels instant: results within 100 milliseconds
-  per keystroke on a 10.000+ track Collection.
+  per keystroke on a 20.000+ track Collection.
 - **SC-006**: 100% of Rekordbox writes are preceded by a verified Backup and
   followed by readback verification; zero unrecovered library incidents over
   the project.
