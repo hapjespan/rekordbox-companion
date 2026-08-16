@@ -398,6 +398,9 @@ folder and playlist tree to a fixture Rekordbox database.
   read-only features stay available during matching.
 - An enrichment source is unreachable: enrichment reports partial completion and
   can resume; it never blocks the rest of the app.
+- The DJ renames a structure node that was already applied to Rekordbox: the
+  companion refuses with a message naming the rule; names of applied nodes are
+  owned by Rekordbox from the first Apply on.
 
 ## Requirements *(mandatory)*
 
@@ -505,6 +508,9 @@ folder and playlist tree to a fixture Rekordbox database.
   ranges.
 - **FR-032**: The system MUST let the DJ freely create, rename, nest, move and
   delete folders and playlists in a Booking Structure workspace, persistently.
+  A node that has been applied to Rekordbox is rename-locked in the companion;
+  renaming it afterwards is done in Rekordbox itself (owner decision, phase 4
+  grilling).
 - **FR-033**: The system MUST offer Suggestions per structure playlist:
   Collection Tracks filtered by the selected Booking Profile's genre tags
   (against Enriched Genres) and BPM ranges, ranked by Play Count descending.
