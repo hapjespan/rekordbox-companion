@@ -13,7 +13,7 @@ technical context.
   session, genres are artist-level, zero extra auth) and MusicBrainz genre tags
   (secondary; open data, no key, hard rate limit of 1 request/second).
   Enrichment runs incrementally and resumably (queue with per-track state), not
-  as a bulk pass, because 20.000+ tracks against a 1 req/s source is a
+  as a bulk pass, because 30.000+ tracks against a 1 req/s source is a
   multi-hour job that will be interrupted.
 - **Rationale**: Both are free-tier (ADR 0011), both cover mainstream Western
   pop/dance repertoire well, and artist-level genres are good enough for
@@ -68,7 +68,7 @@ technical context.
 
 - **Decision**: Server-Sent Events on one `/api/events` channel for sync and
   enrichment progress; plain request/response for everything else.
-- **Rationale**: Sync (up to 1.000 tracks) and enrichment (hours, resumable)
+- **Rationale**: Sync (up to 999 tracks) and enrichment (hours, resumable)
   are long-running; SSE is one-directional, trivial over localhost, and
   reconnects natively in the browser. Matches kickoff's "HTTP + SSE".
 - **Alternatives considered**: WebSockets (rejected: nothing flows
@@ -93,8 +93,8 @@ technical context.
   isrc, bpm, genre, play count, location), rebuilt on demand from `master.db`
   reads and cached in the process; it serves both matching and the collection
   search endpoint. Substring search over normalised artist+title, measured at
-  30.000 tracks.
-- **Rationale**: 30.000 rows of short strings is a few tens of MB; a single
+  40.000 tracks.
+- **Rationale**: 40.000 rows of short strings is a few tens of MB; a single
   process (ADR 0001) owns it; no staleness protocol is needed beyond an
   explicit reindex action. rapidfuzz against an in-memory list stays inside
   the 30s/100-track budget by orders of magnitude.

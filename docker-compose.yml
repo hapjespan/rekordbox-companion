@@ -18,6 +18,12 @@ services:
       - /root/.gitconfig:/root/.gitconfig:ro
     environment:
       GH_CONFIG_DIR: /root/.gh
+      # The ports block publishes DEV_PORT:DEV_PORT, so the server inside the
+      # container has to bind DEV_PORT too, not its framework default. Vite
+      # reads no port env by itself, so VITE_PORT is exported for vite.config
+      # or `pnpm dev -- --port`; uvicorn takes --port ${DEV_PORT} in its script.
+      PORT: ${DEV_PORT:-8787}
+      VITE_PORT: ${VITE_PORT:-5173}
     entrypoint:
       - /bin/sh
       - -c
