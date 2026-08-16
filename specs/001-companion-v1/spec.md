@@ -6,583 +6,644 @@
 
 **Status**: Draft
 
-**Input**: User description: "Rekordbox Companion v1, specified from the confirmed
-phase 1 elicitation. Sources, in order of authority:
-docs/grilling/2026-08-16-phase-1.md, docs/CONTEXT.md, docs/adr/0001-0009,
-specs/kickoff.md (where the grilling record corrects it, the grilling record
-wins)."
+**Input**: User description: "Rekordbox Companion v1: a local-first web app for a single working DJ, per specs/kickoff.md as corrected by docs/grilling/2026-08-16-phase-1.md and the glossary in docs/CONTEXT.md."
 
-Language note: this specification uses the ubiquitous language of
-`docs/CONTEXT.md` (capitalised terms: Collection, Match, Apply, and the rest).
-All UI copy is Dutch; this document is English per project convention.
+Terminology in this document follows the glossary in `docs/CONTEXT.md`. Capitalised
+terms (Collection, Sync Session, Match, Review Queue, Missing Track, Apply, Guard,
+Backup, Booking Structure, Suggestion, Enriched Genre, Target Playlist) are defined
+there.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Browse and play the Collection (Priority: P1)
+### User Story 1 - Instant match report for a Spotify playlist (Priority: P1)
 
-As the DJ, I search my Collection in the browser and play any Collection Track
-immediately, so that I can find tracks and verify them by ear without opening
-Rekordbox.
+The DJ pastes a Spotify playlist URL into the companion and, without any further
+input, sees a report of every track in that playlist classified as matched
+(already in the Collection), doubtful (needs review), or missing (not in the
+Collection). This is the core question the product answers: "what do I already
+own?"
 
-**Why this priority**: Every other feature builds on a readable Collection and
-playback for verification. It is independently valuable as a fast library
-browser.
+**Why this priority**: Every other feature consumes this result. Without the
+match report there is no review, no apply, no missing queue. It is the single
+scenario that proves the idea has value.
 
-**Independent Test**: With a Rekordbox database and audio files present, search
-for a known track, play it, and hear audio in the browser. No Spotify or
-booking features involved.
-
-**Acceptance Scenarios**:
-
-1. **Given** a Collection of at least 10,000 Collection Tracks, **When** the DJ
-   types a search term matching artist or title, **Then** matching rows appear
-   within 100 milliseconds and can be sorted by artist, title, BPM, genre and
-   Play Count.
-2. **Given** a Collection Track whose audio format the browser plays natively,
-   **When** the DJ starts playback, **Then** audio starts and the player shows
-   progress, allows pause/resume and seeking.
-3. **Given** a Collection Track in a non-native format, **When** the DJ starts
-   playback, **Then** the track plays through the conversion fallback with the
-   same player controls.
-4. **Given** a Collection Track whose audio file is missing on disk, **When**
-   the DJ starts playback, **Then** the player reports in Dutch that the file
-   is missing and names the expected location, and the app does not crash.
-
-**Accessibility criteria (WCAG 2.2 AA)**:
-
-- The track table and player are fully keyboard operable: row focus with arrow
-  keys, play/pause with spacebar, seek with arrow keys when the player has
-  focus.
-- Focus is always visible, including on table rows and player controls.
-- Text and controls meet AA contrast against the dark theme surfaces.
-- All click/tap targets are at least 24x24 CSS pixels.
-- The search field announces its result count to assistive technology.
-
----
-
-### User Story 2 - Sync a Spotify playlist and see the match report (Priority: P1)
-
-As the DJ, I paste a Spotify playlist URL and get a Sync Session that tells me
-per track whether I own it, so that I know within a minute what a request list
-means for my library.
-
-**Why this priority**: This is the core time-saver the project exists for.
-
-**Independent Test**: Paste a playlist URL against a fixture Collection and
-verify every track lands in exactly one status bucket with plausible scores.
+**Independent Test**: Can be fully tested by pasting a known playlist URL against
+a fixture Collection and checking the classification counts and per-track
+classifications against expected outcomes, without any write path or review UI
+existing.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid Spotify playlist URL and a connected Spotify account,
-   **When** the DJ starts a Sync Session, **Then** every Spotify Track in the
-   playlist receives exactly one status: matched, review, or missing, and the
-   session shows counts per status.
-2. **Given** a playlist of 100 tracks, **When** the Sync Session runs, **Then**
-   matching completes in under 30 seconds.
-3. **Given** a Spotify Track whose normalized artist and title equal a
+1. **Given** a connected Spotify account and an indexed Collection, **When** the
+   DJ pastes a valid Spotify playlist URL and starts a Sync Session, **Then**
+   every track in the playlist receives exactly one status: matched, review, or
+   missing, and the report shows totals per status.
+2. **Given** a playlist of 100 tracks, **When** a Sync Session runs, **Then** the
+   full report is visible within 30 seconds.
+3. **Given** a Spotify Track whose identifier (ISRC) exactly equals a Collection
+   Track's identifier, **When** matching runs, **Then** it auto-matches without
+   review.
+4. **Given** a Spotify Track whose normalised artist and title exactly equal a
    Collection Track's and whose duration differs by at most 3 seconds, **When**
-   matching runs, **Then** the pair is an automatic Match.
-4. **Given** a Spotify Track whose best fuzzy score is at least 92 with no
-   remix-marker conflict, **When** matching runs, **Then** it is an automatic
-   Match; a score from 75 up to 92 puts it in the Review Queue with its top 3
-   candidates; below 75 it becomes a Missing Track.
-5. **Given** a Spotify Track and a Collection Track whose remix markers differ,
-   **When** matching runs, **Then** the pair is never an automatic Match and
-   goes to the Review Queue at best.
-6. **Given** an invalid, private, or unreachable playlist URL, **When** the DJ
-   starts a Sync Session, **Then** an error in Dutch names the URL field and
-   states what to fix, and no session is created.
-7. **Given** the Golden Set of at least 50 real match cases including at least
-   10 hard cases (remixes, radio edits, featuring variants), **When** the
-   matching test suite runs, **Then** every case produces its recorded expected
-   outcome.
+   matching runs, **Then** it auto-matches without review.
+5. **Given** a Spotify Track that only matches fuzzily, **When** its combined
+   similarity score is at or above the auto-match bar (92), **Then** it
+   auto-matches; **When** the score is between 75 and 92, **Then** it enters the
+   Review Queue with its top 3 candidate Collection Tracks; **When** the score is
+   below 75, **Then** it becomes a Missing Track.
+6. **Given** a Spotify Track and a candidate Collection Track whose remix/edit
+   markers differ (for example "Club Mix" versus original), **When** matching
+   runs, **Then** the pair never auto-matches regardless of score and is forced
+   into the Review Queue.
+7. **Given** an invalid, private, or unreachable playlist URL, **When** the DJ
+   submits it, **Then** the report does not start and an error names the URL
+   field and states what to fix (for example: playlist is private, or URL is not
+   a Spotify playlist link).
+8. **Given** the Golden Set of at least 50 real match cases including at least 10
+   hard cases (remixes, radio edits, featuring variants), **When** the matching
+   pipeline runs against it, **Then** every case produces its expected outcome.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- The URL form is keyboard submittable; its error message names the field and
-  the fix in Dutch and is announced to assistive technology.
-- Status counts and the per-track list are readable by screen reader with
-  status conveyed as text, never by color alone.
-- Focus is visible on every interactive element; targets are at least 24x24
-  CSS pixels; text meets AA contrast.
-
----
-
-### User Story 3 - Resolve doubtful Matches keyboard-only (Priority: P1)
-
-As the DJ, I work through the Review Queue with only the keyboard, hearing both
-the local candidate and the Spotify original, so that resolving a 100-track
-playlist takes minutes, not an evening.
-
-**Why this priority**: Fuzzy matching is the primary path (ADR 0003), so the
-Review Queue carries the product's accuracy. Without it, automatic matching
-alone cannot reach the accuracy goal.
-
-**Independent Test**: Load a Sync Session with review items and resolve all of
-them using only the keyboard, including listening to both versions.
-
-**Acceptance Scenarios**:
-
-1. **Given** a Review Queue with items, **When** the DJ navigates with arrow
-   keys, **Then** up/down moves between Spotify Tracks, left/right moves
-   between that track's candidates, and the focused item is visually and
-   programmatically marked.
-2. **Given** a focused candidate, **When** the DJ presses A, **Then** the
-   candidate is accepted as the Match and focus moves to the next unresolved
-   item.
-3. **Given** a focused Review Queue item, **When** the DJ presses R, **Then**
-   the Spotify Track is rejected, becomes a Missing Track, and focus moves to
-   the next unresolved item.
-4. **Given** a focused candidate, **When** the DJ presses the spacebar,
-   **Then** the local candidate plays; **When** the DJ presses the
-   Spotify-playback key, **Then** the Spotify original plays full-length
-   through the connected Premium account; starting one stops the other.
-5. **Given** an empty Review Queue, **When** the DJ opens it, **Then** a Dutch
-   empty state confirms every doubtful Match is resolved.
-6. **Given** a keyboard map overlay control, **When** the DJ presses the help
-   key, **Then** all review shortcuts are listed in Dutch.
-
-**Accessibility criteria (WCAG 2.2 AA)**:
-
-- The entire review flow works without a pointing device, by definition.
-- Every shortcut has a visible on-screen equivalent control (single-key
-  shortcuts are remappable or only active when the queue has focus, so they
-  cannot collide with assistive technology input).
-- Focus is always visible; current item, candidate order and match scores are
-  exposed to assistive technology as text.
-- Playback state (which version is playing) is conveyed as text and icon, not
-  color alone; contrast and target sizes meet AA.
+- The URL input, submit action and report are fully operable by keyboard alone.
+- Focus is always visible on the input and on every interactive element of the
+  report.
+- Status classifications are distinguishable by text, not by colour alone, and
+  all text meets AA contrast against its surface.
+- All interactive targets are at least 24x24 CSS pixels.
+- The URL error message names the field and the fix, and is announced to
+  assistive technology.
 
 ---
 
-### User Story 4 - Apply Matches to Rekordbox (Priority: P1)
+### User Story 2 - Keyboard-first review of doubtful matches (Priority: P2)
 
-As the DJ, I press one button that writes all accepted Matches of a Sync
-Session into a Rekordbox playlist, so that the result is in Rekordbox the next
-time I open it, without me ever fearing for my library.
+The DJ walks the Review Queue of a Sync Session and resolves every doubtful Match
+without touching the mouse: arrow keys move through queue and candidates, A
+accepts the selected candidate, R rejects (none of the candidates is the
+requested track), and space previews. To judge a match by ear the DJ can play
+both sides: the Collection Track streams locally, and the Spotify original plays
+full-length through the DJ's own Spotify Premium account, inside the review
+screen.
 
-**Why this priority**: Without the write-back, the match report is a read-only
-curiosity. The guarded write path is also the highest-risk part of the product
-and must exist early, in its final form.
+**Why this priority**: Fuzzy matching is the primary path for this library, so
+the review flow carries the product's accuracy. It converts a good match report
+into a trustworthy one.
 
-**Independent Test**: Apply a session against a fixture Rekordbox database and
-verify playlist content, Backup file, and readback; re-Apply after changes and
-verify add-only behaviour.
+**Independent Test**: Can be tested with a seeded Review Queue: every queue item
+can be resolved to accepted or rejected using only the documented keys, and both
+audio sources are playable per item.
 
 **Acceptance Scenarios**:
 
-1. **Given** a Sync Session with accepted Matches and Rekordbox not running,
-   **When** the DJ Applies with a playlist name, **Then** a Backup of the
-   Rekordbox database is created first, the playlist is written, read back,
-   and reported with its track count, and the Backup file demonstrably exists.
-2. **Given** Rekordbox is running, **When** the DJ Applies, **Then** the Guard
-   refuses in Dutch, nothing is written, and no Backup is consumed as cover
-   for a partial write.
-3. **Given** the Rekordbox version does not match the pinned version, **When**
-   the DJ Applies, **Then** the Guard refuses and names both versions.
-4. **Given** a playlist this app created earlier for the same Spotify playlist,
-   **When** the DJ re-Applies after a new Sync Session, **Then** only tracks
-   not yet present are added; nothing is removed or reordered, including
-   tracks the DJ added or removed manually in Rekordbox.
-5. **Given** a bought Missing Track now present in the Collection, **When** the
-   DJ runs a new Sync Session for the same playlist URL and Applies, **Then**
-   the track is matched and added automatically.
-6. **Given** the readback after a write does not confirm the expected playlist
-   content, **When** Apply finishes, **Then** the app reports the discrepancy
-   in Dutch, names the Backup file to restore, and marks the session as
-   failed rather than applied.
+1. **Given** a Sync Session with doubtful Matches, **When** the DJ opens the
+   Review Queue, **Then** each item shows the Spotify Track and up to 3 candidate
+   Collection Tracks with their scores, and the first item holds focus.
+2. **Given** a focused queue item, **When** the DJ presses A on a selected
+   candidate, **Then** that candidate becomes the accepted Match and focus moves
+   to the next unresolved item.
+3. **Given** a focused queue item, **When** the DJ presses R, **Then** the
+   Spotify Track becomes a Missing Track (reject means "wrong match", never "do
+   not want") and focus moves to the next unresolved item.
+4. **Given** a focused candidate Collection Track, **When** the DJ presses space,
+   **Then** the local audio plays; **Given** the Spotify side is selected,
+   **When** the DJ triggers playback, **Then** the full Spotify track plays via
+   the DJ's Premium account inside the review screen.
+5. **Given** an accepted or rejected item, **When** the DJ re-opens the Sync
+   Session later, **Then** the resolution is preserved.
+6. **Given** the last unresolved item is resolved, **When** the queue is empty,
+   **Then** the DJ sees a completion state with the updated session totals.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- Apply is reachable and operable by keyboard; its confirmation dialog traps
-  focus, is dismissible with Escape, and names the playlist and track count.
-- Guard refusals are announced to assistive technology and rendered as text
-  meeting AA contrast; the Apply button's state (enabled, running, done,
-  failed) is conveyed as text, never color alone.
-- Targets are at least 24x24 CSS pixels.
+- The entire review flow is operable by keyboard alone; the documented key map
+  (arrows, A, R, space) is discoverable from the screen.
+- Focus is always visible and never lost when an item is resolved.
+- Scores and match status are conveyed in text with AA contrast, not by colour
+  alone.
+- All interactive targets are at least 24x24 CSS pixels.
+- Playback controls expose accessible names and states (playing/paused) to
+  assistive technology.
 
 ---
 
-### User Story 5 - Buy Missing Tracks via Store Links (Priority: P2)
+### User Story 3 - Apply matches to Rekordbox, guarded (Priority: P3)
 
-As the DJ, I see every Missing Track with a working Store Link to the Dutch
-Apple Music / iTunes Store page, so that acquiring a missing request is one
-click plus a purchase.
+With one action the DJ writes all accepted Matches of a Sync Session into
+Rekordbox as a playlist. The write is guarded: it is refused while Rekordbox is
+running or when the installed Rekordbox version is not the pinned 7.2.17, a
+timestamped Backup of the Rekordbox database is taken before the write, and the
+result is verified by reading it back. Re-running the same Spotify playlist URL
+later updates the same Target Playlist add-only: tracks are only ever added,
+never removed or reordered.
 
-**Why this priority**: Valuable and cheap, but only meaningful once Sync
-Sessions produce Missing Tracks.
+**Why this priority**: This is where saved time becomes real (the playlist
+appears in Rekordbox), and where the irreplaceable library is at stake, so the
+safety behaviour is part of the story, not an implementation detail.
 
-**Independent Test**: Feed a set of known missing tracks and verify link
-correctness rate, statuses, and manual override.
+**Independent Test**: Can be tested against a fixture copy of the Rekordbox
+database: apply writes the expected playlist, a backup file exists per write,
+readback confirms content, a second apply of a re-synced session adds only new
+tracks, and apply is refused when the guard conditions fail.
 
 **Acceptance Scenarios**:
 
-1. **Given** a Missing Track, **When** the missing list loads, **Then** the
-   track shows a Store Link (Dutch storefront) chosen automatically, with a
-   copy button and an open-in-store action.
-2. **Given** a test set of at least 30 real missing tracks, **When** links are
-   generated, **Then** at least 90 percent point to the correct track page.
-3. **Given** an automatically chosen Store Link that is wrong, **When** the DJ
-   opens the candidate list and picks another result, **Then** the chosen link
-   replaces the automatic one and both remain stored.
-4. **Given** a Missing Track, **When** the DJ sets its status, **Then** open,
-   acquired and ignored are available, the list is filterable by status, and
-   an ignored track never reappears as open for the same Spotify Track.
-5. **Given** a Missing Track with no store result, **When** the list loads,
-   **Then** the row states in Dutch that no result was found and offers a
-   manual search action.
+1. **Given** a Sync Session with accepted Matches and a closed Rekordbox at the
+   pinned version, **When** the DJ applies with a playlist name, **Then** a
+   Backup is created first, the playlist is written, readback verification
+   confirms every accepted Match is present, and the DJ sees confirmation with
+   the backup's timestamp.
+2. **Given** Rekordbox is running, **When** the DJ attempts Apply, **Then** the
+   write is refused before anything is touched and the message tells the DJ to
+   close Rekordbox and retry.
+3. **Given** an installed Rekordbox version other than 7.2.17, **When** the DJ
+   attempts Apply, **Then** the write is refused and the message names the found
+   and the required version.
+4. **Given** a Spotify playlist URL that was applied before, **When** the DJ
+   re-syncs the same URL and applies again, **Then** the same Target Playlist is
+   updated, newly accepted tracks are appended, and no track is removed or
+   reordered.
+5. **Given** the Target Playlist was deleted inside Rekordbox since the last
+   apply, **When** the DJ applies, **Then** the companion detects the missing
+   Target Playlist, creates it anew, and reports that it did so.
+6. **Given** any write, **When** it completes, **Then** exactly one new Backup
+   with a timestamp exists for that write, without exception.
+7. **Given** readback verification fails after a write, **When** Apply reports,
+   **Then** the DJ is told verification failed, which Backup to restore, and the
+   session is not marked applied.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- List, filters, status changes, candidate picker and copy action are keyboard
-  operable with visible focus.
-- Status is conveyed as text; links have descriptive accessible names (artist
-  plus title, not "link"); contrast and target sizes meet AA.
+- The apply action, its confirmation dialog and its result state are operable by
+  keyboard alone with visible focus.
+- Refusal and failure messages name the blocking condition and the fix, in text
+  meeting AA contrast.
+- The playlist name input reports errors by naming the field and the fix.
+- All interactive targets are at least 24x24 CSS pixels.
 
 ---
 
-### User Story 6 - Enriched Genres with manual override (Priority: P2)
+### User Story 4 - Missing tracks become purchases (Priority: P4)
 
-As the DJ, I let the app assign an Enriched Genre to Collection Tracks from
-external music data and correct it where it is wrong, so that booking features
-can slice a library whose own genre field is unusable.
+Every Spotify Track without an accepted Match lands in the missing queue, where
+each row carries a Store Link to the exact track page in the Apple Music / iTunes
+Store, Dutch storefront. The DJ tracks each Missing Track as open, acquired, or
+ignored ("do not want"). When the DJ has bought a track and re-syncs the same
+playlist URL, the bought track matches automatically and leaves the missing
+queue.
 
-**Why this priority**: Hard dependency of Booking Structures (ADR 0007), but
-useless alone until Suggestions exist; it must land before User Story 8.
+**Why this priority**: It closes the loop from "what am I missing" to "go get
+it", the second half of the product's core question, but it depends on the match
+report existing.
 
-**Independent Test**: Run enrichment on a fixture Collection, measure coverage,
-and override a genre manually.
+**Independent Test**: Can be tested with a seeded missing queue: links resolve to
+the correct NL storefront pages for a test set, statuses are settable and
+persistent, and a re-sync against an updated fixture Collection moves an
+acquired track out of the queue.
 
 **Acceptance Scenarios**:
 
-1. **Given** a Collection Track without an Enriched Genre, **When** enrichment
-   runs, **Then** the track receives zero or more Enriched Genres from
-   external music data, marked with their source.
-2. **Given** an enrichment run over the fixture Collection, **When** it
-   completes, **Then** a coverage report states the percentage of Collection
-   Tracks with at least one Enriched Genre.
-3. **Given** any Collection Track, **When** the DJ sets or corrects its
-   Enriched Genre by hand, **Then** the manual value wins over any source and
-   survives later enrichment runs.
-4. **Given** any enrichment activity, **When** it reads or writes data,
-   **Then** the genre field inside Rekordbox is never modified.
-5. **Given** an external source that is unreachable, **When** enrichment runs,
-   **Then** it completes for the remaining sources, reports what was skipped
-   in Dutch, and can be resumed later without losing prior results.
+1. **Given** a completed Sync Session with Missing Tracks, **When** the DJ opens
+   the missing queue, **Then** each row shows artist, title, status and a Store
+   Link to the NL storefront, with a copy action for the link.
+2. **Given** an automatic Store Link lookup that picked the wrong track page,
+   **When** the DJ overrides it manually, **Then** the chosen link is stored and
+   shown instead, and the automatic pick remains recorded.
+3. **Given** a Missing Track the DJ does not want, **When** the DJ sets it to
+   ignored, **Then** it leaves the default view and is never re-added as open by
+   a later sync of the same playlist.
+4. **Given** a Missing Track whose audio the DJ has since added to the
+   Collection, **When** the DJ re-syncs the same playlist URL, **Then** the track
+   matches automatically and the Missing Track is closed.
+5. **Given** a lookup that finds no store page, **When** the queue renders,
+   **Then** the row says no link was found and offers the manual override.
+6. **Given** a test set of at least 20 missing tracks, **When** links are
+   resolved, **Then** at least 90% point to the correct track page.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- The genre editor is keyboard operable (open, choose, confirm, undo) with
-  visible focus; form errors name the field and the fix in Dutch.
-- Source and override state are conveyed as text; contrast and target sizes
-  meet AA.
+- Queue navigation, status changes, link copy and manual override are operable
+  by keyboard alone with visible focus.
+- Status is conveyed in text, not by colour alone, at AA contrast.
+- All interactive targets are at least 24x24 CSS pixels.
+- The manual override input reports errors by naming the field and the fix.
 
 ---
 
-### User Story 7 - Booking Profiles (Priority: P3)
+### User Story 5 - Browse and play the Collection (Priority: P5)
 
-As the DJ, I define Booking Profiles (horeca, bruiloft, prive, thema) with
-genre tags and optional BPM ranges, so that Suggestions can filter the
-Collection per Booking Type.
+The DJ searches and sorts the full Collection (10.000+ tracks) in the browser and
+plays any Collection Track directly, to verify matches by ear and to explore the
+library. Playback covers the library's native formats and falls back to
+server-side conversion for formats the browser cannot play directly.
 
-**Why this priority**: Pure configuration; only meaningful together with User
-Story 8.
+**Why this priority**: It is the workbench under the other stories (review
+preview, suggestion curation) and useful on its own, but it answers no booking
+question by itself.
 
-**Independent Test**: Create, edit and delete a profile; verify its tags and
-BPM ranges persist and validate.
+**Independent Test**: Can be tested standalone against a fixture Collection:
+search returns expected tracks fast, both native formats play, and the
+conversion fallback passes against a non-native fixture file.
 
 **Acceptance Scenarios**:
 
-1. **Given** a fresh install, **When** the DJ opens profiles, **Then** the four
-   Booking Types exist as seeded Booking Profiles and are editable.
-2. **Given** a Booking Profile, **When** the DJ adds genre tags, **Then** tags
-   are chosen from existing Enriched Genres or entered free-form, and
-   duplicates within one profile are refused with a Dutch error naming the
-   duplicate.
-3. **Given** a Booking Profile, **When** the DJ sets a BPM range with minimum
-   above maximum, **Then** the form refuses and names the field and the fix in
-   Dutch.
+1. **Given** an indexed Collection of at least 10.000 tracks, **When** the DJ
+   types in the search field, **Then** matching tracks (artist, title) appear
+   within 100 milliseconds per keystroke.
+2. **Given** the track table, **When** the DJ sorts by artist, title, BPM or
+   Play Count, **Then** the order updates accordingly.
+3. **Given** any mp3 or m4a Collection Track from the library, **When** the DJ
+   plays it, **Then** audio starts and the player shows progress and allows
+   seeking.
+4. **Given** a Collection Track in a format the browser cannot play natively,
+   **When** the DJ plays it, **Then** the conversion fallback streams it
+   transparently.
+5. **Given** a Collection Track whose audio file is missing on disk, **When**
+   the DJ plays it, **Then** the player reports the file as missing instead of
+   failing silently.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- Profile forms are keyboard operable with visible focus; every error names
-  the field and the fix; contrast and target sizes meet AA.
+- Search, table navigation, sort and player controls are operable by keyboard
+  alone with visible focus.
+- The table remains readable at AA contrast in its dense layout.
+- All interactive targets, including player controls, are at least 24x24 CSS
+  pixels.
+- Player state (playing, paused, seeking position) is exposed to assistive
+  technology.
 
 ---
 
-### User Story 8 - Design and Apply a Booking Structure (Priority: P3)
+### User Story 6 - Enriched genres with manual override (Priority: P6)
 
-As the DJ, I freely design a Booking Structure (folders and playlists: genre
-and theme playlists, Set Phases vooravond/mid/prime/sluit, a Run-of-Show folder
-with Moment Playlists such as openingsdans, proost and sluit), let the app
-suggest tracks per playlist, curate them, and Apply the result to Rekordbox, so
-that booking preparation drops from hours to minutes.
+The companion assigns each Collection Track one or more Enriched Genres sourced
+from external music data, because the genre field inside Rekordbox is messy and
+mostly empty. The DJ can correct any track's Enriched Genres by hand, and the
+correction wins permanently. Rekordbox's own metadata is never written. Enriched
+Genres exist to drive booking Suggestions and are a hard prerequisite for User
+Story 7.
 
-**Why this priority**: The biggest prep-time win, but it depends on Enriched
-Genres, profiles, and the guarded write path already existing.
+**Why this priority**: Load-bearing for the booking feature, worthless to a
+booking without Story 7 shipped; it must land before Story 7 but has no
+standalone booking value.
 
-**Independent Test**: Build a structure in the editor, request Suggestions for
-one playlist, curate, Apply to a fixture Rekordbox database, verify the tree.
+**Independent Test**: Can be tested by enriching a fixture Collection, measuring
+coverage, exercising the manual override, and confirming the Rekordbox database
+bytes are untouched afterwards.
 
 **Acceptance Scenarios**:
 
-1. **Given** an empty structure editor, **When** the DJ creates folders and
-   playlists, renames, moves and deletes them, **Then** the tree reflects
-   every action immediately and persists across app restarts, without
-   touching Rekordbox.
-2. **Given** a playlist in the structure linked to a Booking Profile and
-   optionally a Set Phase with a BPM range, **When** the DJ requests
-   Suggestions, **Then** the app proposes Collection Tracks filtered by the
-   profile's genre tags and applicable BPM range, ranked by Play Count, and
-   marks which are already in the structure.
-3. **Given** a list of Suggestions, **When** the DJ accepts or discards each
-   one, **Then** only accepted tracks are in the playlist, and nothing is
-   written to Rekordbox during curation.
-4. **Given** a curated Booking Structure and Rekordbox not running, **When**
-   the DJ Applies it, **Then** the same Guard, Backup and readback rules as
-   User Story 4 hold, and the folder and playlist tree in Rekordbox mirrors
-   the editor exactly.
-5. **Given** a structure whose name collides with an existing Rekordbox folder
-   the app did not create, **When** the DJ Applies, **Then** the app refuses
-   with a Dutch error naming the collision instead of merging into a tree it
-   does not own.
-6. **Given** an applied structure, **When** the DJ edits it in the companion
-   and re-Applies, **Then** additions are written, and nothing is removed or
-   reordered in Rekordbox (add-only, as in User Story 4).
+1. **Given** an indexed Collection, **When** enrichment runs, **Then** at least
+   80% of Collection Tracks carry at least one Enriched Genre.
+2. **Given** an enriched Collection Track, **When** the DJ edits its genres
+   manually, **Then** the manual value is stored, marked as manual, and never
+   overwritten by a later enrichment run.
+3. **Given** a track the external sources know nothing about, **When**
+   enrichment runs, **Then** the track is marked unenriched and appears in a
+   list the DJ can work through manually.
+4. **Given** any enrichment run, **When** it completes, **Then** the Rekordbox
+   database is byte-for-byte unchanged.
+5. **Given** a sample of 50 enriched tracks reviewed by the DJ, **When** the DJ
+   judges the assigned genres, **Then** at least 90% are judged usable for
+   booking filtering.
 
-**Accessibility criteria (WCAG 2.2 AA)**:
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
 
-- The tree editor is fully keyboard operable: create, rename, move and delete
-  via keys with a visible focus indicator and Dutch instructions in the
-  keyboard overlay.
-- Drag-and-drop, when present, has a keyboard equivalent for every operation.
-- Suggestion accept/discard is keyboard operable; accepted state is text, not
-  color alone; contrast and target sizes meet AA.
+- Genre viewing and editing are operable by keyboard alone with visible focus.
+- Manual-versus-automatic origin is conveyed in text, not by colour alone, at AA
+  contrast.
+- All interactive targets are at least 24x24 CSS pixels.
+- The genre edit input reports errors by naming the field and the fix.
+
+---
+
+### User Story 7 - Hand-designed booking structures with curated suggestions (Priority: P7)
+
+The DJ designs a Booking Structure freely in the companion: a tree of folders and
+playlists, typically genre and theme playlists subdivided by Set Phase
+(vooravond, mid, prime, sluit) plus a Run-of-Show folder with Moment Playlists
+(openingsdans, proost, sluit). For each playlist in the structure the companion
+offers ranked Suggestions: Collection Tracks filtered by the Booking Profile's
+genre tags and optional BPM ranges, ranked by Play Count. The DJ curates the
+Suggestions per playlist, then Applies the whole structure to Rekordbox through
+the same guarded write path as Story 3. The companion never generates a
+structure on its own.
+
+**Why this priority**: The biggest time saver for booking prep, but it consumes
+everything before it: the Collection index, Enriched Genres, and the guarded
+write path.
+
+**Independent Test**: Can be tested by building a structure against a fixture
+Collection with seeded Enriched Genres: suggestions honour the profile's filters
+and rank by Play Count, curation is editable, and apply writes the expected
+folder and playlist tree to a fixture Rekordbox database.
+
+**Acceptance Scenarios**:
+
+1. **Given** the seeded Booking Profiles (horeca, bruiloft, prive, thema),
+   **When** the DJ edits a profile's genre tags and BPM ranges, **Then** the
+   changes persist and drive subsequent Suggestions.
+2. **Given** an empty workspace, **When** the DJ creates folders and playlists
+   and nests, renames, moves or deletes them, **Then** the tree reflects every
+   edit and persists between visits.
+3. **Given** a playlist in the structure and a selected Booking Profile,
+   **When** the DJ requests Suggestions, **Then** the companion lists Collection
+   Tracks that pass the profile's genre and BPM filters, ordered by Play Count
+   descending, and marks which ones are already in the playlist.
+4. **Given** a Suggestion list, **When** the DJ accepts some and dismisses
+   others, **Then** only accepted tracks enter the playlist and dismissed ones
+   do not return for that playlist.
+5. **Given** a finished structure and a closed Rekordbox at the pinned version,
+   **When** the DJ applies it, **Then** the guard, Backup and readback sequence
+   of Story 3 runs and the full folder and playlist tree appears in Rekordbox.
+6. **Given** a structure that was applied before, **When** the DJ applies it
+   again after edits, **Then** companion-created folders and playlists are
+   updated add-only: new items and tracks are added, nothing is removed or
+   reordered in Rekordbox.
+
+**Accessibility acceptance criteria (WCAG 2.2 AA)**:
+
+- Tree editing, suggestion review and curation are operable by keyboard alone
+  with visible focus.
+- Accepted/dismissed/already-present states are conveyed in text, not by colour
+  alone, at AA contrast.
+- All interactive targets are at least 24x24 CSS pixels.
+- Naming inputs (folders, playlists) report errors by naming the field and the
+  fix.
 
 ---
 
 ### Edge Cases
 
-- Rekordbox is started while an Apply is in progress: the write either
-  completes atomically from its pre-checked state or fails whole, with the
-  Backup named; no partial playlist may remain.
-- The Rekordbox database path does not exist or the decryption key is absent:
-  the app starts, reports the problem in Dutch on the health surface, and all
-  Rekordbox-dependent features are disabled rather than crashing.
-- The Spotify session expires mid Sync Session: the session pauses, the DJ is
-  asked in Dutch to reconnect, and the session resumes without losing resolved
-  items.
-- Two different Spotify Tracks match the same Collection Track: both Matches
-  are allowed; the playlist gets the Collection Track once.
-- The same Spotify playlist is synced while nothing changed on Spotify's side:
-  a new Sync Session runs, previously accepted or rejected resolutions for
-  identical Spotify Tracks are reused instead of re-asked.
-- A Spotify playlist contains local-file tracks or podcast episodes without
-  artist/title metadata usable for matching: they land as Missing Tracks with
-  a Dutch note explaining why no match was attempted.
-- An audio file's codec cannot be converted by the fallback: the player states
-  this in Dutch and the row remains usable for everything except playback.
-- The conversion fallback is unavailable on the machine: the health surface
-  says so in Dutch with an installation hint, native playback keeps working.
-- A Backup cannot be created (disk full, permissions): the write is refused;
-  there is never a write without a fresh Backup.
-- Enrichment finds conflicting genres from different sources: all are kept
-  with their source; the DJ's manual choice, when present, wins.
-- The DJ deletes a Booking Profile that structure playlists reference: the
-  reference is cleared, the playlists and their tracks remain.
+- A Spotify playlist contains the same track twice: the Sync Session reports it
+  once per playlist position, but Apply writes it to the Target Playlist only
+  once.
+- A Spotify playlist contains a local file or an unavailable track (no usable
+  identifiers): the track is reported as unmatchable and counted separately, not
+  silently dropped.
+- Two Collection Tracks are near-identical duplicates: both may appear as
+  candidates in the Review Queue; accepting one never auto-resolves the other.
+- The Spotify session expires mid Sync Session: the session fails with a
+  re-connect prompt and no partial report is presented as complete.
+- The DJ manually removed a track from the Target Playlist inside Rekordbox:
+  the next Apply re-adds it, because Apply guarantees every accepted Match is
+  present and never interprets absence as intent.
+- The Rekordbox database file is not at its expected location: the app starts in
+  a degraded state that names the expected path and blocks all Rekordbox-backed
+  features instead of erroring per screen.
+- Disk space is insufficient for a Backup: Apply is refused before any write.
+- A Collection Track's BPM is absent: BPM filters treat it as not passing, and
+  the suggestion screen says how many tracks were excluded for missing BPM.
+- The playback and enrichment features are used while a Sync Session runs:
+  read-only features stay available during matching.
+- An enrichment source is unreachable: enrichment reports partial completion and
+  can resume; it never blocks the rest of the app.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-Collection and playback
+**Spotify sync and matching**
 
-- **FR-001**: The system MUST read the Collection (tracks with artist, title,
-  duration, BPM, genre field, Play Count, file location, and identifier) and
-  the existing playlist tree from the Rekordbox database without modifying it.
-- **FR-002**: The system MUST provide Collection search over artist and title
-  returning results within 100 milliseconds on a 10,000-track Collection.
-- **FR-003**: The system MUST stream Collection Track audio with seek support
-  for natively playable formats and via a conversion fallback otherwise, and
-  MUST report missing or unplayable files as such per track.
-- **FR-004**: The system MUST expose a health surface reporting: Rekordbox
-  database found or not, Rekordbox version matches the pinned version or not,
-  conversion fallback available or not, Spotify connection state.
+- **FR-001**: The system MUST let the DJ connect their own Spotify account once
+  and reuse that authorisation for playlist fetching and in-app playback until
+  the DJ disconnects it.
+- **FR-002**: The system MUST accept a Spotify playlist URL and create a Sync
+  Session that fetches all playlist tracks and matches each against the
+  Collection.
+- **FR-003**: The system MUST classify every track of a Sync Session as exactly
+  one of: matched, review, or missing.
+- **FR-004**: The system MUST normalise artist and title before comparison:
+  case-insensitive, featuring credits, remaster suffixes, bracketed additions,
+  punctuation and diacritics stripped, with remix/edit markers kept aside as a
+  distinct comparison token.
+- **FR-005**: The system MUST auto-match on exact identifier (ISRC) equality when
+  both sides carry one.
+- **FR-006**: The system MUST auto-match on exact normalised artist+title
+  equality when durations differ by at most 3 seconds.
+- **FR-007**: The system MUST score remaining pairs by fuzzy similarity over
+  artist and title, weighted 40% artist and 60% title, with a duration penalty
+  beyond 5 seconds difference; scores of 92 or higher auto-match, scores from 75
+  up to 92 enter the Review Queue with the top 3 candidates, scores below 75
+  become Missing Tracks.
+- **FR-008**: The system MUST never auto-match a pair whose remix/edit markers
+  differ; such pairs are forced into the Review Queue.
+- **FR-009**: The system MUST validate every matching pipeline change against
+  the Golden Set; the Golden Set MUST only ever be extended, never weakened.
+- **FR-010**: The system MUST re-use one Sync Session lineage per Spotify
+  playlist URL, so a re-run updates the same Target Playlist and re-evaluates
+  previously missing tracks.
 
-Matching and Sync Sessions
+**Review**
 
-- **FR-005**: The system MUST let the DJ connect their own Spotify account and
-  create a Sync Session from a playlist URL, fetching all its tracks.
-- **FR-006**: The system MUST match every Spotify Track using this order:
-  exact identifier match when both sides carry one; normalized artist+title
-  equality with duration within 3 seconds; fuzzy artist+title scoring with a
-  duration penalty beyond 5 seconds difference. Score at least 92 yields an
-  automatic Match, 75 to below 92 yields a Review Queue entry with top 3
-  candidates, below 75 yields a Missing Track.
-- **FR-007**: Normalization MUST lowercase, strip featuring credits,
-  remaster suffixes, bracketed content, punctuation and diacritics, and keep
-  remix/edit markers as a separate comparison token.
-- **FR-008**: Differing remix/edit markers MUST prevent automatic matching;
-  such pairs go to the Review Queue at best (remix guard).
-- **FR-009**: The Review Queue MUST be operable keyboard-only: arrow
-  navigation, A accepts the focused candidate, R rejects the Spotify Track,
-  spacebar plays the local candidate, a dedicated key plays the Spotify
-  original full-length via the DJ's Premium account; starting either playback
-  stops the other.
-- **FR-010**: A rejected Spotify Track MUST become a Missing Track.
-- **FR-011**: Re-syncing a playlist URL MUST reuse the DJ's previous accept
-  and reject resolutions for identical Spotify Tracks within that playlist's
-  sessions.
-- **FR-012**: The system MUST maintain the Golden Set as an extend-only
-  fixture: removing or weakening a recorded case MUST fail the build.
+- **FR-011**: The system MUST present doubtful Matches in a Review Queue
+  resolvable entirely by keyboard: navigate (arrow keys), accept (A), reject
+  (R), preview (space).
+- **FR-012**: The system MUST treat reject as "wrong match": the rejected
+  Spotify Track becomes a Missing Track. The intent "I do not want this track"
+  MUST be expressed by ignoring the Missing Track, never by reject.
+- **FR-013**: The system MUST let the DJ hear both sides of a doubtful Match:
+  the candidate Collection Track via local streaming and the Spotify original
+  full-length via the DJ's Premium account, inside the review screen.
+- **FR-014**: The system MUST persist every review resolution immediately.
 
-Writing to Rekordbox
+**Writing to Rekordbox**
 
-- **FR-013**: Every write to the Rekordbox database MUST be preceded, in
-  order, by: a Guard check that Rekordbox is not running and that its version
-  equals the pinned version, then a timestamped Backup of the database. After
-  the write, the system MUST read back and verify what was written; on
-  discrepancy it MUST report failure and name the Backup.
-- **FR-014**: Applying a Sync Session MUST create one Rekordbox playlist
-  (name chosen by the DJ, optional parent folder) containing all accepted
-  Matches, and remember which Rekordbox playlist belongs to which Spotify
-  playlist.
-- **FR-015**: Applying for a Spotify playlist that already has a
-  companion-created Rekordbox playlist MUST add missing tracks only, and MUST
-  NOT remove or reorder anything in that playlist.
-- **FR-016**: Writes to Rekordbox are limited to creating playlists and
-  folders and adding tracks to companion-created playlists. The system MUST
-  NOT modify track metadata, existing foreign playlists, or any other
-  Rekordbox data.
+- **FR-015**: The system MUST refuse any write to the Rekordbox database while
+  Rekordbox is running or when the installed version differs from the pinned
+  7.2.17, and MUST say which condition blocked the write.
+- **FR-016**: The system MUST create a timestamped Backup of the Rekordbox
+  database before every write, without exception, and MUST verify every write by
+  reading it back.
+- **FR-017**: The system MUST write only playlists and folders to Rekordbox. It
+  MUST never edit track metadata, cues, or beat grids, and never delete or
+  reorder anything it did not just create.
+- **FR-018**: The system MUST update companion-created playlists and folders
+  add-only on re-apply: additions only, no removals, no reordering.
+- **FR-019**: The system MUST keep the association between a Spotify playlist
+  URL and its Target Playlist, detect a Target Playlist deleted inside
+  Rekordbox, and recreate it on the next Apply while telling the DJ.
 
-Missing Tracks and Store Links
+**Missing tracks**
 
-- **FR-017**: The system MUST look up each Missing Track on the Dutch Apple
-  Music / iTunes storefront, store the automatically chosen Store Link,
-  present alternative candidates for manual override, and keep both automatic
-  and chosen links.
-- **FR-018**: Missing Tracks MUST carry status open, acquired or ignored,
-  settable by the DJ, filterable, with copy and open actions per link. An
-  ignored Spotify Track MUST NOT return as open in later sessions of the same
-  playlist.
-- **FR-019**: The system MUST support re-running store lookups on demand for
-  unresolved Missing Tracks.
+- **FR-020**: The system MUST list all Missing Tracks with a Store Link to the
+  exact track page on the Apple Music / iTunes Store, Dutch storefront, with a
+  copy action.
+- **FR-021**: The system MUST track Missing Track status as open, acquired, or
+  ignored, persistently.
+- **FR-022**: The system MUST allow a manual Store Link override per Missing
+  Track and keep both the automatic and the chosen link.
+- **FR-023**: The system MUST close a Missing Track automatically when a later
+  Sync Session of the same playlist URL matches it against the Collection.
 
-Enriched Genres
+**Collection and playback**
 
-- **FR-020**: The system MUST enrich Collection Tracks with Enriched Genres
-  from at least one external music data source, store them with their source
-  in its own data store, and never write genre data into Rekordbox.
-- **FR-021**: The DJ MUST be able to set or correct Enriched Genres manually;
-  a manual value MUST take precedence over sourced values and survive later
-  enrichment runs.
-- **FR-022**: Enrichment MUST be resumable: interruption or source failure
-  loses no prior results, and a coverage report (percentage of Collection
-  Tracks with at least one Enriched Genre) MUST be available after each run.
+- **FR-024**: The system MUST provide search over artist and title and sorting
+  over artist, title, BPM and Play Count across the full Collection, responsive
+  at 10.000+ tracks.
+- **FR-025**: The system MUST stream and play any Collection Track in the
+  browser, with seek support, covering the library's native formats directly
+  and other formats through a conversion fallback.
+- **FR-026**: The system MUST report a missing or unreadable audio file as such
+  in the player instead of failing silently.
 
-Booking Profiles and Structures
+**Genre enrichment**
 
-- **FR-023**: The system MUST seed the four Booking Types (horeca, bruiloft,
-  prive, thema) as editable Booking Profiles with genre tags and optional BPM
-  ranges, validating that BPM minimum does not exceed maximum and refusing
-  duplicate tags per profile.
-- **FR-024**: The system MUST provide a structure editor where the DJ freely
-  creates, renames, moves and deletes folders and playlists, persisted in the
-  companion and written to Rekordbox only on Apply.
-- **FR-025**: For a structure playlist, the system MUST generate Suggestions:
-  Collection Tracks filtered by the linked Booking Profile's genre tags
-  (against Enriched Genres) and applicable BPM range, ranked by Play Count
-  descending, individually acceptable or discardable before anything is
-  written.
-- **FR-026**: Applying a Booking Structure MUST follow FR-013, create the
-  folder and playlist tree exactly as designed, refuse on a name collision
-  with a tree the companion does not own, and behave add-only on re-Apply.
+- **FR-027**: The system MUST assign Enriched Genres to Collection Tracks from
+  external music data sources, stored inside the companion only.
+- **FR-028**: The system MUST let the DJ override any track's Enriched Genres
+  manually; a manual value wins over every later enrichment run.
+- **FR-029**: The system MUST list tracks that received no Enriched Genre so the
+  DJ can complete them manually.
+- **FR-030**: The system MUST never write genre data, or any enrichment output,
+  into the Rekordbox database.
 
-Cross-cutting
+**Booking structures**
 
-- **FR-027**: The app MUST be reachable only from the machine it runs on; no
-  remote network access is offered.
-- **FR-028**: All UI copy MUST be Dutch, including empty states, errors and
-  the keyboard overlay; every error that concerns a form MUST name the field
-  and the fix.
-- **FR-029**: Every user-facing view MUST meet the accessibility criteria
-  listed per user story (keyboard operability, visible focus, AA contrast,
-  24x24 CSS pixel minimum targets, assistive-technology announcements).
-- **FR-030**: The system MUST keep the DJ's Spotify credentials and tokens
-  only on the local machine, and support disconnecting, which deletes them.
+- **FR-031**: The system MUST provide Booking Profiles, seeded with horeca,
+  bruiloft, prive and thema, each carrying editable genre tags and optional BPM
+  ranges.
+- **FR-032**: The system MUST let the DJ freely create, rename, nest, move and
+  delete folders and playlists in a Booking Structure workspace, persistently.
+- **FR-033**: The system MUST offer Suggestions per structure playlist:
+  Collection Tracks filtered by the selected Booking Profile's genre tags
+  (against Enriched Genres) and BPM ranges, ranked by Play Count descending.
+- **FR-034**: The system MUST let the DJ accept or dismiss Suggestions per
+  playlist; dismissed Suggestions do not return for that playlist; nothing
+  enters a playlist uncurated.
+- **FR-035**: The system MUST Apply a Booking Structure to Rekordbox through the
+  same guarded path as sync results (FR-015 through FR-018).
+- **FR-036**: The system MUST NOT auto-generate structures; the structure's
+  shape is exclusively the DJ's.
+
+**Cross-cutting**
+
+- **FR-037**: The system MUST be reachable only from the machine it runs on; no
+  remote or multi-user access exists in v1.
+- **FR-038**: All user-facing text MUST be in Dutch.
+- **FR-039**: Every rendered colour, typography, spacing and radius value MUST
+  trace to the delivered design token set; the proprietary SpotifyMixUI font
+  MUST never ship, its substitute serving under the original token names.
+- **FR-040**: The system MUST keep read-only features usable while a Sync
+  Session or enrichment run is in progress.
 
 ### Key Entities
 
-- **Collection Track**: A track in the Rekordbox library; identity, artist,
-  title, duration, BPM, file location, Play Count. Read-only source data.
-- **Sync Session**: One matching run of one Spotify playlist against the
-  Collection; owns its Spotify Tracks and their outcomes; remembers the
-  target Rekordbox playlist it created or updates.
-- **Spotify Track**: A track from the fetched playlist; artist, title,
-  duration, identifiers; carries one status within its session.
-- **Match**: Pairing of Spotify Track and Collection Track with score and
-  origin (automatic or accepted in review).
-- **Missing Track**: A Spotify Track without accepted Match; carries Store
-  Links (automatic and chosen) and status open/acquired/ignored.
-- **Enriched Genre**: Genre value for a Collection Track with source
-  (external source name or manual); lives only in the companion.
-- **Booking Profile**: Named per Booking Type; genre tags and optional BPM
-  ranges.
-- **Booking Structure**: DJ-designed tree of folders and playlists; playlists
-  optionally linked to a Booking Profile and Set Phase; tracks curated from
-  Suggestions; Apply state per node.
-- **Backup**: Timestamped copy of the Rekordbox database, created before
-  every write, listed and named in failure reports.
+- **Collection Track**: a track in the DJ's Rekordbox library, referenced by its
+  Rekordbox content id; carries artist, title, duration, BPM, Play Count,
+  location, and app-side Enriched Genres. The companion never duplicates the
+  Rekordbox data wholesale; it references it.
+- **Sync Session**: one run of fetching a Spotify playlist and matching it;
+  linked to the playlist URL lineage so re-runs update the same Target Playlist.
+- **Match**: pairing of one Spotify Track with one Collection Track plus a
+  score; automatic or reviewed; resolution states matched, review, missing,
+  rejected.
+- **Missing Track**: a Spotify Track without an accepted Match; status open,
+  acquired or ignored; carries automatic and optional manual Store Link.
+- **Target Playlist**: the companion-created Rekordbox playlist a playlist URL's
+  Applies write to, always the same one per URL, updated add-only.
+- **Enriched Genre**: app-side genre assignment per Collection Track; automatic
+  (from external sources) or manual (DJ override, permanent).
+- **Booking Profile**: named booking type (horeca, bruiloft, prive, thema) with
+  genre tags and optional BPM ranges; drives Suggestion filtering.
+- **Booking Structure**: DJ-designed tree of folders and playlists, including
+  Set Phase subdivisions and a Run-of-Show folder with Moment Playlists;
+  applied to Rekordbox add-only.
+- **Suggestion**: a proposed Collection Track for one structure playlist, ranked
+  by Play Count, filtered by profile; accepted or dismissed per playlist.
+- **Backup**: timestamped copy of the Rekordbox database, one per write, kept
+  locally.
+- **Golden Set**: fixed, growing set of real match cases with expected outcomes
+  gating every matching change.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Matching a 100-track playlist completes in under 30 seconds.
-- **SC-002**: On the Golden Set, 100 percent of recorded expected outcomes are
-  reproduced; on a well-tagged reference playlist, at least 95 percent of
-  automatic Matches are correct.
-- **SC-003**: Collection search returns results within 100 milliseconds on a
-  10,000-track Collection.
-- **SC-004**: At least 90 percent of Missing Tracks in the reference test set
-  resolve to a correct Store Link automatically.
-- **SC-005**: Zero writes to the Rekordbox database ever occur without a
-  fresh Backup existing first, demonstrable in tests and logs.
-- **SC-006**: The DJ resolves a 20-item Review Queue, including listening to
-  both versions where needed, in under 10 minutes using only the keyboard.
-- **SC-007**: Preparing the playlist side of a booking (sync, review, apply,
-  missing list) takes under 30 minutes end to end for a typical 100-track
-  request list, down from hours today.
-- **SC-008**: After enrichment, at least 80 percent of Collection Tracks
-  carry at least one Enriched Genre, measured on the fixture Collection (if
-  the sources structurally cannot reach this on the real library, that is a
-  recorded finding for the owner, not a silent pass).
+- **SC-001**: A 100-track Spotify playlist produces a complete match report in
+  under 30 seconds.
+- **SC-002**: At least 95% of automatic matches are correct, measured against
+  the Golden Set and spot checks on real playlists.
+- **SC-003**: The Golden Set holds at least 50 real cases, at least 10 of them
+  hard (remix, radio edit, featuring variants), and passes at 100% on every
+  matching change.
+- **SC-004**: At least 90% of Missing Tracks in a 20+ track test set resolve to
+  the correct NL store page automatically.
+- **SC-005**: Collection search feels instant: results within 100 milliseconds
+  per keystroke on a 10.000+ track Collection.
+- **SC-006**: 100% of Rekordbox writes are preceded by a verified Backup and
+  followed by readback verification; zero unrecovered library incidents over
+  the project.
+- **SC-007**: Every review action (navigate, accept, reject, preview) is
+  performable without a pointing device, verified for 100% of Review Queue
+  items in testing.
+- **SC-008**: At least 80% of Collection Tracks carry at least one Enriched
+  Genre after enrichment, and the DJ judges at least 90% of a 50-track sample
+  usable for booking filtering.
+- **SC-009**: Preparing the playlist side of a booking (match, review, apply,
+  structure fill) takes under 30 minutes where it took hours, judged by the DJ
+  on the first real booking prepared with the app.
+- **SC-010**: A playlist created or updated by Apply is visible and intact in
+  Rekordbox after a Rekordbox restart, for 100% of applies in testing.
+
+## Out of Scope (v1)
+
+- Cloud or multi-user deployment of any kind; the app serves one operator on
+  one machine.
+- Downloading or ripping audio from Spotify, Apple Music or anywhere else;
+  store deep links are the only acquisition path.
+- Editing Rekordbox track metadata, cues or beat grids.
+- Waveform rendering; playback ships with a basic progress bar.
+- Native app packaging; the app runs in the browser against a local process.
+- Structure templates (reusing a designed Booking Structure for the next
+  booking); wanted, explicitly deferred to the parking lot.
+- Automatic watching of Spotify playlists for changes; a re-sync is always
+  operator-initiated.
+- Analytics mirroring to any external database.
 
 ## Assumptions
 
-- The single operator is the machine's only user; OS-level login is the
-  access control (ADR 0001); no in-app authentication exists.
-- Rekordbox stays pinned at the recorded version for the project duration
-  (ADR 0002); the health surface warns on drift.
-- The owner supplies before implementation: a fixture copy of the Rekordbox
-  database, a Spotify application client id, and confirmation that the
-  database decryption key was obtained on the Mac (grilling D10).
-- The owner's Spotify Premium subscription remains active; full-length
-  Spotify playback in review degrades to unavailable without it (ADR 0009).
-- External store and music-data lookups are best effort against live
-  services; rate limits pace the work rather than fail it.
-- Structure templates, play-history analysis, waveforms, auto-watching
-  playlists, cloud deployment, audio downloading and Rekordbox metadata
-  editing are out of scope for v1 (kickoff non-goals; grilling D8 defers
-  templates).
-- UI copy is Dutch; code, documentation and this spec are English.
+- The DJ owns a working Spotify Premium account, required for full-length
+  in-app playback of Spotify originals; without Premium the review flow
+  degrades to local preview only.
+- The library is mp3/m4a without embedded ISRC tags, so fuzzy matching carries
+  the product; the identifier fast lane is expected to hit near zero and gets
+  no UI investment.
+- Add-only semantics (never remove, never reorder) extend from Target Playlists
+  to applied Booking Structures, per the same decision (ADR 0006); absence of a
+  track in Rekordbox is never interpreted as DJ intent.
+- The choice of external enrichment source(s) (Spotify artist genres and/or an
+  open music database) is an architecture decision, contingent on the planned
+  coverage spike; this spec fixes the behaviour (coverage target, manual
+  override, app-side only), not the source.
+- The 80% enrichment coverage and 90% sample-quality targets in SC-008 are
+  working targets to be confirmed or revised by that spike with the DJ judging;
+  revising them is a recorded decision, not a silent edit.
+- Whether full-length Spotify playback works against a localhost app is
+  confirmed by an early spike (phase 1 unknown #3); its fallback is local
+  preview plus opening the track in Spotify's own client.
+- The fixture copy of the Rekordbox database, the Spotify developer
+  registration, and confirmation of the database key on the DJ's machine are
+  owner-supplied inputs still owed before implementation starts (grilling D10).
+- Structure templates ("save this structure as a template for the next
+  booking") are explicitly deferred, recorded in the parking lot, not silently
+  dropped.
+- Bought tracks appear in the Collection because the DJ imports them into
+  Rekordbox as usual; the companion only detects them at the next re-sync, it
+  does not watch the filesystem.
 
-## PII Inventory
+## Compliance notes (risk_class: minimal)
 
-The inventory lives next to this spec in
-`specs/001-companion-v1/pii-inventory.md`: four elements (Spotify OAuth
-tokens, Spotify account id and playlist contents, the owner's own library and
-play data, store lookup search terms), each with lawful basis, retention and
-processors. All data belongs to the single operator; no analytics, no
-telemetry, no third-party storage. A change that adds any personal data
-element MUST extend that inventory in the same change.
+- **AVG/GDPR**: The spec implies exactly one category of personal data: the
+  operator's own Spotify authorisation (tokens and the account identity needed
+  to hold a session). Basis, retention and processors are recorded in the PII
+  inventory next to this spec (`pii-inventory.md`). No other person's data is
+  collected or stored.
+- **NIS2**: Single machine, localhost-only, single operator; incident readiness
+  is the operator stopping the process and restoring the latest Backup, which
+  the Apply flow makes visible (SC-006, FR-016).
+- **WCAG 2.2 AA**: This project has a user interface; every user story above
+  carries its own accessibility acceptance criteria, none are waived.
+- **OWASP**: No authentication surface exists beyond the Spotify authorisation
+  flow and localhost binding; the full checklist still runs in phase 7 against
+  that reduced surface.

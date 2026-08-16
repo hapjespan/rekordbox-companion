@@ -1,17 +1,22 @@
 # PII Inventory: Rekordbox Companion v1
 
-Maintained as required by the AVG/GDPR article at `risk_class: minimal`; more
-than one line because the spec does imply personal data. All data belongs to
-the single operator; no other person's data is collected. Source spec:
-`specs/001-companion-v1/spec.md`.
+**Feature**: `specs/001-companion-v1/spec.md` | **Created**: 2026-08-16 |
+**risk_class**: minimal
 
-| Element | Where | Lawful basis | Retention | Processors |
-|---|---|---|---|---|
-| Spotify OAuth tokens | Local machine only | Consent (owner connects their own account) | Until disconnect, which deletes them (FR-030) | Spotify (authentication endpoints) |
-| Spotify account id and playlist contents | Local machine only | Consent, same flow | Until the owner deletes the app's data | Spotify (playlist endpoints) |
-| Listening/library data (Collection, Play Counts) | Local machine only, read from the owner's own Rekordbox | Owner's own data, processed at their instruction | Lives in Rekordbox; companion copies are deletable | None |
-| Store lookup terms (artist, title) | Sent as search terms | Legitimate interest of the owner (finding their own purchases) | Not retained beyond the stored Store Links | Apple (iTunes Search) |
+The spec implies personal data of exactly one person: the operator (the DJ).
+No data about any other person is collected, stored or derived. Per the phase 2
+rule this inventory therefore stops being one line and records each element.
 
-No analytics, no telemetry, no third-party storage. A change that adds any
-personal data element MUST extend this table in the same change (constitution,
-AVG/GDPR article).
+| # | Data element | Where it lives | Lawful basis | Retention | Processors |
+|---|---|---|---|---|---|
+| 1 | Spotify OAuth tokens (access + refresh) of the operator's own account | Local app database on the operator's machine | Consent, given by the operator through Spotify's own authorisation flow | Until the operator disconnects the account in the app or revokes access at Spotify; deleted on disconnect | Spotify (the authorisation and API provider the operator already contracted with) |
+| 2 | Spotify account identity needed to hold the session (account id, display name, Premium status) | Local app database on the operator's machine | Consent, same authorisation flow | Same lifetime as the tokens; deleted on disconnect | Spotify |
+| 3 | Rekordbox library data (tracks, playlists, play counts) and its backups | The operator's own machine, where it already lives | Not personal data of a third party; the operator's own working data, processed locally at their instruction | Backups kept locally until the operator deletes them | None; never transmitted |
+
+Explicitly not collected: listening behaviour beyond what Rekordbox already
+stores, contact data, location data, data of guests or audiences, analytics or
+telemetry of any kind. Search terms sent to the store-link lookup are track
+metadata (artist, title), not personal data.
+
+A change that adds a personal data element updates this inventory in the same
+commit (constitution, AVG/GDPR article).

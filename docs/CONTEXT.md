@@ -56,6 +56,12 @@ The list of doubtful Matches a Sync Session could not decide, resolved by the DJ
 with keyboard-only actions: accept, reject, listen to both versions.
 _Avoid_: conflicts, pending list
 
+**Candidate**:
+One of the up to three Collection Tracks offered for a doubtful Match in the
+Review Queue, each carrying its score. Accepting a Candidate turns it into the
+Match; rejecting means none of them is the requested track.
+_Avoid_: option, alternative
+
 **Reject**:
 The DJ's verdict that none of the offered Collection Tracks is the requested
 track. A rejected track becomes a Missing Track. Rejecting never means "I do not
@@ -76,6 +82,12 @@ change to matching behaviour is judged against. It may grow, it may never be
 weakened.
 
 ### Writing to Rekordbox
+
+**Target Playlist**:
+The companion-created Rekordbox playlist that Applies of one Spotify playlist
+URL write to. The same URL always maps to the same Target Playlist; if the DJ
+deleted it inside Rekordbox, the next Apply recreates it and says so.
+_Avoid_: destination, output playlist
 
 **Apply**:
 The single guarded action that writes a Sync Session's accepted Matches, or a
