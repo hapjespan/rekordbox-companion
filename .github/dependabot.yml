@@ -1,0 +1,27 @@
+# Install as: .github/dependabot.yml
+#
+# The CI templates pin action majors, and a pinned major goes stale on its own:
+# three of them were a full major behind within weeks of being written. This is
+# what keeps them honest without anyone remembering to check.
+#
+# The ecosystems below cover a scaffolded project. Drop the one your stack does
+# not use rather than leaving it to open pull requests against a manifest that
+# never appears.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development

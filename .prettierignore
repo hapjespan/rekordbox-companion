@@ -1,0 +1,20 @@
+# Install as: .prettierignore
+#
+# The workflow graph and the scaffolding come from the kickoff assets, not from
+# this project, so the project's formatter does not get a vote on them.
+# Reformatting them here would produce a diff in every project against the
+# assets they were copied from, for no benefit.
+docs/
+specs/
+.workflow/
+.claude/
+
+# Generated or vendored
+node_modules/
+vendor/
+.next/
+dist/
+build/
+coverage/
+package-lock.json
+composer.lock
