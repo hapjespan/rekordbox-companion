@@ -72,5 +72,10 @@ shows what actually resolves.
 
 ## Scope note
 
-One paragraph, written during phase 0: what this project is for, and the sharpest
-thing it is explicitly not for. Phase 7 checks the result against this paragraph.
+Local-first web app for a single working DJ: match Spotify playlists against the
+local Rekordbox collection, write matches back as Rekordbox playlists (guarded,
+with a backup before every write), link missing tracks to Apple Music / iTunes
+Store (NL storefront), and generate booking-type playlist structures from playlist
+membership and per-track play counts. Explicitly not: cloud or multi-user
+deployment, downloading or ripping audio, editing Rekordbox track metadata, or
+native app packaging. Phase 7 checks the result against this paragraph.
