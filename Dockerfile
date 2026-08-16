@@ -2,12 +2,17 @@ FROM node:24-trixie
 
 # python3 is explicit rather than inherited from the base image: the workflow
 # scripts in .workflow/ depend on it and must not break on a base image bump.
+# ffmpeg backs the audio transcode fallback (KICKOFF G5); the app's own Python
+# 3.12 is provisioned by uv from engine/pyproject.toml, not by the image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git gh curl ca-certificates python3 \
+        git gh curl ca-certificates python3 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://claude.ai/install.sh | bash
 
 ENV PATH="/root/.local/bin:$PATH"
+
+# pnpm via corepack, pinned by the packageManager field in web/package.json.
+RUN corepack enable
 
 # uv and the Spec Kit CLI, baked into the image so the toolchain version travels
 # with the project instead of with the host. Spec Kit is pinned, because an

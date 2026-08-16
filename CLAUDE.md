@@ -1,6 +1,9 @@
 # rekordbox-companion
 
-<!-- Describe in 2-3 lines what this project is and who it is for. -->
+Local-first web app for a working DJ: match Spotify playlists against the local
+Rekordbox collection, write matches back as Rekordbox playlists (guarded, with
+backups), link missing tracks to the Apple Music / iTunes Store, and generate
+booking-type playlist structures. Full brief and decision log: `specs/kickoff.md`.
 
 ## Context
 
@@ -47,12 +50,49 @@ work; the graph wins here.
 
 ## Stack
 
-<!-- e.g. Next.js 15, Prisma, Tailwind. Fill in after scaffolding the app. -->
+One-off stack, not the standard nextjs/laravel scaffold (see `specs/kickoff.md`
+section 5 for the full table):
+
+- Backend: Python 3.12, FastAPI, uvicorn in `engine/` (uv-managed; the image
+  ships uv, not Python 3.12 itself). pyrekordbox for `master.db`, rapidfuzz for
+  matching, SQLite via SQLAlchemy 2.x + Alembic for own data.
+- Frontend: React 18, TypeScript, Vite, Tailwind v4 in `web/` (pnpm via corepack).
+- ffmpeg is in the image for the audio transcode fallback.
+- The central Postgres database `rekordbox-companion` exists but is unused in v1;
+  it is reserved for the P2 read-only analytics mirror.
+- The app itself binds to 127.0.0.1:8787 and ultimately runs on the DJ's Mac,
+  where the real Rekordbox 7.2.17 and `master.db` live. Development here runs
+  against a fixture copy of `master.db`; anything needing the real install
+  (SQLCipher key, `/api/health` version match) is verified on the Mac.
+
+## Skills
+
+- `frontend-design`: UI work in phases with visual output, applied within the
+  delivered token set in `web/design-input/` (which remains binding).
+- No installed skill covers FastAPI, pyrekordbox or the matching pipeline; the
+  nextjs-* skills do not apply here. Do not force one.
 
 ## Commands
 
-<!-- e.g. npm run dev / npm test / npm run build. Fill in after scaffolding. -->
+<!-- Makefile targets (make dev / make test / make build / make run) arrive with
+     the phase 0 scaffold per specs/kickoff.md section 14. Fill in then. -->
 
 ## Project-specific rules
 
-<!-- Only rules unique to this project. Everything reusable belongs in ~/.claude/CLAUDE.md or the knowledge base. -->
+Mirrored from `specs/kickoff.md` section 12, which is the source; keep in sync.
+
+1. Never import pyrekordbox outside `engine/src/companion/rb/`.
+2. Never add a write operation to `master.db` outside `rb/writer.py`, and every
+   write goes through `guard.check()` + `backup.create()` first. No exceptions,
+   including tests (tests use a fixture copy of master.db).
+3. Never commit real `master.db`, backups, tokens or `data/` contents.
+4. API changes start in the OpenAPI schema; regenerate the client before
+   touching frontend code.
+5. Frontend colors/typography/spacing/radius only via the tokens in
+   `web/design-input/theme.css`, never hardcoded values. Never bundle or
+   reference SpotifyMixUI font files; the substitute stack (Inter + system-ui)
+   ships under the original token names. DESIGN.md Do's and Don'ts are binding
+   in review.
+6. Code, comments, commits in English. UI copy in Dutch.
+7. Each phase lands as its own PR with tests; golden matching fixtures may only
+   be extended, never weakened.
