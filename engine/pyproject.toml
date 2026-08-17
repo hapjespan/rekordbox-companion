@@ -19,8 +19,19 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "ruff>=0.8",
 ]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
