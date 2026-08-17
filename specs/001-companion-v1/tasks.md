@@ -112,7 +112,16 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       static SPA mount, binding restricted to `127.0.0.1:8787` (FR-037)
 - [ ] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
       `{status, rekordbox_version, version_pin_ok, db_path, rekordbox_running,
-      ffmpeg_ok}` (contracts/api.md; guard visibility, FR-015)
+      ffmpeg_ok}` (contracts/api.md; guard visibility, FR-015). The
+      `rekordbox_running` check (`is_rekordbox_running`) lives in
+      `rb/reader.py`, not `health.py`, so `rb/guard.py` (T046) reuses the
+      same implementation instead of a second one that could disagree with
+      it — doesn't need pyrekordbox, but rb/ already owns "facts about the
+      Rekordbox process" (T012). contracts/api.md doesn't enumerate
+      `status`'s values: implemented as `"ok"` when Rekordbox is installed
+      and matches the pinned version, else `"degraded"`, directly from the
+      spec's own edge case wording ("the app starts in a degraded state...
+      instead of erroring per screen") rather than a fresh invention.
 - [ ] T016 [P] Implement `POST /api/collection/reindex` in
       `engine/src/companion/api/collection.py` wrapping the `rb/index.py`
       rebuild

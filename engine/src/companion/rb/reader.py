@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+import psutil
 from pyrekordbox import config as rb_config
 from pyrekordbox.db6 import Rekordbox6Database
 
@@ -30,22 +31,46 @@ class RekordboxDetection:
     version: str | None
     version_pin_ok: bool
     db_path: Path | None
+    db_file_exists: bool
 
 
 def detect_rekordbox() -> RekordboxDetection:
     """Facts about the local Rekordbox 7 install, from pyrekordbox's own
     config scan. Never raises: no install found (this dev container; a
     fresh Mac before Rekordbox is set up) is a normal, expected state, not
-    an error (spec edge case: degraded start, not a crash)."""
+    an error (spec edge case: degraded start, not a crash).
+
+    `db_file_exists` is checked separately from `db_path`: pyrekordbox's
+    config can resolve a path from install-time settings without the file
+    still being there (spec edge case -- the database moved or was
+    deleted since Rekordbox was configured)."""
     conf = rb_config.get_config("rekordbox7")
     version = conf.get("version")
     db_path = conf.get("db_path")
+    resolved_db_path = Path(db_path) if db_path else None
     return RekordboxDetection(
         installed=bool(conf),
         version=version,
         version_pin_ok=version == PINNED_REKORDBOX_VERSION,
-        db_path=Path(db_path) if db_path else None,
+        db_path=resolved_db_path,
+        db_file_exists=resolved_db_path is not None and resolved_db_path.is_file(),
     )
+
+
+def is_rekordbox_running() -> bool:
+    """Whether a Rekordbox process is currently running.
+
+    Used by `/api/health` (T015) and, once built, `rb/guard.py`'s
+    write-refusal check (T046) -- one implementation, not two, so the two
+    call sites can never disagree about what "running" means."""
+    for process in psutil.process_iter(["name"]):
+        try:
+            name = process.info["name"] or ""
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        if "rekordbox" in name.lower():
+            return True
+    return False
 
 
 def open_database(db_path: Path | None = None) -> Rekordbox6Database:

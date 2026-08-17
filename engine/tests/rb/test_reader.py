@@ -12,6 +12,7 @@ from pathlib import Path
 
 from companion.rb.reader import (
     detect_rekordbox,
+    is_rekordbox_running,
     open_database,
     read_collection_snapshot,
     read_playlist_tree,
@@ -27,6 +28,46 @@ def test_detect_rekordbox_reports_not_installed_in_this_dev_container():
     assert detection.version is None
     assert detection.version_pin_ok is False
     assert detection.db_path is None
+    assert detection.db_file_exists is False
+
+
+def test_detect_rekordbox_reports_db_file_exists_false_when_path_resolved_but_missing(
+    monkeypatch, tmp_path
+):
+    # Spec edge case: the database moved or was deleted since Rekordbox was
+    # configured -- pyrekordbox's config can still resolve a path even
+    # though nothing is there (T015 review finding: this was previously
+    # unchecked, so a moved/deleted master.db would have read as "ok").
+    missing_path = tmp_path / "master.db"
+    monkeypatch.setattr(
+        "companion.rb.reader.rb_config.get_config",
+        lambda section: {"version": "7.2.17", "db_path": missing_path},
+    )
+
+    detection = detect_rekordbox()
+
+    assert detection.db_path == missing_path
+    assert detection.db_file_exists is False
+
+
+def test_detect_rekordbox_reports_db_file_exists_true_when_the_file_is_there(monkeypatch, tmp_path):
+    real_path = tmp_path / "master.db"
+    real_path.write_bytes(b"")
+    monkeypatch.setattr(
+        "companion.rb.reader.rb_config.get_config",
+        lambda section: {"version": "7.2.17", "db_path": real_path},
+    )
+
+    detection = detect_rekordbox()
+
+    assert detection.db_file_exists is True
+
+
+def test_is_rekordbox_running_is_false_in_this_dev_container():
+    # Real assertion, no mocking: no process named Rekordbox runs here, and
+    # guard.py (T046) will reuse this exact function rather than reimplement
+    # its own process-running check, avoiding duplication (tasks.md T015).
+    assert is_rekordbox_running() is False
 
 
 def test_open_database_raises_file_not_found_for_a_missing_path():

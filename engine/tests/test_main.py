@@ -26,8 +26,10 @@ def test_create_app_instances_are_independent():
 
     first.get("/only-on-first")(lambda: {"ok": True})
 
-    first_paths = {route.path for route in first.routes}
-    second_paths = {route.path for route in second.routes}
+    # Not every entry in .routes has a .path (e.g. included sub-routers),
+    # so only compare the ones that do.
+    first_paths = {route.path for route in first.routes if hasattr(route, "path")}
+    second_paths = {route.path for route in second.routes if hasattr(route, "path")}
     assert "/only-on-first" in first_paths
     assert "/only-on-first" not in second_paths
 
