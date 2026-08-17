@@ -9,10 +9,7 @@ setup:
 	chmod +x .git/hooks/pre-commit
 
 dev:
-	trap 'kill 0' EXIT INT TERM; \
-	(cd engine && $(UVICORN) --reload) & \
-	(cd web && pnpm dev) & \
-	wait
+	./scripts/dev.sh "$(UVICORN)"
 
 test:
 	cd engine && uv run pytest

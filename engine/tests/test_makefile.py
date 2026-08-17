@@ -34,12 +34,14 @@ def test_setup_target_installs_the_pre_commit_hook():
     assert ".git/hooks/pre-commit" in plan
 
 
-def test_dev_target_runs_uvicorn_and_vite_together():
+def test_dev_target_delegates_to_the_dev_script():
+    # The actual uvicorn+Vite orchestration lives in scripts/dev.sh (T006),
+    # passed the shared UVICORN command so it never drifts from `run`.
     plan = _make_dry_run("dev")
+    assert "scripts/dev.sh" in plan
     assert "uvicorn" in plan
     assert "127.0.0.1" in plan
     assert "8787" in plan
-    assert "pnpm dev" in plan
 
 
 def test_test_target_runs_both_suites():
