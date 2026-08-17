@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "lint": "eslint src tests --max-warnings=0",
     "format:check": "prettier --check src tests",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",

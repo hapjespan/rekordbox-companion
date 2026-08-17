@@ -18,5 +18,9 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     setupFiles: ["./tests/setup.ts"],
+    // T033: tests/e2e/ holds Playwright specs (run via `pnpm test:e2e`,
+    // not Vitest) -- without this exclusion, vitest's default glob also
+    // picks up *.spec.ts under tests/ and fails trying to collect them.
+    exclude: ["node_modules/**", "tests/e2e/**"],
   },
 });

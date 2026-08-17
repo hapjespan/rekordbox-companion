@@ -270,7 +270,14 @@ write path or review UI required (spec.md).
       rather than silently absorbed into one task's scope.
 - [ ] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
       covering the paste-URL→report-renders slice of the sync→review→apply
-      flow (one of the two flows in the proof-of-value e2e budget, plan.md)
+      flow (one of the two flows in the proof-of-value e2e budget, plan.md).
+      Build finding: `App.tsx` (T032) renders `PlaylistUrlForm`
+      unconditionally, not gated on `SpotifyConnection`'s connected state --
+      submitting while disconnected instead surfaces `PlaylistUrlForm`'s
+      existing `spotify_not_connected` error message. Accepted as-is (a
+      simpler design than a conditional gate, and still spec-compliant: the
+      DJ gets a clear, field-naming error either way), not changed here;
+      recorded so it reads as an intentional choice, not a rediscovered gap.
 
 **Checkpoint**: US1 independently functional and testable (real-data
 execution still needs the owner's fixture `master.db` and golden set).
