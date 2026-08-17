@@ -4,7 +4,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from companion.rb.reader import open_database, read_collection_snapshot
+from companion.rb.reader import open_database, read_collection_snapshot, read_playlist_tree
 
 router = APIRouter()
 
@@ -30,3 +30,8 @@ def reindex(request: Request, db=Depends(get_database)):
     indexed_count = request.app.state.collection_index.rebuild(tracks)
     took_ms = round((time.monotonic() - started) * 1000)
     return {"indexed_count": indexed_count, "took_ms": took_ms}
+
+
+@router.get("/playlists")
+def get_playlists(db=Depends(get_database)):
+    return read_playlist_tree(db)

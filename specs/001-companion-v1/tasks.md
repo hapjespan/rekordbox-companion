@@ -131,7 +131,12 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       `engine/src/companion/api/collection.py` and
       `engine/src/companion/api/config.py` (contracts/api.md). Gate-review
       finding: these two contract endpoints had no task. Not [P] with T016:
-      shares `api/collection.py`, and depends on T010.
+      shares `api/collection.py`, and depends on T010. contracts/api.md's
+      "tree" wording for `GET /api/playlists` was clarified to `[PlaylistNode]`
+      (flat, `parent_id`-linked): that has always been `read_playlist_tree`'s
+      shape (T012), the endpoint just exposes it as-is; `PUT /api/config`'s
+      "same" was clarified to mean it echoes the whole table, not only the
+      changed keys (build-time review finding, not a behaviour change).
 - [x] T108 [P] Test in `engine/tests/rb/test_reader.py`: `reader.py` returns
       the documented fields (artist, title, duration, BPM, play count,
       location) from the fixture `master.db` collection snapshot and

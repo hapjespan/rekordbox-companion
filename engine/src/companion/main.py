@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from companion.api import collection, health
+from companion.api import collection, config, health
 from companion.config import REPO_ROOT
 from companion.rb.index import CollectionIndex
 
@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
     # it, so mounting the SPA first would swallow /api/... too.
     app.include_router(health.router, prefix="/api")
     app.include_router(collection.router, prefix="/api")
+    app.include_router(config.router, prefix="/api")
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")

@@ -19,12 +19,18 @@ stable English identifiers.
 | GET `/api/health` | – | `{status, rekordbox_version, version_pin_ok, db_path, rekordbox_running, ffmpeg_ok}` | guard visibility (FR-015) |
 | GET `/api/collection` | `?query=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | serves US5; 100ms budget (SC-005) |
 | POST `/api/collection/reindex` | – | `{indexed_count, took_ms}` | rebuilds in-memory index (R6) |
-| GET `/api/playlists` | – | Rekordbox playlist/folder tree | read-only |
-| GET/PUT `/api/config` | key/values | same | paths, thresholds |
+| GET `/api/playlists` | – | `[PlaylistNode]` | read-only |
+| GET `/api/config` | – | `{key: value, ...}` | every row in `app_config` |
+| PUT `/api/config` | `{key: value, ...}` | `{key: value, ...}` | upserts the given keys, echoes the *whole* table back (not just the changed keys) |
 
 `CollectionTrack`: `{rb_content_id, artist, title, duration_ms, bpm,
 play_count, genres: [{genre, source}], format}` — genres come from
 enrichment, never from Rekordbox's genre field.
+
+`PlaylistNode`: `{rb_playlist_id, name, parent_id, is_folder, position}` —
+a flat list, not a nested tree; the client reconstructs hierarchy from
+`parent_id` (T101 gate-review finding: this word was "tree" before,
+the shape was always flat per `rb/reader.py`'s `read_playlist_tree`, T012).
 
 ## Spotify auth
 
