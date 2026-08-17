@@ -8,6 +8,7 @@ import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from companion.config import DATA_DIR
 
@@ -29,8 +30,17 @@ def create_session_factory(database_url: str | None = None):
     mutating process-global objects other imports of this module rely on.
     """
     url = database_url or os.environ.get("COMPANION_DATABASE_URL") or default_database_url()
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    session_engine = create_engine(url, connect_args=connect_args)
+    engine_kwargs = {}
+    if url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+        if ":memory:" in url:
+            # SQLAlchemy's default pooling gives sqlite:///:memory: one
+            # connection PER THREAD, so a request FastAPI runs off the main
+            # thread (run_in_threadpool, every sync route handler) would
+            # silently get a brand-new, empty database. StaticPool shares
+            # the one open connection across every thread instead.
+            engine_kwargs["poolclass"] = StaticPool
+    session_engine = create_engine(url, **engine_kwargs)
     session_local = sessionmaker(bind=session_engine, autoflush=False, autocommit=False)
     return session_engine, session_local
 

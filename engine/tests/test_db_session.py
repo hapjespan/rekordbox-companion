@@ -6,6 +6,8 @@ other tests or modules import (review finding: reload-based state leaks
 across test order and pytest-xdist workers).
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 
@@ -37,6 +39,31 @@ def test_create_session_factory_falls_back_to_database_url_env(monkeypatch):
     monkeypatch.setenv("COMPANION_DATABASE_URL", "sqlite:///:memory:")
     engine, _ = create_session_factory()
     assert str(engine.url) == "sqlite:///:memory:"
+
+
+def test_in_memory_sqlite_is_shared_across_threads():
+    # FastAPI runs sync route handlers in a worker thread (run_in_threadpool).
+    # SQLAlchemy's default pooling for sqlite:///:memory: is one connection
+    # PER THREAD, so a request handled off the main thread would silently
+    # get a brand-new, empty database unless the engine shares one
+    # connection across threads (T101 review finding: caught via a real
+    # "table not found" failure in an endpoint test, not this unit test).
+    engine, session_local = create_session_factory("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with session_local() as db:
+        db.execute(text("CREATE TABLE thread_probe (value TEXT)"))
+        db.execute(text("INSERT INTO thread_probe VALUES ('written-on-main-thread')"))
+        db.commit()
+
+    def read_from_another_thread():
+        with session_local() as db:
+            return db.execute(text("SELECT value FROM thread_probe")).scalar()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(read_from_another_thread).result()
+
+    assert result == "written-on-main-thread"
 
 
 def test_create_session_factory_ignores_the_generic_database_url_env(monkeypatch):
