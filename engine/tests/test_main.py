@@ -7,7 +7,7 @@ nothing in constraints.md/architecture.md asks for that (no app auth,
 network binding is the whole boundary).
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from companion.main import create_app
@@ -56,3 +56,41 @@ def test_starts_without_a_built_spa_present(tmp_path, monkeypatch):
     client = TestClient(create_app())
 
     assert client.app is not None
+
+
+def test_http_exceptions_return_the_flat_error_shape():
+    # contracts/api.md's convention is {code, message, field?}, not
+    # FastAPI's default {"detail": {...}} envelope (T016 review finding:
+    # the first error path in the API set the wrong precedent for it).
+    app = create_app()
+
+    @app.get("/raises-for-test")
+    def _raises():
+        raise HTTPException(status_code=409, detail={"code": "example", "message": "why"})
+
+    client = TestClient(app)
+    response = client.get("/raises-for-test")
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "example", "message": "why"}
+
+
+def test_http_exceptions_with_a_plain_string_detail_still_get_a_code():
+    # Not every HTTPException raised in this codebase is guaranteed to use
+    # the {code, message} dict convention (e.g. a future call to FastAPI's
+    # own shorthand `HTTPException(404, "not found")`); the fallback branch
+    # must still produce a valid, flat envelope rather than leaking a bare
+    # string or crashing.
+    app = create_app()
+
+    @app.get("/raises-plain-string-for-test")
+    def _raises():
+        raise HTTPException(status_code=404, detail="not found")
+
+    client = TestClient(app)
+    response = client.get("/raises-plain-string-for-test")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == "http_error"
+    assert body["message"] == "not found"
