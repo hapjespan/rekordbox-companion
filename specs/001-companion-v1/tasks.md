@@ -68,7 +68,12 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       SC-003)
 - [ ] T008 [P] Set up `web/src/api/` client generation: `openapi-typescript` +
       `openapi-fetch`, `pnpm openapi` script per project rule 4 (R5);
-      placeholder client until the first OpenAPI schema exists
+      placeholder client until the first OpenAPI schema exists. Commits
+      `web/src/api/generated/schema.d.ts` (reversing T002's `.gitignore`
+      rule for that path): rule 4 treats the generated client like a
+      lockfile, regenerated and re-committed on schema change, not
+      regenerated from a live backend on every checkout (spec-review
+      finding during phase 6 build).
 
 ---
 

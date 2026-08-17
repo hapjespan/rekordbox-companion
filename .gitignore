@@ -17,5 +17,4 @@ engine/tests/fixtures/master.db
 engine/tests/fixtures/*.mp3
 engine/tests/fixtures/*.m4a
 engine/tests/fixtures/*.alac
-web/src/api/generated/
 *.tsbuildinfo

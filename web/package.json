@@ -10,9 +10,11 @@
     "test": "vitest run",
     "preview": "vite preview",
     "lint": "eslint src tests --max-warnings=0",
-    "format:check": "prettier --check src tests"
+    "format:check": "prettier --check src tests",
+    "openapi": "openapi-typescript http://127.0.0.1:8787/openapi.json -o src/api/generated/schema.d.ts"
   },
   "dependencies": {
+    "openapi-fetch": "^0.13.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -26,6 +28,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^15.15.0",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.6",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.67.0",
