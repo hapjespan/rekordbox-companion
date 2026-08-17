@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from companion.api import events
 from companion.api.auth import get_spotify_client
 from companion.db.models import PlaylistLink, SyncSession, SyncTrack
 from companion.db.session import get_db
@@ -235,6 +236,7 @@ def create_sync_session(
     db.flush()
 
     collection = [_entry_to_dict(entry) for entry in request.app.state.collection_index.entries]
+    total = len(fetch_result.tracks)
     for position, track in enumerate(fetch_result.tracks, start=1):
         status, score, rb_content_id, candidates = _classify_track(track, collection)
         db.add(
@@ -252,6 +254,24 @@ def create_sync_session(
                 candidates=candidates,
                 matched_at=_utcnow() if status == "matched" else None,
             )
+        )
+        # T030: one sync_progress event per track. This handler stays a
+        # plain sync `def`, run in FastAPI's threadpool -- NOT `async def` --
+        # so the event loop stays free to flush already-queued SSE bytes to
+        # a listening client while this loop is still running (an `async
+        # def` version with no `await` inside this loop would starve the
+        # event loop for the whole run instead, T030 review finding).
+        # `events.publish` is safe to call from this worker thread because
+        # it hands off via `call_soon_threadsafe`, not a direct queue put.
+        # Known gap (T030 review): this fires before the final db.commit()
+        # below, so a listener could see done=N before track N is durable.
+        # If a later track raised, the whole request would fail and nothing
+        # would persist despite earlier "progress"; _classify_track is pure
+        # local computation with nothing that plausibly raises mid-loop, so
+        # this is accepted as-is rather than adding a compensating
+        # "sync_failed" event type, which is outside this task's scope.
+        events.publish(
+            "sync_progress", {"session_id": session.id, "done": position, "total": total}
         )
 
     session.status = "ready"

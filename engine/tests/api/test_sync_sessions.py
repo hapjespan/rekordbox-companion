@@ -15,9 +15,11 @@ Spotify Web API) is built, only that whatever calls it returns this shape.
 Matching runs synchronously against `app.state.collection_index` (already
 populated via the existing `/api/collection/reindex` seam, T016); this test
 seeds it directly through `CollectionIndex.rebuild()`. SSE progress
-reporting (contracts/api.md: "starts fetch+match; progress via SSE") is a
-separate concern (a later US1 task); this test only asserts the HTTP
-response once fetch+match has completed.
+reporting (contracts/api.md: "starts fetch+match; progress via SSE") was a
+separate concern when this file was first written (T022) but landed in T030,
+which made `create_sync_session` `async def` and added one `sync_progress`
+`events.publish()` call per track -- see
+`test_publishes_one_sync_progress_event_per_track` below.
 
 The three behaviours tasks.md names for T022 are covered first -- exactly
 one status per track (FR-003), the 999-track cap refused before the session
@@ -260,3 +262,24 @@ def test_not_connected_maps_to_409():
 
     assert response.status_code == 409
     assert response.json()["code"] == "spotify_not_connected"
+
+
+def test_publishes_one_sync_progress_event_per_track(monkeypatch):
+    published = []
+    monkeypatch.setattr(
+        "companion.api.sync.events.publish", lambda event, data: published.append((event, data))
+    )
+    tracks = [
+        _FakeTrack("sp1", "Example Artist", "Example Song", 210_000, isrc="USRC17607839"),
+        _FakeTrack("sp2", "Nobody At All", "Nothing Similar", 180_000),
+    ]
+    client = _client(tracks)
+
+    response = client.post(
+        "/api/sync/sessions", json={"playlist_url": "https://open.spotify.com/playlist/progress"}
+    )
+    session_id = response.json()["id"]
+
+    assert [event for event, _ in published] == ["sync_progress", "sync_progress"]
+    assert published[0][1] == {"session_id": session_id, "done": 1, "total": 2}
+    assert published[1][1] == {"session_id": session_id, "done": 2, "total": 2}
