@@ -13,15 +13,37 @@ from here on (tasks.md's "Tests for User Story N" / "Implementation for
 User Story N" sections), so a pure-test task's commit can be red until its
 paired implementation task lands, as long as the full suite is green again
 by the end of the user story's arc, not after every single commit within it.
+
+`classify_match`'s `collection` argument expects the PRECOMPUTED
+`norm_artist`/`norm_title`/`remix_tokens` fields of a Collection index entry,
+never raw `artist`/`title` (data-model.md's "Matching engine seam" note,
+corrected by T020/T021 review -- classify_match is a hot loop scored against
+up to ~40k Collection entries per Spotify track, so it must not re-normalise
+that side per comparison). The golden fixture stays human-authored plain
+`artist`/`title` on purpose (an owner hand-writing >=50 real cases should
+never have to pre-normalise them), so `_collection_dict` bridges the two
+here, the same conversion a real caller would run once per Collection index
+entry at build time.
 """
 
 from pathlib import Path
 
 import yaml
 from companion.matching.engine import classify_match
+from companion.matching.normalize import extract_remix_tokens, normalize
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "matching_golden.yaml"
 BASELINE_PATH = Path(__file__).resolve().parent / "fixtures" / "matching_golden_baseline.txt"
+
+
+def _collection_dict(raw: dict) -> dict:
+    return {
+        "norm_artist": normalize(raw["artist"]),
+        "norm_title": normalize(raw["title"]),
+        "remix_tokens": extract_remix_tokens(raw["title"]),
+        "duration_ms": raw["duration_ms"],
+        "isrc": raw.get("isrc"),
+    }
 
 
 def _load_cases():
@@ -37,7 +59,7 @@ def _load_baseline_ids():
 def test_golden_set_passes_100_percent():
     failures = []
     for case in _load_cases():
-        result = classify_match(case["spotify"], case["collection"])
+        result = classify_match(case["spotify"], _collection_dict(case["collection"]))
         if result.status != case["expected_status"]:
             failures.append(
                 f"{case['id']}: expected {case['expected_status']!r}, "
