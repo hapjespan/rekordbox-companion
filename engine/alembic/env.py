@@ -4,6 +4,10 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+
+# Importing the models module registers every table on Base.metadata
+# below; autogenerate sees nothing without this import.
+from companion.db import models  # noqa: F401
 from companion.db.session import Base, default_database_url
 
 # this is the Alembic Config object, which provides
