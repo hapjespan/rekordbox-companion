@@ -80,6 +80,10 @@ def test_health_reports_degraded_when_the_db_file_has_moved_or_been_deleted(monk
     body = _client().get("/api/health").json()
 
     assert body["status"] == "degraded"
+    # T105: the degraded state must name the expected path, not just say
+    # "degraded" -- that's what lets the frontend tell the DJ where it
+    # looked, per spec.md's edge case wording.
+    assert body["db_path"] == "/some/path/master.db"
 
 
 def test_health_reports_ffmpeg_availability_from_the_real_container():

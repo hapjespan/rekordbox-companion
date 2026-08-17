@@ -26,6 +26,7 @@ from companion.integrations.spotify import (
     NotConnectedError,
     PlaylistTooLargeError,
     PlaylistUnreachableError,
+    SessionExpiredError,
     StateMismatchError,
     _utcnow,
 )
@@ -214,6 +215,59 @@ def test_fetch_without_a_session_raises_not_connected(session):
         raise AssertionError("no HTTP call without a stored session")
 
     with pytest.raises(NotConnectedError):
+        spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+
+def test_expired_token_whose_refresh_token_was_revoked_raises_session_expired(session, monkeypatch):
+    # T104, spec.md edge case: "the Spotify session expires mid Sync
+    # Session" -- the access token is expired locally, the refresh attempt
+    # itself is what Spotify rejects (revoked at Spotify's end).
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+    _store_auth(session, expires_in_seconds=-10)
+
+    def handler(request):
+        if request.url.path == "/api/token":
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        raise AssertionError("must not fetch the playlist with no valid token")
+
+    with pytest.raises(SessionExpiredError):
+        spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+
+def test_access_token_rejected_mid_fetch_raises_session_expired(session):
+    # The token passed the local expiry check but Spotify rejects it anyway.
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(401, json={"error": {"status": 401}})
+
+    with pytest.raises(SessionExpiredError):
+        spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+
+def test_access_token_rejected_mid_pagination_raises_session_expired(session):
+    _store_auth(session, expires_in_seconds=3600)
+    tracks_path = f"/v1/playlists/{PLAYLIST_ID}/tracks"
+
+    def handler(request):
+        if request.url.path == f"/v1/playlists/{PLAYLIST_ID}":
+            return httpx.Response(
+                200,
+                json={
+                    "name": "P",
+                    "snapshot_id": "s",
+                    "tracks": {
+                        "total": 150,
+                        "items": [_track_item(f"t{i}", f"T{i}", "A") for i in range(100)],
+                        "next": f"https://api.spotify.com{tracks_path}?offset=100",
+                    },
+                },
+            )
+        if request.url.path == tracks_path:
+            return httpx.Response(401, json={"error": {"status": 401}})
+        raise AssertionError(f"unexpected {request.url}")
+
+    with pytest.raises(SessionExpiredError):
         spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
 
 

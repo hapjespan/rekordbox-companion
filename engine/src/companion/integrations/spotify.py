@@ -94,6 +94,18 @@ class NotConnectedError(SpotifyError):
     """An API call needs a token but no Spotify session is stored."""
 
 
+class SessionExpiredError(SpotifyError):
+    """A previously-connected Spotify session is no longer usable: the
+    refresh token was rejected (revoked at Spotify's end, or otherwise
+    invalid), so the access token cannot be renewed. Distinct from
+    `NotConnectedError` (no session ever existed) so a caller can message
+    the difference -- both need the same fix (reconnect), which is what
+    spec.md's edge case asks for: "the Spotify session expires mid Sync
+    Session: the session fails with a re-connect prompt and no partial
+    report is presented as complete" (T104 build finding: this used to let
+    the refresh call's `httpx.HTTPStatusError` bubble up uncaught)."""
+
+
 class InvalidPlaylistUrlError(SpotifyError):
     """The pasted value did not parse to a Spotify playlist id (ASVS V5)."""
 
@@ -280,6 +292,10 @@ def _refresh(db, client: httpx.Client, row: SpotifyAuth) -> SpotifyAuth:
             "client_id": _client_id(),
         },
     )
+    if response.status_code in (400, 401):
+        # Spotify rejects a revoked/invalid refresh token this way (spec.md
+        # edge case: session expires mid Sync Session).
+        raise SessionExpiredError("Spotify rejected the refresh token; reconnect the account")
     response.raise_for_status()
     refreshed = _persist_tokens(db, response.json(), existing=row)
     db.commit()
@@ -402,6 +418,11 @@ def fetch_playlist_tracks(
         raise PlaylistUnreachableError(
             f"playlist {playlist_id!r} is private, deleted, or otherwise inaccessible"
         )
+    if first.status_code == 401:
+        # The access token passed our local expiry check but Spotify
+        # rejected it anyway -- e.g. access revoked mid-session (T104
+        # build finding, spec.md's "session expires mid Sync Session").
+        raise SessionExpiredError("Spotify rejected the access token; reconnect the account")
     first.raise_for_status()
     body = first.json()
 
@@ -420,6 +441,8 @@ def fetch_playlist_tracks(
         # `next` is a Spotify-issued absolute URL on api.spotify.com; it is the
         # API's own pagination cursor, not user input.
         page = client.get(next_url, headers=headers)
+        if page.status_code == 401:
+            raise SessionExpiredError("Spotify rejected the access token; reconnect the account")
         page.raise_for_status()
         page_body = page.json()
         tracks.extend(_extract_track(item) for item in page_body.get("items", []))

@@ -96,6 +96,37 @@ def test_playlists_returns_503_when_rekordbox_is_not_found():
     assert response.json()["code"] == "rekordbox_not_found"
 
 
+def _patch_moved_db_path(monkeypatch, tmp_path):
+    # T105: Rekordbox installed and pinned, but its configured database file
+    # has moved or been deleted -- distinct from "never installed" (the
+    # other 503 tests above), which is the only case those exercise.
+    missing_path = tmp_path / "master.db"
+    monkeypatch.setattr(
+        "companion.rb.reader.rb_config.get_config",
+        lambda section: {"version": "7.2.17", "db_path": missing_path},
+    )
+
+
+def test_reindex_returns_503_when_the_db_file_has_moved_or_been_deleted(monkeypatch, tmp_path):
+    _patch_moved_db_path(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+
+    response = client.post("/api/collection/reindex")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "rekordbox_not_found"
+
+
+def test_playlists_returns_503_when_the_db_file_has_moved_or_been_deleted(monkeypatch, tmp_path):
+    _patch_moved_db_path(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/api/playlists")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "rekordbox_not_found"
+
+
 def test_playlists_returns_the_tree_from_reader(monkeypatch):
     app = create_app()
     app.dependency_overrides[get_database] = lambda: _FakeDatabase()

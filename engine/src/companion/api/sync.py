@@ -220,6 +220,16 @@ def create_sync_session(
             status_code=409,
             detail={"code": "spotify_not_connected", "message": str(exc)},
         ) from exc
+    except spotify.SessionExpiredError as exc:
+        # T104: "the Spotify session expires mid Sync Session: the session
+        # fails with a re-connect prompt and no partial report is presented
+        # as complete." Nothing has been persisted yet at this point (the
+        # SyncSession row is only created after a successful fetch, below),
+        # so failing here already satisfies "no partial report."
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "spotify_session_expired", "message": str(exc)},
+        ) from exc
 
     if len(fetch_result.tracks) > PLAYLIST_TRACK_CAP:
         raise HTTPException(

@@ -280,6 +280,26 @@ def test_not_connected_maps_to_409():
     assert response.json()["code"] == "spotify_not_connected"
 
 
+def test_session_expiring_mid_sync_fails_with_a_reconnect_prompt_and_no_partial_report():
+    # T104, spec.md edge case: "the Spotify session expires mid Sync
+    # Session: the session fails with a re-connect prompt and no partial
+    # report is presented as complete."
+    def fetch(playlist_url):
+        raise spotify_module.SessionExpiredError("Spotify rejected the access token")
+
+    client = _client_with_fetch(fetch)
+
+    response = client.post(
+        "/api/sync/sessions", json={"playlist_url": "https://open.spotify.com/playlist/expired"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "spotify_session_expired"
+
+    sessions = client.get("/api/sync/sessions").json()
+    assert sessions == []
+
+
 def test_publishes_one_sync_progress_event_per_track(monkeypatch):
     published = []
     monkeypatch.setattr(
