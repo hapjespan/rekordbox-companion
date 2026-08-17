@@ -44,12 +44,13 @@ Committed RED: `companion.matching.engine` doesn't exist until T025 builds
 it, same US1 red/green split as T019/T020 (owner-confirmed).
 """
 
-from companion.matching.engine import classify_match
+from companion.matching.engine import classify_match, find_best_match
 from companion.matching.normalize import extract_remix_tokens, normalize
 
 
-def _collection(artist, title, duration_ms, isrc=None):
+def _collection(artist, title, duration_ms, isrc=None, rb_content_id="rb1"):
     return {
+        "rb_content_id": rb_content_id,
         "norm_artist": normalize(artist),
         "norm_title": normalize(title),
         "remix_tokens": extract_remix_tokens(title),
@@ -241,3 +242,84 @@ def test_below_75_becomes_missing():
     result = classify_match(spotify, collection)
 
     assert result.status == "missing"
+
+
+# --- find_best_match: the search/ranking step over many Collection entries,
+# a gap identified while building T028 (POST /api/sync/sessions), not pinned
+# by any task text -- see the function's own docstring in engine.py.
+
+
+def test_find_best_match_returns_missing_and_no_candidates_for_an_empty_collection():
+    spotify = {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000}
+
+    result, rb_content_id, candidates = find_best_match(spotify, [])
+
+    assert result.status == "missing"
+    assert rb_content_id is None
+    assert candidates == []
+
+
+def test_find_best_match_picks_the_highest_scoring_entry():
+    spotify = {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000}
+    collection = [
+        _collection(
+            "Completely Different Artist",
+            "Completely Different Title",
+            180_000,
+            rb_content_id="rb-wrong",
+        ),
+        _collection("Daft Punk", "One More Time", 210_000, rb_content_id="rb-right"),
+    ]
+
+    result, rb_content_id, candidates = find_best_match(spotify, collection)
+
+    assert result.status == "matched"
+    assert rb_content_id == "rb-right"
+    assert candidates == []
+
+
+def test_find_best_match_returns_no_rb_content_id_for_a_review_result():
+    # A "review" result (score in [75, 92)) must not hand back a confident
+    # rb_content_id -- the DJ picks from candidates instead.
+    spotify = {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000}
+    collection = [_collection("Daft Punk", "One More Moment Tonight", 210_000)]
+
+    result, rb_content_id, candidates = find_best_match(spotify, collection)
+
+    assert result.status == "review"
+    assert rb_content_id is None
+    assert len(candidates) == 1
+    assert candidates[0]["rb_content_id"] == "rb1"
+    assert candidates[0]["score"] == result.score
+
+
+def test_find_best_match_returns_up_to_3_candidates_sorted_best_first():
+    # Same review-tier title on three entries, differentiated purely by the
+    # duration penalty (0s/8s/10s diff -> 85.71/79.71/75.71, all in [75, 92)),
+    # plus one clearly-missing entry that must not make the top 3.
+    spotify = {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000}
+    collection = [
+        _collection("Daft Punk", "One More Moment Tonight", 210_000, rb_content_id="rb-a"),
+        _collection("Daft Punk", "One More Moment Tonight", 218_000, rb_content_id="rb-b"),
+        _collection("Daft Punk", "One More Moment Tonight", 220_000, rb_content_id="rb-c"),
+        _collection("Nobody At All", "Nothing Similar", 180_000, rb_content_id="rb-d"),
+    ]
+
+    result, rb_content_id, candidates = find_best_match(spotify, collection)
+
+    assert result.status == "review"
+    assert rb_content_id is None
+    assert [c["rb_content_id"] for c in candidates] == ["rb-a", "rb-b", "rb-c"]
+    scores = [c["score"] for c in candidates]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_find_best_match_returns_no_candidates_for_a_missing_result():
+    spotify = {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000}
+    collection = [_collection("Nobody At All", "Nothing Similar", 180_000)]
+
+    result, rb_content_id, candidates = find_best_match(spotify, collection)
+
+    assert result.status == "missing"
+    assert rb_content_id is None
+    assert candidates == []

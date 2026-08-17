@@ -80,3 +80,43 @@ def classify_match(spotify: dict, collection: dict) -> MatchResult:
     if score >= _REVIEW_BAR:
         return MatchResult(status="review", score=score)
     return MatchResult(status="missing", score=score)
+
+
+_MAX_CANDIDATES = 3
+
+
+def find_best_match(
+    spotify: dict, collection: list[dict]
+) -> tuple[MatchResult, str | None, list[dict]]:
+    """Score `spotify` against every entry in `collection`, returning the
+    winning `MatchResult`, that entry's `rb_content_id` (only set when the
+    result is "matched"), and up to the top 3 candidates for a "review"
+    result (data-model.md's `sync_track.candidates`, FR-007's "top 3
+    candidates"). `collection` entries carry `rb_content_id` alongside the
+    precomputed fields `classify_match` reads.
+
+    This is the search/ranking step `classify_match` deliberately doesn't do
+    itself (it only classifies ONE pair) -- a gap identified while building
+    T028 (`POST /api/sync/sessions`, which needs to find a Spotify track's
+    best candidate among up to ~40k Collection entries, not just classify a
+    single given pair), not something task text for T025/T028 spelled out.
+    """
+    if not collection:
+        return MatchResult(status="missing", score=0.0), None, []
+
+    scored = sorted(
+        ((classify_match(spotify, entry), entry) for entry in collection),
+        key=lambda pair: pair[0].score,
+        reverse=True,
+    )
+    best_result, best_entry = scored[0]
+
+    if best_result.status == "matched":
+        return best_result, best_entry["rb_content_id"], []
+    if best_result.status == "review":
+        candidates = [
+            {"rb_content_id": entry["rb_content_id"], "score": result.score, "reason": "fuzzy"}
+            for result, entry in scored[:_MAX_CANDIDATES]
+        ]
+        return best_result, None, candidates
+    return best_result, None, []
