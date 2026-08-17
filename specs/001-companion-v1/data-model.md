@@ -156,6 +156,18 @@ overrides if ever needed.
 - **Suggestions** are computed, never stored: filter index by profile tags
   (against enriched_genre) and BPM, rank by play count, subtract current
   `structure_track` rows and `suggestion_dismissal` rows.
+- **Matching engine seam** (FR-004..FR-009, T019 review finding): pinned here
+  once so US1's test tasks (T019-T023) and implementation tasks (T024-T025)
+  agree on it independently, instead of each test file deciding it
+  implicitly. `classify_match(spotify: dict, collection: dict) -> MatchResult`
+  where `spotify`/`collection` are plain dicts shaped like the Spotify API
+  track object and a Collection index entry (see above) respectively, and
+  `MatchResult` exposes `.status` (`"matched" | "review" | "missing"`, per
+  FR-005..FR-008's tiers) and `.score` (0-100, FR-006/FR-007's fuzzy weight).
+  Plain dicts over typed dataclasses: the caller (sync flow) already holds
+  both shapes as dicts (Spotify API JSON, collection index entries above), so
+  a dataclass would just add a conversion step with no consumer that needs
+  it yet — the "boring" choice per project conventions.
 
 ## Validation rules
 

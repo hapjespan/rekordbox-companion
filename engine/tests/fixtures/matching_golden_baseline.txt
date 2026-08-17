@@ -1,0 +1,11 @@
+# One case id per line: the floor of engine/tests/fixtures/matching_golden.yaml.
+# FR-009 / project rule 7: the Golden Set is only ever extended, never
+# weakened. Every id below must always still exist in matching_golden.yaml;
+# a case can be added to that file without touching this one, but removing
+# or renaming a case id here (or there) fails test_golden_set_only_grows in
+# engine/tests/test_matching_golden.py. Append new ids here in the SAME
+# commit that adds them to matching_golden.yaml, never before or separately.
+stub-isrc-exact-match
+stub-fuzzy-review-tier
+stub-remix-marker-veto
+stub-below-threshold-missing
