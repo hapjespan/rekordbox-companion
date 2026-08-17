@@ -148,7 +148,12 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
 - [ ] T017 [P] Wire `web/src/theme/index.css` to consume
       `web/design-input/theme.css` as the Tailwind v4 `@theme`; no hardcoded
       colour/typography/spacing/radius values anywhere downstream (project
-      rule 5)
+      rule 5). Only the `latin` Inter unicode-range subset is aliased under
+      the SpotifyMixUI/SpotifyMixUITitle token names; Dutch UI copy (FR-038)
+      is fully covered, but Collection track/artist data with Eastern
+      European, Turkish, Cyrillic or Greek characters would fall through to
+      a system-font fallback once US5 renders real track names — deferred,
+      not fixed here (gate-review finding).
 - [ ] T018 [P] Set up structured logging in `engine/src/companion/logging.py`
       with token/key redaction as a tested formatter property (NIS2 logging
       plan) [complexity: high] — security boundary: a missed redaction path

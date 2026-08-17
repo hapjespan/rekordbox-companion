@@ -28,8 +28,8 @@ describe("web project skeleton", () => {
     expect(allDeps.typescript).toBeDefined();
   });
 
-  it("wires the app entrypoint to the delivered design tokens", () => {
+  it("wires the app entrypoint to the theme (T017 wires theme.css itself)", () => {
     const main = readFileSync(resolve(WEB_ROOT, "src/main.tsx"), "utf-8");
-    expect(main).toMatch(/design-input\/theme\.css/);
+    expect(main).toMatch(/theme\/index\.css/);
   });
 });
