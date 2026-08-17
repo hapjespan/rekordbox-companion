@@ -42,7 +42,7 @@ playlist URL ever applied.
 | playlist_link_id | int FK | lineage; re-sync = new session, same link |
 | spotify_snapshot_id | text | Spotify's playlist version marker |
 | name | text | playlist name at fetch time |
-| status | enum | `fetching` → `matching` → `ready` → `applied`; `failed` from any |
+| status | enum | `fetching` → `matching` → `ready` → `applied`; `failed` from any; a write whose readback verification fails does NOT transition to `applied` — it stays `ready` and the failure is reported with the `write_log` row's backup_path so the DJ knows which Backup to restore (spec.md US3 scenario 7) |
 | created_at | datetime | |
 
 ### sync_track
