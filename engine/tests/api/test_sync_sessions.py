@@ -250,6 +250,22 @@ def test_invalid_playlist_url_maps_to_422_with_field():
     assert body["field"] == "playlist_url"
 
 
+def test_unreachable_playlist_maps_to_404_with_field():
+    def fetch(playlist_url):
+        raise spotify_module.PlaylistUnreachableError(f"playlist {playlist_url!r} is private")
+
+    client = _client_with_fetch(fetch)
+
+    response = client.post(
+        "/api/sync/sessions", json={"playlist_url": "https://open.spotify.com/playlist/private"}
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["code"] == "playlist_unreachable"
+    assert body["field"] == "playlist_url"
+
+
 def test_not_connected_maps_to_409():
     def fetch(playlist_url):
         raise spotify_module.NotConnectedError("no Spotify session")

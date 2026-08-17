@@ -98,6 +98,17 @@ class InvalidPlaylistUrlError(SpotifyError):
     """The pasted value did not parse to a Spotify playlist id (ASVS V5)."""
 
 
+class PlaylistUnreachableError(SpotifyError):
+    """The playlist id parsed but Spotify refused or couldn't find it --
+    private, deleted, or otherwise inaccessible to this account (spec.md
+    edge case). Distinct from `InvalidPlaylistUrlError` (bad input) so a
+    caller (api/sync.py) can name the actual problem: a T031/T032 review
+    finding -- `fetch_playlist_tracks` previously let Spotify's 403/404
+    bubble up as an unhandled `httpx.HTTPStatusError`, surfacing as a raw
+    500 with no `{code, message, field}` for a scenario spec.md itself
+    names ("playlist is private")."""
+
+
 class PlaylistTooLargeError(SpotifyError):
     """The playlist exceeds `PLAYLIST_TRACK_CAP`; refused before any session.
 
@@ -387,6 +398,10 @@ def fetch_playlist_tracks(
         headers=headers,
         params={"limit": _PAGE_LIMIT},
     )
+    if first.status_code in (403, 404):
+        raise PlaylistUnreachableError(
+            f"playlist {playlist_id!r} is private, deleted, or otherwise inaccessible"
+        )
     first.raise_for_status()
     body = first.json()
 

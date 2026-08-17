@@ -25,6 +25,7 @@ from companion.integrations.spotify import (
     InvalidPlaylistUrlError,
     NotConnectedError,
     PlaylistTooLargeError,
+    PlaylistUnreachableError,
     StateMismatchError,
     _utcnow,
 )
@@ -249,6 +250,22 @@ def test_pagination_short_circuits_once_total_exceeds_cap(session):
     # Exactly one HTTP call: the first page, whose `total` short-circuits. A
     # 2000-track playlist would otherwise cost ~20 page fetches.
     assert calls == [f"/v1/playlists/{PLAYLIST_ID}"]
+
+
+@pytest.mark.parametrize("status_code", [403, 404])
+def test_private_or_deleted_playlist_raises_a_typed_error_not_httpx_status_error(
+    session, status_code
+):
+    # T031/T032 review finding: this used to let httpx.HTTPStatusError
+    # bubble up uncaught for spec.md's own named edge case ("playlist is
+    # private"), surfacing as a raw 500 with no {code, message, field}.
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(status_code, json={"error": {"status": status_code}})
+
+    with pytest.raises(PlaylistUnreachableError):
+        spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
 
 
 def test_within_cap_playlist_follows_pagination_to_completion(session):

@@ -257,7 +257,17 @@ write path or review UI required (spec.md).
       had no frontend task.
 - [ ] T032 [US1] Build `web/src/features/spotify-sync/MatchReport.tsx`:
       per-track status and totals, keyboard-operable, focus always visible,
-      AA contrast, 24x24 targets (WCAG acceptance criteria, US1)
+      AA contrast, 24x24 targets (WCAG acceptance criteria, US1). Build
+      finding: no task in this decomposition wires any feature component
+      into `web/src/App.tsx` -- every US builds isolated
+      `web/src/features/<name>/*.tsx` files with nothing assembling them
+      into a reachable page, yet T033 (next) needs a real page to click
+      through. This task also does that minimal wiring for US1 only
+      (`PlaylistUrlForm` -> `MatchReport`, plus `SpotifyConnection`, T031/
+      T102): no router, no nav framework -- premature before a second user
+      story's UI exists. A real app shell/navigation is a Polish-phase gap
+      (T093's "seam deltas" or a future gate-review finding), flagged here
+      rather than silently absorbed into one task's scope.
 - [ ] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
       covering the paste-URL→report-renders slice of the sync→review→apply
       flow (one of the two flows in the proof-of-value e2e budget, plan.md)

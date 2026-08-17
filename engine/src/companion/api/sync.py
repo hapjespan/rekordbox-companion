@@ -207,6 +207,14 @@ def create_sync_session(
             status_code=422,
             detail={"code": "invalid_playlist_url", "message": str(exc), "field": "playlist_url"},
         ) from exc
+    except spotify.PlaylistUnreachableError as exc:
+        # T031/T032 review finding: this used to bubble up as an unhandled
+        # httpx.HTTPStatusError -> a raw 500, for spec.md's own named edge
+        # case ("playlist is private").
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "playlist_unreachable", "message": str(exc), "field": "playlist_url"},
+        ) from exc
     except spotify.NotConnectedError as exc:
         raise HTTPException(
             status_code=409,
