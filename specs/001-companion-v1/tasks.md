@@ -45,28 +45,28 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `engine/` package skeleton: `engine/pyproject.toml` (uv-managed,
+- [x] T001 Create `engine/` package skeleton: `engine/pyproject.toml` (uv-managed,
       Python 3.12), `engine/src/companion/__init__.py`, dependency pins for
       FastAPI, uvicorn, pyrekordbox, rapidfuzz, SQLAlchemy 2.x, Alembic, httpx
-- [ ] T002 [P] Create `web/` Vite + React 18 + TypeScript project skeleton in
+- [x] T002 [P] Create `web/` Vite + React 18 + TypeScript project skeleton in
       `web/package.json` and `web/vite.config.ts` (pnpm via corepack), wired to
       the existing `web/design-input/theme.css`
-- [ ] T003 Configure Python linting/formatting in `engine/pyproject.toml`
+- [x] T003 Configure Python linting/formatting in `engine/pyproject.toml`
       (ruff). Not [P] with T001: same file (gate-review finding).
-- [ ] T004 [P] Configure TypeScript linting/formatting in `web/eslint.config.js`
+- [x] T004 [P] Configure TypeScript linting/formatting in `web/eslint.config.js`
       (ESLint 9 flat config — `.eslintrc.cjs` would need ESLint 8, EOL since
       2024, a violation of "prefer boring, well-supported dependencies";
       corrected during phase 6 build, standards-review finding) and
       `web/.prettierrc` (respect existing `.prettierignore`)
-- [ ] T005 Write `Makefile` targets `setup`, `dev`, `test`, `build`, `run` per
+- [x] T005 Write `Makefile` targets `setup`, `dev`, `test`, `build`, `run` per
       `specs/001-companion-v1/quickstart.md`
-- [ ] T006 Write `scripts/dev.sh` launching `uvicorn 127.0.0.1:8787 --reload`
+- [x] T006 Write `scripts/dev.sh` launching `uvicorn 127.0.0.1:8787 --reload`
       and the Vite dev proxy together
-- [ ] T007 [P] Create `engine/tests/fixtures/` with a `matching_golden.yaml`
+- [x] T007 [P] Create `engine/tests/fixtures/` with a `matching_golden.yaml`
       schema stub (empty/example cases only — the real ≥50-case set with
       ≥10 hard cases is owner-supplied before phase 6 execution, FR-009,
       SC-003)
-- [ ] T008 [P] Set up `web/src/api/` client generation: `openapi-typescript` +
+- [x] T008 [P] Set up `web/src/api/` client generation: `openapi-typescript` +
       `openapi-fetch`, `pnpm openapi` script per project rule 4 (R5);
       placeholder client until the first OpenAPI schema exists. Commits
       `web/src/api/generated/schema.d.ts` (reversing T002's `.gitignore`
@@ -81,24 +81,24 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T009 Set up SQLAlchemy 2.x engine/session + Alembic migrations framework
+- [x] T009 Set up SQLAlchemy 2.x engine/session + Alembic migrations framework
       in `engine/src/companion/db/__init__.py` and `engine/src/companion/db/session.py`
-- [ ] T010 [P] Create `app_config` table and its Alembic migration in
+- [x] T010 [P] Create `app_config` table and its Alembic migration in
       `engine/src/companion/db/models.py` (data-model.md: paths, pinned
       Rekordbox version, auto-match bar overrides)
-- [ ] T011 Implement `engine/src/companion/config.py`: paths, env loading,
+- [x] T011 Implement `engine/src/companion/config.py`: paths, env loading,
       pinned version constant `7.2.17` (ADR 0002). Rekordbox install
       detection moved to T012: it requires importing pyrekordbox, which
       project rule 1 confines to `rb/`; `config.py` sits outside `rb/`, so
       the two clauses in this task's original wording were mutually
       exclusive. Corrected during phase 6 build, not silently resolved in
       code.
-- [ ] T012 Implement `engine/src/companion/rb/reader.py`: collection snapshot,
+- [x] T012 Implement `engine/src/companion/rb/reader.py`: collection snapshot,
       playlist/folder tree, play counts, and Rekordbox install/version
       detection (moved from T011) read via pyrekordbox — the only module
       (with its `rb/` siblings) permitted to import pyrekordbox (project
       rule 1)
-- [ ] T013 Implement `engine/src/companion/rb/index.py`: in-memory collection
+- [x] T013 Implement `engine/src/companion/rb/index.py`: in-memory collection
       index (`rb_content_id, artist, title, norm_artist, norm_title,
       remix_tokens, duration_ms, bpm, isrc, play_count, location`) rebuilt
       from `reader.py` on demand, serving matching, search and suggestions
@@ -108,9 +108,9 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       US1 — the same forward-reference gap T007 already established a
       stub-and-replace precedent for. `index.py` must import from
       `matching/normalize.py` once T024 lands, replacing the placeholder.
-- [ ] T014 Implement `engine/src/companion/main.py`: FastAPI app factory,
+- [x] T014 Implement `engine/src/companion/main.py`: FastAPI app factory,
       static SPA mount, binding restricted to `127.0.0.1:8787` (FR-037)
-- [ ] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
+- [x] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
       `{status, rekordbox_version, version_pin_ok, db_path, rekordbox_running,
       ffmpeg_ok}` (contracts/api.md; guard visibility, FR-015). The
       `rekordbox_running` check (`is_rekordbox_running`) lives in
@@ -122,10 +122,10 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       and matches the pinned version, else `"degraded"`, directly from the
       spec's own edge case wording ("the app starts in a degraded state...
       instead of erroring per screen") rather than a fresh invention.
-- [ ] T016 [P] Implement `POST /api/collection/reindex` in
+- [x] T016 [P] Implement `POST /api/collection/reindex` in
       `engine/src/companion/api/collection.py` wrapping the `rb/index.py`
       rebuild
-- [ ] T101 Implement `GET /api/playlists` (read-only Rekordbox
+- [x] T101 Implement `GET /api/playlists` (read-only Rekordbox
       playlist/folder tree, `rb/reader.py`) and `GET/PUT /api/config`
       (paths, thresholds, `app_config` table from T010) in
       `engine/src/companion/api/collection.py` and
@@ -150,7 +150,7 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       every story phase. Satisfied by T013's own test suite in that same
       file (against the T013 placeholder normalisation, not T024's real
       FR-004 pipeline yet); no separate task needed.
-- [ ] T017 [P] Wire `web/src/theme/index.css` to consume
+- [x] T017 [P] Wire `web/src/theme/index.css` to consume
       `web/design-input/theme.css` as the Tailwind v4 `@theme`; no hardcoded
       colour/typography/spacing/radius values anywhere downstream (project
       rule 5). Only the `latin` Inter unicode-range subset is aliased under
@@ -159,7 +159,7 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       European, Turkish, Cyrillic or Greek characters would fall through to
       a system-font fallback once US5 renders real track names — deferred,
       not fixed here (gate-review finding).
-- [ ] T018 [P] Set up structured logging in `engine/src/companion/logging.py`
+- [x] T018 [P] Set up structured logging in `engine/src/companion/logging.py`
       with token/key redaction as a tested formatter property (NIS2 logging
       plan) [complexity: high] — security boundary: a missed redaction path
       would leak the operator's Spotify tokens or the SQLCipher key into logs
@@ -178,51 +178,51 @@ write path or review UI required (spec.md).
 
 ### Tests for User Story 1
 
-- [ ] T019 [P] [US1] Golden-set contract test harness in
+- [x] T019 [P] [US1] Golden-set contract test harness in
       `engine/tests/test_matching_golden.py` loading
       `engine/tests/fixtures/matching_golden.yaml`; asserts 100% pass and that
       the set only ever grows (FR-009). Real fixture data is owner-supplied
       before this can execute against real cases (quickstart.md); the harness
       itself is not blocked.
-- [ ] T020 [P] [US1] Unit tests for normalisation + remix-token extraction in
+- [x] T020 [P] [US1] Unit tests for normalisation + remix-token extraction in
       `engine/tests/matching/test_normalize.py` (FR-004)
-- [ ] T021 [P] [US1] Unit tests for tiered scoring/classification in
+- [x] T021 [P] [US1] Unit tests for tiered scoring/classification in
       `engine/tests/matching/test_engine.py`: ISRC fast lane, exact+duration
       fast lane, 92/75 score bars, 40/60 artist/title weighting, duration
       penalty beyond 5s, remix-marker veto (FR-005..FR-008)
-- [ ] T022 [P] [US1] API contract test for `POST /api/sync/sessions` against a
+- [x] T022 [P] [US1] API contract test for `POST /api/sync/sessions` against a
       fake `rb` adapter in `engine/tests/api/test_sync_sessions.py`: exactly
       one status per track (FR-003), 999-track cap refused before the session
       starts (edge case), duplicate playlist positions reported once each
       (edge case)
-- [ ] T023 [P] [US1] Vitest for the match report table in
+- [x] T023 [P] [US1] Vitest for the match report table in
       `web/tests/features/spotify-sync/MatchReport.test.tsx`: totals and
       per-track status conveyed in text, not colour alone (WCAG)
-- [ ] T097 [P] [US1] Performance test in
+- [x] T097 [P] [US1] Performance test in
       `engine/tests/perf/test_match_report.py`: a 100-track playlist against
       the 40.000-entry index produces a complete match report in under 30
       seconds (SC-001); a 999-track playlist (the cap, D12) completes within
       5 minutes (plan.md constraint-to-decision map). Gate-review finding B3.
-- [ ] T104 [US1] Test in `engine/tests/api/test_sync_sessions.py`: a
+- [x] T104 [US1] Test in `engine/tests/api/test_sync_sessions.py`: a
       Spotify session expiring mid Sync Session fails the session with a
       re-connect prompt and no partial report is presented as complete
       (edge case). Not [P] with T022: same file (gate-review finding).
-- [ ] T105 [P] [US1] Test in `engine/tests/api/test_health.py`: when
+- [x] T105 [P] [US1] Test in `engine/tests/api/test_health.py`: when
       `master.db` is not at the expected path, the app starts in a degraded
       state naming the expected path and blocking Rekordbox-backed features
       instead of erroring per screen (edge case)
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement `engine/src/companion/matching/normalize.py`:
+- [x] T024 [US1] Implement `engine/src/companion/matching/normalize.py`:
       case-insensitive normalisation, featuring/remaster/bracket/punctuation/
       diacritic stripping, remix/edit marker kept as a distinct token (FR-004)
-- [ ] T025 [US1] Implement `engine/src/companion/matching/engine.py`: ISRC
+- [x] T025 [US1] Implement `engine/src/companion/matching/engine.py`: ISRC
       exact-match lane (FR-005), exact-normalised+≤3s-duration lane (FR-006),
       fuzzy scoring 40% artist / 60% title with duration penalty beyond 5s and
       the 92/75 bars (FR-007), remix-marker veto forcing Review Queue
       regardless of score (FR-008)
-- [ ] T026 [US1] Implement `engine/src/companion/integrations/spotify.py`:
+- [x] T026 [US1] Implement `engine/src/companion/integrations/spotify.py`:
       OAuth PKCE login/callback/status/disconnect, playlist fetch with
       pagination, 999-track cap enforced before the session starts (edge
       case) [complexity: high] — security boundary: exchanges and stores the
@@ -234,28 +234,28 @@ write path or review UI required (spec.md).
       pagination itself (the reason tasks.md puts the cap here rather than
       in the router) and should add its own unit test for that, since no
       other task in tasks.md covers it.
-- [ ] T027 [US1] Add `playlist_link`, `sync_session`, `sync_track` models and
+- [x] T027 [US1] Add `playlist_link`, `sync_session`, `sync_track` models and
       Alembic migration in `engine/src/companion/db/models.py` (data-model.md).
       `playlist_link` moved here from T049 (build finding): `sync_session`
       FKs into it, and T028 needs it for FR-010's lineage reuse, both before
       US3 exists.
-- [ ] T028 [US1] Implement `POST /api/sync/sessions` in
+- [x] T028 [US1] Implement `POST /api/sync/sessions` in
       `engine/src/companion/api/sync.py`: fetch playlist, run the matching
       engine, persist `sync_track` rows with status and top-3 candidates,
       classify local/unavailable tracks as `unmatchable` (edge case)
-- [ ] T029 [US1] Implement `GET /api/sync/sessions` and
+- [x] T029 [US1] Implement `GET /api/sync/sessions` and
       `GET /api/sync/sessions/{id}` in `engine/src/companion/api/sync.py`.
       Not [P] with T028: same file (gate-review finding).
-- [ ] T030 [US1] Implement the `sync_progress` SSE event on `GET /api/events`
+- [x] T030 [US1] Implement the `sync_progress` SSE event on `GET /api/events`
       in `engine/src/companion/api/events.py` for the fetch+match run (R4)
-- [ ] T031 [P] [US1] Build `web/src/features/spotify-sync/PlaylistUrlForm.tsx`:
+- [x] T031 [P] [US1] Build `web/src/features/spotify-sync/PlaylistUrlForm.tsx`:
       URL input with field-naming validation errors for invalid/private/
       unreachable playlists (WCAG, edge case)
-- [ ] T102 [P] [US1] Build `web/src/features/spotify-sync/SpotifyConnection.tsx`:
+- [x] T102 [P] [US1] Build `web/src/features/spotify-sync/SpotifyConnection.tsx`:
       connection status, connect action, disconnect action — the AVG
       deletion path (FR-001, pii-inventory.md). Gate-review finding: FR-001
       had no frontend task.
-- [ ] T032 [US1] Build `web/src/features/spotify-sync/MatchReport.tsx`:
+- [x] T032 [US1] Build `web/src/features/spotify-sync/MatchReport.tsx`:
       per-track status and totals, keyboard-operable, focus always visible,
       AA contrast, 24x24 targets (WCAG acceptance criteria, US1). Build
       finding: no task in this decomposition wires any feature component
@@ -268,7 +268,7 @@ write path or review UI required (spec.md).
       story's UI exists. A real app shell/navigation is a Polish-phase gap
       (T093's "seam deltas" or a future gate-review finding), flagged here
       rather than silently absorbed into one task's scope.
-- [ ] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
+- [x] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
       covering the paste-URL→report-renders slice of the sync→review→apply
       flow (one of the two flows in the proof-of-value e2e budget, plan.md).
       Build finding: `App.tsx` (T032) renders `PlaylistUrlForm`
