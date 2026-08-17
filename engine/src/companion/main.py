@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from companion.api import collection, config, health
 from companion.config import REPO_ROOT
+from companion.logging import configure_logging
 from companion.rb.index import CollectionIndex
 
 WEB_DIST = REPO_ROOT / "web" / "dist"
@@ -34,6 +35,12 @@ async def _flat_http_exception(request: Request, exc: HTTPException) -> JSONResp
 
 
 def create_app() -> FastAPI:
+    # Idempotent; also runs at `rb/reader.py` import time (the module that
+    # actually imports pyrekordbox, rule 1) so the guarantee holds even for
+    # code paths that never build an app -- calling it again here just
+    # documents the intent explicitly at the process entrypoint (T018).
+    configure_logging()
+
     app = FastAPI(title="Rekordbox Companion")
     app.state.collection_index = CollectionIndex()
     app.add_exception_handler(HTTPException, _flat_http_exception)

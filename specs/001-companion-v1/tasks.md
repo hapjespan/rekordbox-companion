@@ -366,7 +366,12 @@ apply adds only new tracks, refusals fire when guard conditions fail
       version-pin (7.2.17) check, disk-headroom check, refusing any write
       before it starts (FR-015) [complexity: high] — security boundary: the
       sole gate protecting the irreplaceable Rekordbox library from a bad
-      write
+      write. If this file imports pyrekordbox directly rather than only
+      calling into `rb/reader.py`, it must also `import companion.rb.reader`
+      (even if otherwise unused) so T018's `configure_logging()` import-time
+      side effect runs before pyrekordbox does — nothing enforces rule 1's
+      "pyrekordbox confined to rb/" mechanically, so the ordering guarantee
+      currently holds by convention only (T018 final-review finding).
 - [ ] T047 [US3] Implement `engine/src/companion/rb/backup.py`: timestamped
       zipped Backup, verify readability, prune beyond newest 10 only after a
       verified create (ADR 0016). Standard, not high: the destructive prune
@@ -378,7 +383,8 @@ apply adds only new tracks, refusals fire when guard conditions fail
       edits metadata/cues/beat grids, never deletes or reorders anything it
       did not create (FR-016..FR-018, Principle II/III) [complexity: high] —
       cross-cutting security boundary: the sole write path into `master.db`,
-      shared by US3 and US7 (T086)
+      shared by US3 and US7 (T086). Same T018 ordering note as T046: ensure
+      `configure_logging()` has run before this module uses pyrekordbox.
 - [ ] T049 [US3] Add `playlist_link`, `write_log` models and Alembic migration
       in `engine/src/companion/db/models.py`; `write_log` audits every write
       (SC-006)

@@ -12,6 +12,16 @@ logic testable without a real `master.db`; the real file is an
 owner-supplied input still owed (quickstart.md) and its bytes are only
 exercised through `open_database`, verified for real on the owner's Mac
 (research.md R3 precedent).
+
+`configure_logging()` (T018) runs at import time, below, deliberately
+*after* the `pyrekordbox` imports: `pyrekordbox/logger.py` attaches its own
+raw, non-redacting handler to `logging.getLogger("pyrekordbox")` as a side
+effect of being imported, so `configure_logging()` must run afterwards to
+find and remove it. Since this module is the only one importing
+pyrekordbox (rule 1), gating the call here -- not just in
+`main.py`'s `create_app()` -- guarantees it has run before pyrekordbox is
+ever used, on every code path, not only the ones that go through the
+FastAPI app factory (second-round adversarial gate-review finding, T018).
 """
 
 from dataclasses import dataclass
@@ -23,6 +33,9 @@ from pyrekordbox import config as rb_config
 from pyrekordbox.db6 import Rekordbox6Database
 
 from companion.config import PINNED_REKORDBOX_VERSION
+from companion.logging import configure_logging
+
+configure_logging()
 
 
 @dataclass(frozen=True)

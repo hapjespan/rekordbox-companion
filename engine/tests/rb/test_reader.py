@@ -8,8 +8,10 @@ verify pyrekordbox's own file reading, not this module's logic — that
 verification happens on the owner's Mac (research.md R3 precedent).
 """
 
+import logging
 from pathlib import Path
 
+import companion.rb.reader as reader_module
 from companion.rb.reader import (
     detect_rekordbox,
     is_rekordbox_running,
@@ -17,6 +19,22 @@ from companion.rb.reader import (
     read_collection_snapshot,
     read_playlist_tree,
 )
+
+
+def test_importing_this_module_alone_configures_logging_redaction():
+    # T018's guarantee must hold for every code path that uses pyrekordbox,
+    # not only ones that also happen to build the FastAPI app -- this
+    # module is where pyrekordbox is actually imported (rule 1), so it must
+    # be the one guaranteeing configure_logging() has already run (second-
+    # round adversarial gate-review finding, T018). reader_module is
+    # already imported by the time this test file's own top-level import
+    # runs, so this checks the *effect* rather than re-importing.
+    from companion.logging import RedactingJsonFormatter
+
+    assert reader_module  # module loaded without error, imports order intact
+    root = logging.getLogger()
+    assert any(isinstance(h.formatter, RedactingJsonFormatter) for h in root.handlers)
+    assert logging.getLogger("pyrekordbox").propagate is False
 
 
 def test_detect_rekordbox_reports_not_installed_in_this_dev_container():
