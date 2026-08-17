@@ -102,7 +102,12 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       index (`rb_content_id, artist, title, norm_artist, norm_title,
       remix_tokens, duration_ms, bpm, isrc, play_count, location`) rebuilt
       from `reader.py` on demand, serving matching, search and suggestions
-      (R6/ADR 0012)
+      (R6/ADR 0012). `norm_artist`/`norm_title`/`remix_tokens` use a
+      placeholder (lowercase/strip, empty tokens) until T024's FR-004
+      pipeline exists, since T013 lands in Foundational and T024 lands in
+      US1 — the same forward-reference gap T007 already established a
+      stub-and-replace precedent for. `index.py` must import from
+      `matching/normalize.py` once T024 lands, replacing the placeholder.
 - [ ] T014 Implement `engine/src/companion/main.py`: FastAPI app factory,
       static SPA mount, binding restricted to `127.0.0.1:8787` (FR-037)
 - [ ] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
