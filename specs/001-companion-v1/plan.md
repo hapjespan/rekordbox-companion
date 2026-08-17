@@ -96,9 +96,11 @@ engine/
   pyproject.toml
   src/companion/
     main.py              # app factory, static mount, SSE channel
-    config.py            # paths, env, Rekordbox detection, version pin
+    config.py            # paths, env, version pin (rule 1 moved Rekordbox
+                         #   detection into rb/reader.py, phase 6 build)
     rb/                  # ONLY module importing pyrekordbox (rule 1)
-      reader.py          #   collection snapshot, playlist tree, play counts
+      reader.py          #   collection snapshot, playlist tree, play counts,
+                         #   Rekordbox install/version detection
       writer.py          #   guarded playlist/folder writes, add-only updates
       backup.py          #   timestamped zipped backups, newest 10 (ADR 0016)
       guard.py           #   running-check, version pin, disk headroom

@@ -21,12 +21,12 @@ def test_env_py_honours_the_database_url_override():
     env_py = (ENGINE_ROOT / "alembic" / "env.py").read_text()
     assert "config.set_main_option(" in env_py
     assert '"sqlalchemy.url"' in env_py
-    assert 'os.environ.get("DATABASE_URL") or default_database_url()' in env_py
+    assert 'os.environ.get("COMPANION_DATABASE_URL") or default_database_url()' in env_py
 
 
 def test_alembic_current_runs_cleanly_against_an_isolated_database(tmp_path, monkeypatch):
     db_path = tmp_path / "alembic_smoke.sqlite"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("COMPANION_DATABASE_URL", f"sqlite:///{db_path}")
     result = subprocess.run(
         ["uv", "run", "alembic", "current"],
         cwd=ENGINE_ROOT,

@@ -10,7 +10,7 @@ ENGINE_ROOT = Path(__file__).resolve().parent.parent
 
 def _alembic(tmp_path, monkeypatch, *args):
     db_path = tmp_path / "migration_smoke.sqlite"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("COMPANION_DATABASE_URL", f"sqlite:///{db_path}")
     result = subprocess.run(
         ["uv", "run", "alembic", *args], cwd=ENGINE_ROOT, capture_output=True, text=True
     )

@@ -14,9 +14,12 @@ from companion.db.session import Base, default_database_url
 # access to the values within the .ini file in use.
 config = context.config
 
-# Same DATABASE_URL resolution companion.db.session.create_session_factory
-# uses, so migrations never drift from the app's own connection.
-config.set_main_option("sqlalchemy.url", os.environ.get("DATABASE_URL") or default_database_url())
+# Same COMPANION_DATABASE_URL resolution as
+# companion.db.session.create_session_factory, so migrations never drift
+# from the app's own connection.
+config.set_main_option(
+    "sqlalchemy.url", os.environ.get("COMPANION_DATABASE_URL") or default_database_url()
+)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

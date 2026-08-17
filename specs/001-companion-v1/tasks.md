@@ -87,11 +87,17 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       `engine/src/companion/db/models.py` (data-model.md: paths, pinned
       Rekordbox version, auto-match bar overrides)
 - [ ] T011 Implement `engine/src/companion/config.py`: paths, env loading,
-      Rekordbox install detection, pinned version constant `7.2.17` (ADR 0002)
+      pinned version constant `7.2.17` (ADR 0002). Rekordbox install
+      detection moved to T012: it requires importing pyrekordbox, which
+      project rule 1 confines to `rb/`; `config.py` sits outside `rb/`, so
+      the two clauses in this task's original wording were mutually
+      exclusive. Corrected during phase 6 build, not silently resolved in
+      code.
 - [ ] T012 Implement `engine/src/companion/rb/reader.py`: collection snapshot,
-      playlist/folder tree, play counts read via pyrekordbox — the only
-      module (with its `rb/` siblings) permitted to import pyrekordbox
-      (project rule 1)
+      playlist/folder tree, play counts, and Rekordbox install/version
+      detection (moved from T011) read via pyrekordbox — the only module
+      (with its `rb/` siblings) permitted to import pyrekordbox (project
+      rule 1)
 - [ ] T013 Implement `engine/src/companion/rb/index.py`: in-memory collection
       index (`rb_content_id, artist, title, norm_artist, norm_title,
       remix_tokens, duration_ms, bpm, isrc, play_count, location`) rebuilt

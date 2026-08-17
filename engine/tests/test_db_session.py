@@ -1,4 +1,4 @@
-"""T009: SQLAlchemy engine/session setup, overridable via DATABASE_URL.
+"""T009: SQLAlchemy engine/session setup, overridable via COMPANION_DATABASE_URL.
 
 Uses `create_session_factory` directly rather than `importlib.reload`, so
 these tests never mutate the process-global `companion.db.session.engine`
@@ -34,6 +34,17 @@ def test_default_database_url_points_at_the_repo_data_directory():
 
 
 def test_create_session_factory_falls_back_to_database_url_env(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("COMPANION_DATABASE_URL", "sqlite:///:memory:")
     engine, _ = create_session_factory()
     assert str(engine.url) == "sqlite:///:memory:"
+
+
+def test_create_session_factory_ignores_the_generic_database_url_env(monkeypatch):
+    # The repo's own .env sets DATABASE_URL to the reserved central Postgres
+    # database (unused in v1, plan.md); config.py loads that .env file, so a
+    # plain DATABASE_URL must never leak into this SQLite store (regression:
+    # config.py's load_dotenv made this collision live during phase 6 build).
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/should-not-be-used")
+    monkeypatch.delenv("COMPANION_DATABASE_URL", raising=False)
+    engine, _ = create_session_factory()
+    assert str(engine.url).startswith("sqlite:///")
