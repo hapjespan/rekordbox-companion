@@ -59,3 +59,11 @@ def create_app() -> FastAPI:
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")
 
     return app
+
+
+# The Makefile's UVICORN var and scripts/dev.sh both invoke
+# `companion.main:app` (T005/T006); tests always call `create_app()`
+# directly instead (a fresh instance per test), so this module-level
+# instance had never actually been exercised until something tried to run
+# the real server -- found while regenerating the OpenAPI schema for T031.
+app = create_app()
