@@ -319,3 +319,52 @@ def test_publishes_one_sync_progress_event_per_track(monkeypatch):
     assert [event for event, _ in published] == ["sync_progress", "sync_progress"]
     assert published[0][1] == {"session_id": session_id, "done": 1, "total": 2}
     assert published[1][1] == {"session_id": session_id, "done": 2, "total": 2}
+
+
+def test_matching_happens_in_chunks_so_progress_flows_incrementally(monkeypatch):
+    # T097 review finding: a single upfront find_best_matches call for the
+    # whole playlist would run the entire (potentially several-minutes-long)
+    # match in one uninterrupted burst, then fire every sync_progress event
+    # at once at the end -- defeating R4's live-progress purpose for
+    # exactly the long-running workload it exists to cover. Chunking must
+    # keep each find_best_matches call bounded AND interleave publish calls
+    # between chunks, not just after all of them.
+    import companion.api.sync as sync_module
+
+    log = []
+    real_find_best_matches = sync_module.find_best_matches
+    real_publish = sync_module.events.publish
+
+    def spy_find_best_matches(tracks, collection):
+        log.append(("classify", len(tracks)))
+        return real_find_best_matches(tracks, collection)
+
+    def spy_publish(event, data):
+        log.append(("publish", data["done"]))
+        return real_publish(event, data)
+
+    monkeypatch.setattr(sync_module, "find_best_matches", spy_find_best_matches)
+    monkeypatch.setattr(sync_module.events, "publish", spy_publish)
+
+    chunk_size = sync_module._PROGRESS_CHUNK_SIZE
+    track_count = chunk_size * 2 + 5
+    tracks = [
+        _FakeTrack(f"sp{i}", "Example Artist", "Example Song", 210_000, isrc="USRC17607839")
+        for i in range(track_count)
+    ]
+    client = _client(tracks)
+
+    response = client.post(
+        "/api/sync/sessions", json={"playlist_url": "https://open.spotify.com/playlist/chunked"}
+    )
+
+    assert response.status_code == 200
+    classify_sizes = [size for kind, size in log if kind == "classify"]
+    assert classify_sizes == [chunk_size, chunk_size, 5]
+
+    classify_indices = [i for i, (kind, _) in enumerate(log) if kind == "classify"]
+    between_first_and_second_chunk = log[classify_indices[0] + 1 : classify_indices[1]]
+    publishes_in_first_chunk = [
+        entry for entry in between_first_and_second_chunk if entry[0] == "publish"
+    ]
+    assert len(publishes_in_first_chunk) == chunk_size

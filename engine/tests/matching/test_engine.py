@@ -44,7 +44,7 @@ Committed RED: `companion.matching.engine` doesn't exist until T025 builds
 it, same US1 red/green split as T019/T020 (owner-confirmed).
 """
 
-from companion.matching.engine import classify_match, find_best_match
+from companion.matching.engine import classify_match, find_best_match, find_best_matches
 from companion.matching.normalize import extract_remix_tokens, normalize
 
 
@@ -323,3 +323,76 @@ def test_find_best_match_returns_no_candidates_for_a_missing_result():
     assert result.status == "missing"
     assert rb_content_id is None
     assert candidates == []
+
+
+# --- find_best_matches: the batched, T097-perf-motivated rewrite of
+# find_best_match for scoring many Spotify tracks against one Collection at
+# once (rapidfuzz.process.cdist instead of a classify_match-per-entry Python
+# loop). Proven equivalent to calling find_best_match once per track, not
+# just independently plausible -- a differential test, not a duplicate of
+# find_best_match's own tests above.
+
+
+def _mixed_collection():
+    return [
+        _collection(
+            "Example Artist", "Example Song", 210_000, isrc="USRC17607839", rb_content_id="rb-isrc"
+        ),
+        _collection("Daft Punk", "One More Time", 211_000, rb_content_id="rb-tier2"),
+        _collection("Daft Punk", "One More Moment Tonight", 210_000, rb_content_id="rb-review-a"),
+        _collection("Daft Punk", "One More Moment Tonight", 218_000, rb_content_id="rb-review-b"),
+        _collection("Daft Punk", "One More Minute Tonight", 210_000, rb_content_id="rb-review-c"),
+        _collection("Example Artist", "Example Song (Club Mix)", 300_000, rb_content_id="rb-remix"),
+        _collection("Nobody At All", "Nothing Similar", 180_000, rb_content_id="rb-missing"),
+    ]
+
+
+def _mixed_tracks():
+    return [
+        # Tier 1: ISRC exact match.
+        {"artist": "Anything", "title": "Anything", "duration_ms": 1, "isrc": "USRC17607839"},
+        # Tier 2: exact normalised text, duration within 3s.
+        {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 210_000},
+        # Tier 3: review band (multiple close-scoring candidates).
+        {"artist": "Daft Punk", "title": "One More Time", "duration_ms": 400_000},
+        # Remix veto: would otherwise clear the auto-match bar via tier 2.
+        {"artist": "Example Artist", "title": "Example Song", "duration_ms": 300_000},
+        # Missing: nothing scores anywhere close.
+        {"artist": "Totally Unrelated", "title": "Totally Unrelated", "duration_ms": 999_000},
+    ]
+
+
+def test_find_best_matches_matches_find_best_match_for_the_same_inputs():
+    collection = _mixed_collection()
+    tracks = _mixed_tracks()
+
+    batched = find_best_matches(tracks, collection)
+    individually = [find_best_match(track, collection) for track in tracks]
+
+    assert len(batched) == len(individually)
+    for (batch_result, batch_rb_id, batch_candidates), (
+        single_result,
+        single_rb_id,
+        single_candidates,
+    ) in zip(batched, individually, strict=True):
+        assert batch_result.status == single_result.status
+        assert round(batch_result.score, 2) == round(single_result.score, 2)
+        assert batch_rb_id == single_rb_id
+        assert {c["rb_content_id"] for c in batch_candidates} == {
+            c["rb_content_id"] for c in single_candidates
+        }
+
+
+def test_find_best_matches_returns_missing_for_every_track_against_an_empty_collection():
+    tracks = _mixed_tracks()
+
+    results = find_best_matches(tracks, [])
+
+    assert len(results) == len(tracks)
+    assert all(result.status == "missing" for result, _, _ in results)
+    assert all(rb_content_id is None for _, rb_content_id, _ in results)
+    assert all(candidates == [] for _, _, candidates in results)
+
+
+def test_find_best_matches_returns_an_empty_list_for_no_tracks():
+    assert find_best_matches([], _mixed_collection()) == []

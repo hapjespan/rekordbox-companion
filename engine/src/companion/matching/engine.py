@@ -19,7 +19,8 @@ re-normalises the collection side, only the `spotify` side (once per call).
 
 from dataclasses import dataclass
 
-from rapidfuzz import fuzz
+import numpy as np
+from rapidfuzz import fuzz, process
 
 from companion.matching.normalize import extract_remix_tokens, normalize
 
@@ -120,3 +121,149 @@ def find_best_match(
         ]
         return best_result, None, candidates
     return best_result, None, []
+
+
+def find_best_matches(
+    tracks: list[dict], collection: list[dict]
+) -> list[tuple[MatchResult, str | None, list[dict]]]:
+    """Batched `find_best_match` for many Spotify tracks against one
+    Collection (T097 perf finding).
+
+    Calling `find_best_match` once per track -- `classify_match` against
+    every Collection entry, in a Python loop -- cannot meet SC-001's time
+    budget at Collection scale (~40k entries, phase-3 grilling): benchmarked
+    at ~10us/`classify_match` call, a 999-track playlist against 40k entries
+    is ~40M calls, ~400s, blowing the 5-minute cap. `rapidfuzz.process.cdist`
+    scores an entire batch of queries against an entire batch of choices in
+    C in one call (~150x faster in practice here) -- this function uses one
+    `cdist` call for all tracks' artists and one for all tracks' titles,
+    tiers 1/2 as O(1) dict lookups (built once, not scanned per track), and
+    numpy-vectorised duration penalties instead of a nested Python loop.
+
+    Produces the SAME results as calling `find_best_match` once per track for
+    the same inputs (proven by a differential test in test_engine.py) -- this
+    is purely a performance rewrite, not a behaviour change.
+    """
+    if not tracks:
+        return []
+    if not collection:
+        return [(MatchResult(status="missing", score=0.0), None, []) for _ in tracks]
+
+    collection_artists = [entry["norm_artist"] for entry in collection]
+    collection_titles = [entry["norm_title"] for entry in collection]
+    collection_remix = [tuple(entry.get("remix_tokens", ())) for entry in collection]
+    collection_durations = np.array(
+        [
+            entry["duration_ms"] if entry.get("duration_ms") is not None else np.nan
+            for entry in collection
+        ],
+        dtype=float,
+    )
+
+    isrc_index: dict[str, int] = {}
+    for idx, entry in enumerate(collection):
+        isrc = entry.get("isrc")
+        if isrc:
+            isrc_index.setdefault(isrc, idx)
+
+    text_index: dict[tuple[str, str], list[int]] = {}
+    for idx in range(len(collection)):
+        text_index.setdefault((collection_artists[idx], collection_titles[idx]), []).append(idx)
+
+    artist_queries = [normalize(track["artist"]) for track in tracks]
+    title_queries = [normalize(track["title"]) for track in tracks]
+    artist_scores = process.cdist(artist_queries, collection_artists, scorer=fuzz.token_set_ratio)
+    title_scores = process.cdist(title_queries, collection_titles, scorer=fuzz.token_set_ratio)
+    weighted = _ARTIST_WEIGHT * artist_scores + _TITLE_WEIGHT * title_scores
+
+    def top_candidates(scores_row: np.ndarray) -> list[dict]:
+        # Stable sort on the negated scores, not `argsort(...)[::-1]`: a
+        # stable ascending sort followed by reversal also reverses tied
+        # entries' relative order, but find_best_match's `sorted(...,
+        # reverse=True)` (Python's sort is stable both ways) keeps ties in
+        # their original Collection order -- this matches that for entries
+        # tied on score (a real case: several unrelated Collection entries
+        # can score identically low against one query).
+        top_indices = np.argsort(-scores_row, kind="stable")[:_MAX_CANDIDATES]
+        return [
+            {
+                "rb_content_id": collection[i]["rb_content_id"],
+                "score": float(scores_row[i]),
+                "reason": "fuzzy",
+            }
+            for i in top_indices
+        ]
+
+    results: list[tuple[MatchResult, str | None, list[dict]]] = []
+    for row, spotify in enumerate(tracks):
+        spotify_isrc = spotify.get("isrc")
+        duration_ms = spotify.get("duration_ms")
+        spotify_remix = extract_remix_tokens(spotify["title"])
+
+        isrc_hit = isrc_index.get(spotify_isrc) if spotify_isrc else None
+        if isrc_hit is not None:
+            rb_content_id = collection[isrc_hit]["rb_content_id"]
+            results.append((MatchResult(status="matched", score=100.0), rb_content_id, []))
+            continue
+
+        # Computed unconditionally (not just in the tier-3 fallback below):
+        # a tier-2 hit whose remix veto forces "review" still needs these
+        # scores to build its candidates list, exactly as find_best_match's
+        # per-entry classify_match + sort-by-score would (a Collection can
+        # legitimately hold both a track and its own remix side by side).
+        scores_row = weighted[row].copy()
+        if duration_ms is not None:
+            diff_s = np.abs(duration_ms - collection_durations) / 1000
+            excess = np.nan_to_num(np.maximum(0.0, diff_s - _TIER3_DURATION_GRACE_S), nan=0.0)
+            scores_row = scores_row - excess * _DURATION_PENALTY_PER_SECOND
+        scores_row = np.maximum(scores_row, 0.0)
+
+        tier2_hit = None
+        for idx in text_index.get((artist_queries[row], title_queries[row]), []):
+            entry_duration = collection_durations[idx]
+            if duration_ms is None or np.isnan(entry_duration):
+                continue
+            if abs(duration_ms - entry_duration) <= _TIER2_DURATION_GRACE_MS:
+                tier2_hit = idx
+                break
+        if tier2_hit is not None:
+            if spotify_remix != collection_remix[tier2_hit]:
+                # classify_match pins an exact-text tier-2 pair's score to
+                # 100.0 regardless of the fuzzy formula; match that before
+                # ranking candidates, so the vetoed entry itself still
+                # surfaces top-1 the way find_best_match's per-entry sort
+                # would produce. In practice the vectorised fuzzy score at
+                # this index is already ~100 anyway (identical normalised
+                # text scores 100 via token_set_ratio, and tier 2's 3s
+                # duration grace sits inside tier 3's 5s penalty-free grace,
+                # so no penalty applies) -- this line only changes anything
+                # in a degenerate case (e.g. an empty-string normalised
+                # match), but is kept unconditional so that invariant
+                # between the two grace periods is never load-bearing for
+                # correctness, only for this being usually a no-op.
+                scores_row[tier2_hit] = 100.0
+                results.append(
+                    (MatchResult(status="review", score=100.0), None, top_candidates(scores_row))
+                )
+            else:
+                rb_content_id = collection[tier2_hit]["rb_content_id"]
+                results.append((MatchResult(status="matched", score=100.0), rb_content_id, []))
+            continue
+
+        best_idx = int(np.argmax(scores_row))
+        best_score = float(scores_row[best_idx])
+        remix_differs = spotify_remix != collection_remix[best_idx]
+
+        if remix_differs:
+            candidates = top_candidates(scores_row)
+            results.append((MatchResult(status="review", score=best_score), None, candidates))
+        elif best_score >= _AUTO_MATCH_BAR:
+            rb_content_id = collection[best_idx]["rb_content_id"]
+            results.append((MatchResult(status="matched", score=best_score), rb_content_id, []))
+        elif best_score >= _REVIEW_BAR:
+            candidates = top_candidates(scores_row)
+            results.append((MatchResult(status="review", score=best_score), None, candidates))
+        else:
+            results.append((MatchResult(status="missing", score=best_score), None, []))
+
+    return results

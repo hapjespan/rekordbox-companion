@@ -29,7 +29,7 @@ from companion.api.auth import get_spotify_client
 from companion.db.models import PlaylistLink, SyncSession, SyncTrack
 from companion.db.session import get_db
 from companion.integrations import spotify
-from companion.matching.engine import find_best_match
+from companion.matching.engine import find_best_matches
 from companion.rb.index import IndexEntry
 
 router = APIRouter()
@@ -37,6 +37,12 @@ router = APIRouter()
 PLAYLIST_TRACK_CAP = 999
 
 _STATUSES = ("matched", "review", "missing", "rejected", "unmatchable")
+
+# T097 review finding: chunk size for _classify_tracks calls within one
+# create_sync_session run -- large enough that each rapidfuzz.process.cdist
+# call still batches efficiently, small enough that sync_progress events
+# (R4) keep flowing throughout a long run instead of bursting at the end.
+_PROGRESS_CHUNK_SIZE = 50
 
 
 def _utcnow() -> datetime:
@@ -126,17 +132,37 @@ def _is_unmatchable(track) -> bool:
     return no_identifiers or getattr(track, "is_local", False)
 
 
-def _classify_track(track, collection: list[dict]) -> tuple[str, float | None, str | None, list]:
-    if _is_unmatchable(track):
-        return "unmatchable", None, None, []
-    spotify_dict = {
-        "artist": track.artist,
-        "title": track.title,
-        "duration_ms": track.duration_ms,
-        "isrc": track.isrc,
-    }
-    result, rb_content_id, candidates = find_best_match(spotify_dict, collection)
-    return result.status, result.score, rb_content_id, candidates
+def _classify_tracks(
+    tracks: list, collection: list[dict]
+) -> list[tuple[str, float | None, str | None, list]]:
+    """One batched call for every matchable track (T097 perf finding):
+    `find_best_matches` scores all of them against `collection` in a
+    handful of `rapidfuzz.process.cdist` calls, not one `find_best_match`
+    (and its O(collection) Python loop) per track -- the difference between
+    meeting SC-001's time budget at Collection scale (~40k entries) and not.
+    """
+    unmatchable_positions = {i for i, track in enumerate(tracks) if _is_unmatchable(track)}
+    matchable_positions = [i for i in range(len(tracks)) if i not in unmatchable_positions]
+    matchable_dicts = [
+        {
+            "artist": tracks[i].artist,
+            "title": tracks[i].title,
+            "duration_ms": tracks[i].duration_ms,
+            "isrc": tracks[i].isrc,
+        }
+        for i in matchable_positions
+    ]
+    batch_results = find_best_matches(matchable_dicts, collection)
+    results_by_position = dict(zip(matchable_positions, batch_results, strict=True))
+
+    output = []
+    for i in range(len(tracks)):
+        if i in unmatchable_positions:
+            output.append(("unmatchable", None, None, []))
+        else:
+            result, rb_content_id, candidates = results_by_position[i]
+            output.append((result.status, result.score, rb_content_id, candidates))
+    return output
 
 
 def _get_or_create_playlist_link(db: Session, spotify_playlist_id: str, name: str) -> PlaylistLink:
@@ -255,42 +281,60 @@ def create_sync_session(
 
     collection = [_entry_to_dict(entry) for entry in request.app.state.collection_index.entries]
     total = len(fetch_result.tracks)
-    for position, track in enumerate(fetch_result.tracks, start=1):
-        status, score, rb_content_id, candidates = _classify_track(track, collection)
-        db.add(
-            SyncTrack(
-                sync_session_id=session.id,
-                position=position,
-                spotify_track_id=track.spotify_track_id,
-                isrc=track.isrc,
-                artist=track.artist,
-                title=track.title,
-                duration_ms=track.duration_ms,
-                status=status,
-                rb_content_id=rb_content_id,
-                match_score=score,
-                candidates=candidates,
-                matched_at=_utcnow() if status == "matched" else None,
+    position = 0
+    # T097 review finding: `_classify_tracks` batches the expensive fuzzy
+    # scoring (rapidfuzz.process.cdist) for speed, but one single call for
+    # the whole playlist would run the entire match in one uninterrupted
+    # burst -- for a 999-track run near the 5-minute budget, that's several
+    # minutes with zero sync_progress events, then all of them firing at
+    # once at the very end, defeating R4's live-progress purpose for
+    # exactly the workload it exists to cover. Classifying in chunks keeps
+    # each `cdist` call batched (still ~150x faster than one classify_match
+    # call per Collection entry) while letting progress flow every chunk
+    # instead of once at the end.
+    for chunk_start in range(0, total, _PROGRESS_CHUNK_SIZE):
+        chunk_tracks = fetch_result.tracks[chunk_start : chunk_start + _PROGRESS_CHUNK_SIZE]
+        chunk_classifications = _classify_tracks(chunk_tracks, collection)
+        for track, (status, score, rb_content_id, candidates) in zip(
+            chunk_tracks, chunk_classifications, strict=True
+        ):
+            position += 1
+            db.add(
+                SyncTrack(
+                    sync_session_id=session.id,
+                    position=position,
+                    spotify_track_id=track.spotify_track_id,
+                    isrc=track.isrc,
+                    artist=track.artist,
+                    title=track.title,
+                    duration_ms=track.duration_ms,
+                    status=status,
+                    rb_content_id=rb_content_id,
+                    match_score=score,
+                    candidates=candidates,
+                    matched_at=_utcnow() if status == "matched" else None,
+                )
             )
-        )
-        # T030: one sync_progress event per track. This handler stays a
-        # plain sync `def`, run in FastAPI's threadpool -- NOT `async def` --
-        # so the event loop stays free to flush already-queued SSE bytes to
-        # a listening client while this loop is still running (an `async
-        # def` version with no `await` inside this loop would starve the
-        # event loop for the whole run instead, T030 review finding).
-        # `events.publish` is safe to call from this worker thread because
-        # it hands off via `call_soon_threadsafe`, not a direct queue put.
-        # Known gap (T030 review): this fires before the final db.commit()
-        # below, so a listener could see done=N before track N is durable.
-        # If a later track raised, the whole request would fail and nothing
-        # would persist despite earlier "progress"; _classify_track is pure
-        # local computation with nothing that plausibly raises mid-loop, so
-        # this is accepted as-is rather than adding a compensating
-        # "sync_failed" event type, which is outside this task's scope.
-        events.publish(
-            "sync_progress", {"session_id": session.id, "done": position, "total": total}
-        )
+            # T030: one sync_progress event per track. This handler stays a
+            # plain sync `def`, run in FastAPI's threadpool -- NOT `async
+            # def` -- so the event loop stays free to flush already-queued
+            # SSE bytes to a listening client while this loop is still
+            # running (an `async def` version with no `await` inside this
+            # loop would starve the event loop for the whole run instead,
+            # T030 review finding). `events.publish` is safe to call from
+            # this worker thread because it hands off via
+            # `call_soon_threadsafe`, not a direct queue put.
+            # Known gap (T030 review): this fires before the final
+            # db.commit() below, so a listener could see done=N before
+            # track N is durable. If a later chunk raised, the whole
+            # request would fail and nothing would persist despite earlier
+            # "progress"; `_classify_tracks` is pure local computation with
+            # nothing that plausibly raises mid-chunk, so this is accepted
+            # as-is rather than adding a compensating "sync_failed" event
+            # type, which is outside this task's scope.
+            events.publish(
+                "sync_progress", {"session_id": session.id, "done": position, "total": total}
+            )
 
     session.status = "ready"
     db.commit()

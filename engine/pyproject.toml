@@ -16,6 +16,11 @@ dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "psutil>=6.0",
+    # T097 perf finding: rapidfuzz.process.cdist's batched C-level scoring
+    # is what matching/engine.py's find_best_matches_batch needs to meet
+    # SC-001's time budget at Collection scale (~40k entries) -- previously
+    # only a transitive dependency of rapidfuzz, now used directly.
+    "numpy>=2.0",
 ]
 
 [dependency-groups]
