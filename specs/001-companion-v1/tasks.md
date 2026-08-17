@@ -123,15 +123,19 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       `engine/src/companion/api/config.py` (contracts/api.md). Gate-review
       finding: these two contract endpoints had no task. Not [P] with T016:
       shares `api/collection.py`, and depends on T010.
-- [ ] T108 [P] Test in `engine/tests/rb/test_reader.py`: `reader.py` returns
+- [x] T108 [P] Test in `engine/tests/rb/test_reader.py`: `reader.py` returns
       the documented fields (artist, title, duration, BPM, play count,
       location) from the fixture `master.db` collection snapshot and
-      playlist/folder tree
-- [ ] T109 [P] Test in `engine/tests/rb/test_index.py`: the in-memory index
+      playlist/folder tree. Satisfied by T012's own test suite in that same
+      file (against a duck-typed fake, not the real fixture — owner-supplied
+      fixture still owed, quickstart.md); no separate task needed.
+- [x] T109 [P] Test in `engine/tests/rb/test_index.py`: the in-memory index
       rebuild reflects `reader.py` output, including the normalised
       artist/title and remix-token fields matching consumes (R6/ADR 0012).
       Gate-review finding: Foundational tasks had no test coverage, unlike
-      every story phase.
+      every story phase. Satisfied by T013's own test suite in that same
+      file (against the T013 placeholder normalisation, not T024's real
+      FR-004 pipeline yet); no separate task needed.
 - [ ] T017 [P] Wire `web/src/theme/index.css` to consume
       `web/design-input/theme.css` as the Tailwind v4 `@theme`; no hardcoded
       colour/typography/spacing/radius values anywhere downstream (project
