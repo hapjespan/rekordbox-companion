@@ -226,7 +226,14 @@ write path or review UI required (spec.md).
       OAuth PKCE login/callback/status/disconnect, playlist fetch with
       pagination, 999-track cap enforced before the session starts (edge
       case) [complexity: high] — security boundary: exchanges and stores the
-      operator's Spotify credentials
+      operator's Spotify credentials. T022 review finding: T022's contract
+      test only checks the end-effect refusal (422, nothing persisted) at
+      the `api/sync.py` router seam, against a fake that already returns all
+      tracks in one call — it does not exercise pagination stopping early
+      once the cap is exceeded. This task's own build must short-circuit
+      pagination itself (the reason tasks.md puts the cap here rather than
+      in the router) and should add its own unit test for that, since no
+      other task in tasks.md covers it.
 - [ ] T027 [US1] Add `sync_session`, `sync_track` models and Alembic migration
       in `engine/src/companion/db/models.py` (data-model.md)
 - [ ] T028 [US1] Implement `POST /api/sync/sessions` in
