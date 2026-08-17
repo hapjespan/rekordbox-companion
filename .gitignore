@@ -1,5 +1,6 @@
 .env
 node_modules/
+.pnpm-store/
 vendor/
 __pycache__/
 *.pyc
@@ -17,3 +18,4 @@ engine/tests/fixtures/*.mp3
 engine/tests/fixtures/*.m4a
 engine/tests/fixtures/*.alac
 web/src/api/generated/
+*.tsbuildinfo
