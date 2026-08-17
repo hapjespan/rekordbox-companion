@@ -36,5 +36,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+# FastAPI's Depends()/Query()/Body() in argument defaults is the framework's
+# own dependency-injection idiom, not the mutable-default-argument bug B008
+# exists to catch: exempting these calls avoids a noqa on every endpoint.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body"]
+
 [tool.ruff.format]
 quote-style = "double"
