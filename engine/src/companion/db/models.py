@@ -6,6 +6,7 @@ app-side state, per data-model.md.
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
 from companion.db.session import Base
@@ -35,6 +36,75 @@ class SpotifyAuth(Base):
     account_id: Mapped[str]
     display_name: Mapped[str | None]
     product: Mapped[str | None]  # `premium` gates embedded playback (ADR 0009)
+
+
+class PlaylistLink(Base):
+    """The Target Playlist lineage (FR-010, FR-019, ADR 0006; data-model.md).
+
+    One row per Spotify playlist URL ever applied, so a re-sync re-uses the
+    same lineage instead of creating a second, unrelated Target Playlist
+    (FR-010). Moved here from its original task (T049) because `sync_session`
+    FKs into it and `POST /api/sync/sessions` (T028, User Story 1) needs it
+    for FR-010's lineage reuse -- both land before User Story 3, where T049
+    otherwise would have created this table (T027 build finding).
+    """
+
+    __tablename__ = "playlist_link"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Parsed server-side from the pasted URL; the raw URL itself is never
+    # stored (constraints.md ASVS V5).
+    spotify_playlist_id: Mapped[str] = mapped_column(unique=True)
+    rb_playlist_id: Mapped[str | None]  # NULL until the first Apply
+    rb_playlist_name: Mapped[str]  # last name written
+    created_at: Mapped[datetime]
+    last_applied_at: Mapped[datetime | None]
+
+
+class SyncSession(Base):
+    """One Spotify-playlist fetch+match run (data-model.md `sync_session`)."""
+
+    __tablename__ = "sync_session"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    playlist_link_id: Mapped[int] = mapped_column(sa.ForeignKey("playlist_link.id"))
+    spotify_snapshot_id: Mapped[str]
+    name: Mapped[str]  # playlist name at fetch time
+    # fetching -> matching -> ready -> applied; failed from any. A write
+    # whose readback verification fails does NOT transition to applied -- it
+    # stays ready, reported via the write_log row's backup_path (US3
+    # scenario 7, data-model.md).
+    status: Mapped[str]
+    created_at: Mapped[datetime]
+
+
+class SyncTrack(Base):
+    """One playlist position within a Sync Session (data-model.md `sync_track`).
+
+    One row per playlist POSITION, not per distinct track: a playlist
+    containing the same track twice stays visible as two rows (spec edge
+    case); Apply is what de-duplicates, not the report.
+    """
+
+    __tablename__ = "sync_track"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sync_session_id: Mapped[int] = mapped_column(sa.ForeignKey("sync_session.id"))
+    position: Mapped[int]  # playlist order
+    spotify_track_id: Mapped[str | None]  # NULL for local/unavailable tracks
+    isrc: Mapped[str | None]
+    artist: Mapped[str]
+    title: Mapped[str]
+    duration_ms: Mapped[int | None]
+    # matched, review, missing, rejected, unmatchable. Transitions:
+    # review -> matched (accept), review -> rejected (reject, spawns
+    # missing_track), missing -> matched (auto, re-sync, FR-023). unmatchable
+    # is terminal (no identifiers). matched never transitions away.
+    status: Mapped[str]
+    rb_content_id: Mapped[str | None]  # set when matched/accepted
+    match_score: Mapped[float | None]
+    candidates: Mapped[list] = mapped_column(sa.JSON, default=list)  # top 3 for review items
+    matched_at: Mapped[datetime | None]
 
 
 class AppConfig(Base):

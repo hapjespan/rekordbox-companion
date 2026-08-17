@@ -234,8 +234,11 @@ write path or review UI required (spec.md).
       pagination itself (the reason tasks.md puts the cap here rather than
       in the router) and should add its own unit test for that, since no
       other task in tasks.md covers it.
-- [ ] T027 [US1] Add `sync_session`, `sync_track` models and Alembic migration
-      in `engine/src/companion/db/models.py` (data-model.md)
+- [ ] T027 [US1] Add `playlist_link`, `sync_session`, `sync_track` models and
+      Alembic migration in `engine/src/companion/db/models.py` (data-model.md).
+      `playlist_link` moved here from T049 (build finding): `sync_session`
+      FKs into it, and T028 needs it for FR-010's lineage reuse, both before
+      US3 exists.
 - [ ] T028 [US1] Implement `POST /api/sync/sessions` in
       `engine/src/companion/api/sync.py`: fetch playlist, run the matching
       engine, persist `sync_track` rows with status and top-3 candidates,
@@ -392,9 +395,13 @@ apply adds only new tracks, refusals fire when guard conditions fail
       cross-cutting security boundary: the sole write path into `master.db`,
       shared by US3 and US7 (T086). Same T018 ordering note as T046: ensure
       `configure_logging()` has run before this module uses pyrekordbox.
-- [ ] T049 [US3] Add `playlist_link`, `write_log` models and Alembic migration
-      in `engine/src/companion/db/models.py`; `write_log` audits every write
-      (SC-006)
+- [ ] T049 [US3] Add `write_log` model and Alembic migration in
+      `engine/src/companion/db/models.py`; audits every write (SC-006).
+      `playlist_link` moved to T027 (T027 build finding): `sync_session`
+      needs `playlist_link_id` for FR-010's "re-use one Sync Session lineage
+      per Spotify playlist URL", which T028 (US1, `POST /api/sync/sessions`)
+      must satisfy — that's before US3 exists, so `playlist_link` cannot wait
+      for T049.
 - [ ] T050 [US3] Implement `POST /api/sync/sessions/{id}/apply` in
       `engine/src/companion/api/sync.py`: guard → backup → write → readback →
       `write_log` row → `ApplyResult`, emitting the `apply_done` SSE event on

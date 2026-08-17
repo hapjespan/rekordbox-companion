@@ -39,8 +39,10 @@ def test_upgrade_head_creates_the_spotify_auth_table(tmp_path, monkeypatch):
 
 def test_downgrade_removes_only_the_spotify_auth_table(tmp_path, monkeypatch):
     db_path = _alembic(tmp_path, monkeypatch, "upgrade", "head")
-    # Down one step: spotify_auth goes, app_config stays (it is the prior head).
-    _alembic(tmp_path, monkeypatch, "downgrade", "-1")
+    # Target this migration's own revision explicitly, not "-1": head has
+    # grown further migrations since (T027), so "-1 from head" no longer
+    # lands on spotify_auth's own down_revision (T027 build finding).
+    _alembic(tmp_path, monkeypatch, "downgrade", "db38228b032d")
     engine = sa.create_engine(f"sqlite:///{db_path}")
     inspector = sa.inspect(engine)
     tables = inspector.get_table_names()
