@@ -1,9 +1,7 @@
 """T013: in-memory collection index (R6/ADR 0012), rebuilt from reader.py.
 
-norm_artist/norm_title/remix_tokens use a placeholder normalisation until
-T024's FR-004 pipeline exists (tasks.md T013 note) -- these tests pin the
-placeholder's current behaviour so replacing it with the real pipeline is a
-deliberate, visible change here, not a silent one.
+norm_artist/norm_title/remix_tokens are built via matching.normalize's real
+FR-004 pipeline (T024 landed; tasks.md T013 note), not a placeholder.
 """
 
 from companion.rb.index import CollectionIndex
@@ -53,7 +51,7 @@ def test_rebuild_replaces_the_index_wholesale():
     assert [e.rb_content_id for e in index.entries] == ["2"]
 
 
-def test_placeholder_normalization_lowercases_and_strips():
+def test_normalizes_artist_and_title_via_the_real_pipeline():
     index = CollectionIndex()
     index.rebuild([_track(artist="  Daft Punk  ", title="One More Time")])
 
@@ -62,11 +60,11 @@ def test_placeholder_normalization_lowercases_and_strips():
     assert entry.norm_title == "one more time"
 
 
-def test_placeholder_remix_tokens_are_always_empty():
+def test_extracts_remix_tokens_from_the_title_via_the_real_pipeline():
     index = CollectionIndex()
     index.rebuild([_track(title="Track (Club Mix)")])
 
-    assert index.entries[0].remix_tokens == ()
+    assert index.entries[0].remix_tokens == ("club mix",)
 
 
 def test_entries_returns_a_copy_not_the_live_list():

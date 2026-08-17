@@ -93,5 +93,27 @@ def test_extract_remix_tokens_is_case_insensitive():
     assert extract_remix_tokens("Voyager (RADIO EDIT)") == ("radio edit",)
 
 
+def test_extract_remix_tokens_finds_square_bracket_marker():
+    # Beatport/DJ-pool convention alongside parens (T024/T025 review finding:
+    # square brackets were silently invisible to the remix veto, FR-008).
+    assert extract_remix_tokens("Song Title [Extended Mix]") == ("extended mix",)
+
+
+def test_normalize_removes_square_bracket_remix_marker_from_normalized_text():
+    assert normalize("Song Title [Extended Mix]") == "song title"
+
+
+def test_normalize_does_not_wipe_a_title_that_starts_with_a_featuring_keyword():
+    # T024/T025 review finding: the trailing-featuring strip must not fire
+    # when "feat."/"ft." is the very first word, since it isn't a credits
+    # marker there -- it's ordinary title text (e.g. a place name).
+    assert normalize("Ft. Lauderdale") == "ft lauderdale"
+
+
+def test_normalize_does_not_wipe_a_title_that_starts_with_a_bare_year():
+    # Same class of bug as above, for the remaster-suffix strip.
+    assert normalize("2011 Anthem") == "2011 anthem"
+
+
 def test_extract_remix_tokens_ignores_non_remix_bracketed_addition():
     assert extract_remix_tokens("Discovery (Bonus Track)") == ()

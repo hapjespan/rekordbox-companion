@@ -2,14 +2,15 @@
 on demand from rb/reader.py's snapshot, serving matching, search and
 suggestions.
 
-`norm_artist`/`norm_title`/`remix_tokens` use a placeholder normalisation
-(lowercase + strip, empty tokens) until T024's FR-004 pipeline exists
-(tasks.md T013 note). Replace `_placeholder_normalize` with
-`matching.normalize`'s real functions once that lands.
+`norm_artist`/`norm_title`/`remix_tokens` are PRECOMPUTED here via
+`matching.normalize` (FR-004) so `matching.engine.classify_match`'s hot loop
+never re-normalises the collection side per comparison (data-model.md's
+"Matching engine seam" note, ADR 0012).
 """
 
 from dataclasses import dataclass
 
+from companion.matching.normalize import extract_remix_tokens, normalize
 from companion.rb.reader import CollectionTrack
 
 
@@ -28,18 +29,14 @@ class IndexEntry:
     location: str | None
 
 
-def _placeholder_normalize(text: str) -> str:
-    return text.strip().lower()
-
-
 def _build_entry(track: CollectionTrack) -> IndexEntry:
     return IndexEntry(
         rb_content_id=track.rb_content_id,
         artist=track.artist,
         title=track.title,
-        norm_artist=_placeholder_normalize(track.artist),
-        norm_title=_placeholder_normalize(track.title),
-        remix_tokens=(),
+        norm_artist=normalize(track.artist),
+        norm_title=normalize(track.title),
+        remix_tokens=extract_remix_tokens(track.title),
         duration_ms=track.duration_ms,
         bpm=track.bpm,
         isrc=track.isrc,

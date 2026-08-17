@@ -37,12 +37,17 @@ cases:
     expected_status: matched
 
   - id: stub-fuzzy-review-tier
-    description: Fuzzy score between 75 and 92 enters the Review Queue (FR-007).
+    description: >-
+      Fuzzy score between 75 and 92 enters the Review Queue (FR-007). Title
+      updated after T024/T025 landed (was "Example Song (feat. Someone)"):
+      normalize() strips featuring credits entirely, so that title became an
+      exact tier-2 text match instead of a fuzzy tier-3 one, no longer
+      illustrating this case's own point (T024/T025 review finding).
     hard_case: false
     stub_example: true
     spotify:
       artist: Example Artist
-      title: Example Song (feat. Someone)
+      title: Example Melody
       duration_ms: 200000
     collection:
       artist: Example Artist
