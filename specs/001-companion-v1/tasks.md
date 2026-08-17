@@ -53,8 +53,11 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
       the existing `web/design-input/theme.css`
 - [ ] T003 Configure Python linting/formatting in `engine/pyproject.toml`
       (ruff). Not [P] with T001: same file (gate-review finding).
-- [ ] T004 [P] Configure TypeScript linting/formatting in `web/.eslintrc.cjs`
-      and `web/.prettierrc` (respect existing `.prettierignore`)
+- [ ] T004 [P] Configure TypeScript linting/formatting in `web/eslint.config.js`
+      (ESLint 9 flat config — `.eslintrc.cjs` would need ESLint 8, EOL since
+      2024, a violation of "prefer boring, well-supported dependencies";
+      corrected during phase 6 build, standards-review finding) and
+      `web/.prettierrc` (respect existing `.prettierignore`)
 - [ ] T005 Write `Makefile` targets `setup`, `dev`, `test`, `build`, `run` per
       `specs/001-companion-v1/quickstart.md`
 - [ ] T006 Write `scripts/dev.sh` launching `uvicorn 127.0.0.1:8787 --reload`
