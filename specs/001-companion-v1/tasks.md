@@ -338,7 +338,7 @@ only documented keys; both audio sources playable per item (spec.md).
       local candidate preview, path resolved only from `rb_content_id`
       (ASVS V6/V12) [complexity: high] — security boundary: the stream path
       must never accept a client-supplied file path, only the id lookup
-- [ ] T039 [US2] Build `web/src/features/review/ReviewQueue.tsx`: arrows/A/R/
+- [x] T039 [US2] Build `web/src/features/review/ReviewQueue.tsx`: arrows/A/R/
       space wiring, focus never lost on resolve, candidates and scores in
       text (FR-011, WCAG)
 - [ ] T040 [US2] Build `web/src/features/review/DualPlayback.tsx`: local

@@ -4,6 +4,8 @@
 // mounted when the next test in the same file runs -- needed the moment
 // the repo's first component-rendering test (MatchReport.test.tsx, T023)
 // got a real component to render against (T032 finding).
+import "@testing-library/jest-dom/vitest";
+
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
