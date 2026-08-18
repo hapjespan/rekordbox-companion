@@ -541,7 +541,7 @@ fixture file (spec.md).
       corrupt partial reads. Gate-review finding: this risk was originally
       flagged on T038, which doesn't build the pipe; moved to the task that
       actually implements it.
-- [ ] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
+- [x] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
       sortable table, keyboard navigation, AA contrast at dense layout (WCAG).
       Review finding: a plain `<table>` with one tab stop per row (fine for
       MatchReport's read-only report, T032) would force tabbing through up
@@ -551,7 +551,7 @@ fixture file (spec.md).
       tabindex row list instead (ArrowUp/ArrowDown move the active row's
       focus without re-tabbing, ReviewQueue.tsx/T039's technique), inside a
       real `<table>` so screen-reader row/column semantics stay intact.
-- [ ] T065 [P] [US5] Build `web/src/components/PlayerBar.tsx`: progress bar +
+- [x] T065 [P] [US5] Build `web/src/components/PlayerBar.tsx`: progress bar +
       seek only, playing/paused/seek state exposed to assistive tech (WCAG;
       proof-of-value cut: no waveform, per plan.md)
 
