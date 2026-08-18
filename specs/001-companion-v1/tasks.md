@@ -706,7 +706,7 @@ the one documented exception to story independence in this feature.
       suggestions honour a profile's genre tags and BPM filters, rank by Play
       Count descending, exclude tracks with missing BPM from BPM filters
       while reporting the excluded count (edge case)
-- [ ] T079 [P] [US7] Test in `engine/tests/bookings/test_structures.py`:
+- [x] T079 [P] [US7] Test in `engine/tests/bookings/test_structures.py`:
       dismissed suggestions never return for that playlist (FR-034); a node
       already applied to Rekordbox is rename-locked (FR-032, edge case)
 - [ ] T080 [P] [US7] Integration test in
@@ -741,12 +741,12 @@ the one documented exception to story independence in this feature.
       `suggestion_dismissal` rows (FR-034: "dismissed Suggestions never
       return") are a hard exclude. `data-model.md`'s "subtract" reads as
       loose wording for "compare against", not a second exclusion rule.
-- [ ] T084 [US7] Implement `GET/POST /api/structures`,
+- [x] T084 [US7] Implement `GET/POST /api/structures`,
       `PUT/DELETE /api/structures/{id}`,
       `POST/PUT/DELETE /api/structures/{id}/nodes` in
       `engine/src/companion/api/structures.py` (tree editing, FR-032,
       rename-lock on applied nodes)
-- [ ] T085 [US7] Implement
+- [x] T085 [US7] Implement
       `GET /api/structures/{id}/nodes/{nid}/suggestions`,
       `POST .../tracks`, `DELETE .../tracks/{rb_content_id}`,
       `POST .../dismissals` in `engine/src/companion/api/structures.py`
