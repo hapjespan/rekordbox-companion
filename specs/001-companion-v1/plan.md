@@ -110,8 +110,7 @@ engine/
       engine.py          # tiered pipeline, scoring, classification (FR-005..008)
     enrichment/
       source.py          # GenreSource seam (ADR 0013)
-      spotify_genres.py  # adapter 1
-      musicbrainz.py     # adapter 2
+      musicbrainz.py     # sole adapter, tags ranked by count (ADR 0018)
       runner.py          # incremental resumable queue
     integrations/
       spotify.py         # OAuth PKCE, playlist fetch, player token
@@ -180,8 +179,10 @@ cuts depth, and the cuts are these, on the record:
 - **E2E breadth**: Playwright covers the two flows that carry the value claim
   (sync→review→apply and missing→link), not every screen.
 - **Player depth**: no waveforms, no gapless, no preload; progress bar + seek.
-- **Enrichment depth**: if the spike shows Spotify-genres-only clears SC-008,
-  the MusicBrainz adapter is deferred behind its seam rather than built.
+- **Enrichment depth**: the spike (T066) found Spotify artist genres
+  unavailable to this app; MusicBrainz tags is the sole adapter built
+  (ADR 0018), not a Spotify-primary/MusicBrainz-conditional pair as
+  originally planned.
 - **Error-path polish**: guard refusals and form errors are complete (they
   carry safety and WCAG); rarer failures (SSE reconnect edge cases, partial
   Spotify outages) get logs and a generic Dutch error toast, not bespoke UX.

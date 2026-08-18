@@ -1,5 +1,10 @@
 # Genre enrichment: GenreSource seam, incremental resumable runs
 
+**Source ordering superseded by ADR 0018** (phase 6, 2026-08-18): the T066
+coverage spike found Spotify artist genres unavailable to this app in
+practice. The `GenreSource` seam and incremental/resumable run design below
+are unchanged and still current.
+
 Enrichment lives behind one `GenreSource` interface with two designed
 adapters: Spotify artist genres (primary; session already authorized) and
 MusicBrainz genre tags (secondary; open data, 1 request/second). Runs are

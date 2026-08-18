@@ -8,25 +8,41 @@ technical context.
 
 ## R1. Genre enrichment sources
 
-- **Decision**: One `GenreSource` seam with two adapters, tried in order:
-  Spotify artist genres (primary; the app already holds an authorized Spotify
-  session, genres are artist-level, zero extra auth) and MusicBrainz genre tags
-  (secondary; open data, no key, hard rate limit of 1 request/second).
-  Enrichment runs incrementally and resumably (queue with per-track state), not
-  as a bulk pass, because 30.000+ tracks against a 1 req/s source is a
-  multi-hour job that will be interrupted.
-- **Rationale**: Both are free-tier (ADR 0011), both cover mainstream Western
-  pop/dance repertoire well, and artist-level genres are good enough for
-  Booking Profile filtering, which works on coarse tags (spec US7). The seam
-  makes the spike cheap: measure coverage per adapter on the fixture library,
-  drop or add an adapter without touching the orchestrator.
+- **Original decision** (phase 4, superseded by ADR 0018 in phase 6): one
+  `GenreSource` seam with two adapters, tried in order: Spotify artist genres
+  (primary; the app already holds an authorized Spotify session, genres are
+  artist-level, zero extra auth) and MusicBrainz genre tags (secondary; open
+  data, no key, hard rate limit of 1 request/second). Enrichment runs
+  incrementally and resumably (queue with per-track state), not as a bulk
+  pass, because 30.000+ tracks against a 1 req/s source is a multi-hour job
+  that will be interrupted.
+- **Spike result** (T066, 2026-08-18): Spotify artist genres are unavailable
+  to this app in practice -- verified with three live calls against the real
+  Web API. `GET /v1/search?type=artist`'s artist objects and
+  `GET /v1/artists/{id}` (200 OK) both omit `genres` entirely, and
+  `GET /v1/artists?ids=...` (batch) returns 403 Forbidden outright. This is
+  Spotify's November 2024 policy change restricting artist-metadata fields
+  for apps in Development Mode, not a bug here and not something this app
+  controls the timeline for fixing. MusicBrainz's own curated `genres` field
+  is too sparse to use as specced either (verified live: Daft Punk returns
+  zero curated genres); its community `tags` field carries the real signal
+  instead, ranked by count. See ADR 0018.
+- **Current decision**: MusicBrainz `tags` (ranked by count, minimum count
+  threshold) is the sole `GenreSource` adapter. The Spotify adapter is
+  dropped, not stubbed. Last.fm remains available as a reserve adapter behind
+  the same seam if MusicBrainz's real-collection coverage falls short of
+  SC-008.
 - **Alternatives considered**: Last.fm tags (free key, but tags are folksonomy
   noise: "seen live" outranks genres; kept as reserve adapter only), Discogs
   (strict rate limits plus OAuth for meaningful quota), paid providers
-  (killed by ADR 0011).
-- **Spike** (unknown #2): run both adapters over the fixture collection,
-  report coverage % and a 50-track sample for owner judgement against SC-008
-  (≥80% coverage, ≥90% sample quality).
+  (killed by ADR 0011), a Spotify extended-quota request (rejected for v1:
+  external approval, unknown timeline, no code to write while waiting).
+- **Spike** (unknown #2): `engine/scripts/enrichment_coverage_spike.py`,
+  built and run end-to-end against the live MusicBrainz API. Its coverage
+  number against the fixture `master.db` (Rekordbox's own ~119-track demo
+  library) is not a real SC-008 measurement -- that judgement is still owed
+  against the owner's real ~30k+ track collection on the Mac (research.md R3
+  precedent).
 
 ## R2. Spotify full-track playback in the review UI
 

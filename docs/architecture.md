@@ -69,10 +69,11 @@ runner's `enqueue_pending()`, `run(budget) → progress`. Manual overrides are
 not a source: they live in the db module and the runner refuses to touch any
 track that has one (FR-028), so the precedence rule sits in one place.
 
-**Adapters**: `spotify_genres` (primary), `musicbrainz` (secondary,
-1 req/s). The coverage spike (research R1) decides whether the second adapter
-ships in v1 or stays a stub behind the seam — either way the seam exists
-because two adapters are already designed against it.
+**Adapters**: `musicbrainz` (sole adapter, 1 req/s, tags ranked by count).
+The coverage spike (research R1) found Spotify artist genres unavailable to
+this app (ADR 0018 supersedes ADR 0013's Spotify-primary ordering); the seam
+still exists so a reserve adapter (Last.fm) can be added without a redesign
+if MusicBrainz's real-collection coverage falls short of SC-008.
 
 **Locality**: free-tier rate limiting, retry and resumability (ADR 0011/0013)
 are runner implementation; a new source is a new adapter, not a redesign.

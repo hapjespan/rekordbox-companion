@@ -17,9 +17,11 @@ is independently implementable and testable, per `docs/process/05-tasks.md`.
 are written into the specific tasks they affect, not asserted separately:
 Playwright covers only the two value-carrying flows (T033+T052 for
 sync→review→apply, T107 for missing→link), player depth stops at
-progress+seek (T065), the MusicBrainz adapter is conditional on the R1 spike
-(T072), and no task adds optimisation beyond the stated 30s/100ms/40k
-numbers.
+progress+seek (T065), and no task adds optimisation beyond the stated
+30s/100ms/40k numbers. The R1 spike (T066) found Spotify artist genres
+unavailable to this app (ADR 0018): the MusicBrainz adapter (T072) is the
+sole Enriched Genre source, not conditional, and the Spotify adapter task
+(originally T071) is dropped.
 
 **Owner-supplied inputs still owed** (grilling D10, `quickstart.md`): fixture
 `master.db` + SQLCipher key or decrypted export, `SPOTIFY_CLIENT_ID`,
@@ -601,13 +603,39 @@ permanent manual override.
 **Independent Test**: Enrich a fixture Collection, measure coverage, exercise
 manual override, confirm `master.db` bytes unchanged after (spec.md).
 
-- [ ] T066 [US6] R1 spike in `engine/scripts/enrichment_coverage_spike.py`:
+- [x] T066 [US6] R1 spike in `engine/scripts/enrichment_coverage_spike.py`:
       run the Spotify-genres and MusicBrainz adapters over the fixture
       collection, report coverage % and a 50-track sample for owner judgement
       against SC-008 (≥80% coverage, ≥90% sample quality). If Spotify-genres-
       only clears SC-008, defer the MusicBrainz adapter behind its seam
       rather than build it (proof-of-value cut, plan.md; research.md R1,
       unknown #2)
+
+      **Reconciliation (2026-08-18)**: Spotify artist genres turned out to be
+      unavailable to this app at all, verified with three live calls against
+      the real Web API (`/v1/search`'s artist objects and `/v1/artists/{id}`
+      both omit `genres` entirely; `/v1/artists?ids=...` batch returns 403) --
+      a Spotify Development Mode restriction (their Nov 2024 policy change),
+      not something this codebase can fix. MusicBrainz's own curated `genres`
+      field is too sparse to use either (verified live: Daft Punk returns
+      zero), so the script measures its community `tags` field instead,
+      ranked by count -- a real, different design than originally specced.
+      ADR 0018 records this and supersedes ADR 0013's source ordering; the
+      user chose "MusicBrainz tags becomes primary" over adding Last.fm or
+      pursuing a Spotify extended-quota request.
+
+      The script itself is built, respects the 1 req/s limit (ADR 0013) with
+      retry-with-backoff on MusicBrainz's routine 503s, and was run
+      end-to-end against `engine/tests/fixtures/master.db` successfully
+      (16 unique artists, 1 real API round-trip each). Its coverage number
+      from that run (1.1% track-level) is **not a real SC-008 measurement**:
+      the fixture is Rekordbox's own ~119-track demo library (jingles, a
+      "rekordbox"-attributed sample track, one multi-artist string
+      "Zombie Nation, James Hype, Sean Paul" that the adapter will need to
+      split on comma before lookup), not the owner's real collection. A real
+      go/no-go against SC-008's ≥80%/≥90% thresholds is still owed on the
+      owner's Mac against the full ~30k+ track library (research.md R3
+      precedent: anything needing the real install is verified there).
 
 ### Tests for User Story 6
 
@@ -625,11 +653,20 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
 
 - [ ] T070 [US6] Implement `engine/src/companion/enrichment/source.py`:
       `GenreSource` seam (ADR 0013)
-- [ ] T071 [P] [US6] Implement `engine/src/companion/enrichment/spotify_genres.py`
-      adapter
-- [ ] T072 [P] [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
-      adapter at 1 req/s, only if T066's spike keeps it in scope
-      (proof-of-value cut, plan.md)
+- [x] T071 [P] [US6] ~~Implement `engine/src/companion/enrichment/spotify_genres.py`
+      adapter~~ Dropped, not built: T066's spike found Spotify artist genres
+      unavailable to this app (ADR 0018). No code path would make this start
+      working without an external, uncontrollable Spotify extended-quota
+      approval.
+- [ ] T072 [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
+      adapter at 1 req/s (ADR 0013), reading the community `tags` field
+      ranked by count (ADR 0018 -- not the curated `genres` field, which is
+      too sparse). Sole adapter behind the `GenreSource` seam, no longer
+      conditional. Split Rekordbox's comma-joined multi-artist `Artist.Name`
+      strings (e.g. "Zombie Nation, James Hype, Sean Paul") before lookup --
+      found in T066's spike run, MusicBrainz has no artist by that combined
+      name. Not [P]: was paired with the now-dropped T071 for parallel
+      writing to different files; alone, no longer applicable.
 - [ ] T073 [US6] Implement `engine/src/companion/enrichment/runner.py`:
       incremental, resumable queue over `enrichment_state` (data-model.md)
 - [ ] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
