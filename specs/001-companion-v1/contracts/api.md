@@ -89,7 +89,7 @@ itunes_url_chosen, effective_url, no_link_found: bool}`.
 |---|---|---|
 | GET/POST `/api/profiles`; PUT/DELETE `/api/profiles/{id}` | name, bpm range, `genre_tags: [text]` | profile CRUD (FR-031) |
 | GET/POST `/api/structures`; PUT/DELETE `/api/structures/{id}` | name, profile ref | structure CRUD |
-| POST `/api/structures/{id}/nodes`; PUT/DELETE `/api/structures/{id}/nodes/{nid}` | kind, name, parent, position, set_phase | tree editing (FR-032) |
+| GET `/api/structures/{id}/nodes`; POST `/api/structures/{id}/nodes`; PUT/DELETE `/api/structures/{id}/nodes/{nid}` | kind, name, parent, position, set_phase | tree editing (FR-032); GET lists the structure's tree, ordered by position -- added during phase 6 build (T087/T088 finding), a client cannot render or edit a tree it can never fetch |
 | GET `/api/structures/{id}/nodes/{nid}/suggestions` | `?limit=` | `[Suggestion]` filtered by profile, ranked by play count, flags `already_in_playlist` (FR-033) |
 | POST `/api/structures/{id}/nodes/{nid}/tracks` | `{rb_content_id, origin}` | accept into playlist |
 | DELETE `/api/structures/{id}/nodes/{nid}/tracks/{rb_content_id}` | – | remove from (unapplied) playlist node |

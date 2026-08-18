@@ -809,7 +809,7 @@ the one documented exception to story independence in this feature.
       `web/tests/e2e/missing-link.spec.ts` from T107) as the CI-facing
       regression guard for the two core flows (proof-of-value e2e budget,
       plan.md)
-- [ ] T098 [P] Verify all user-facing SPA copy is Dutch (FR-038) across every
+- [x] T098 [P] Verify all user-facing SPA copy is Dutch (FR-038) across every
       component in `web/src/features/` and `web/src/components/`: labels,
       button text, empty states, toasts and error messages; only `code`
       values in API errors and code identifiers stay English (contracts/api.md

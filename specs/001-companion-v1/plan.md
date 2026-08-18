@@ -159,7 +159,7 @@ decision or an explicitly accepted risk with an owner.
 | Playback start unbounded (accepted) | no preloading work in v1; owner accepted |
 | Best-effort availability, restart as recovery | no supervisor, no health-restart logic; documented in quickstart. Risk accepted, owner: Martien |
 | Rotating zipped backups, newest 10 (ADR 0016) | `backup.py` creates zip, verifies readability, then prunes beyond 10 — prune runs only after a verified create; disk headroom check in `guard.py` refuses writes when a backup would not fit |
-| Free-tier-only services (ADR 0011) | GenreSource adapters: Spotify genres + MusicBrainz at 1 req/s; enrichment incremental + resumable (ADR 0013) |
+| Free-tier-only services (ADR 0011) | GenreSource adapter: MusicBrainz at 1 req/s, sole adapter (ADR 0018 supersedes ADR 0013's Spotify-primary ordering -- the R1 spike found Spotify artist genres unavailable to this app); enrichment incremental + resumable (ADR 0013) |
 | No deadline | spikes ordered first anyway: they gate design, not dates |
 | NIS2 logging plan | structured logs from `guard`/`backup`/`writer` + `write_log` table; token/key redaction is a log-formatter property, tested |
 | ASVS V2/V3/V4 (auth, session, access) | no app auth (out of scope, recorded); tokens in `spotify_auth` with owner-only file perms; disconnect endpoint is the deletion path |
