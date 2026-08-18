@@ -64,6 +64,9 @@ def test_run_target_serves_production_mode():
 
 
 def test_dev_and_run_share_the_same_uvicorn_invocation():
-    base_command = "uv run uvicorn companion.main:app --host 127.0.0.1 --port 8787"
+    # DEV_HOST lets the containerized dev environment bind 0.0.0.0
+    # (docker-compose.yml) while the real deployment target (the DJ's Mac,
+    # no container) keeps the 127.0.0.1-only default.
+    base_command = "uv run uvicorn companion.main:app --host ${DEV_HOST:-127.0.0.1} --port 8787"
     assert base_command in _make_dry_run("dev")
     assert base_command in _make_dry_run("run")

@@ -156,3 +156,37 @@ class AppConfig(Base):
 
     key: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[str]
+
+
+class EnrichedGenre(Base):
+    """One genre tag for one track, from one source (data-model.md
+    `enriched_genre`). Multiple rows per `rb_content_id` allowed (multiple
+    genres per track). `source == "manual"` is the permanent override: any
+    track with a manual row is never touched by an enrichment run again
+    (FR-028), enforced by `enrichment.source.has_manual_override`.
+    """
+
+    __tablename__ = "enriched_genre"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rb_content_id: Mapped[str] = mapped_column(index=True)
+    genre: Mapped[str]  # normalised lowercase tag
+    source: Mapped[str]  # spotify, musicbrainz, manual
+    updated_at: Mapped[datetime]
+
+
+class EnrichmentState(Base):
+    """Per-track enrichment queue state (data-model.md `enrichment_state`),
+    what makes a run incremental and resumable (ADR 0013): a run only
+    processes tracks whose state is missing or `pending`/`failed`, never
+    tracks already `done` or `none_found`.
+    """
+
+    __tablename__ = "enrichment_state"
+
+    rb_content_id: Mapped[str] = mapped_column(primary_key=True)
+    # pending -> done | none_found | failed. failed is retryable (re-enqueued
+    # the same as pending); done and none_found are terminal for a run.
+    status: Mapped[str] = mapped_column(default="pending")
+    attempted_at: Mapped[datetime | None]
+    last_source: Mapped[str | None]
