@@ -717,12 +717,12 @@ the one documented exception to story independence in this feature.
 
 ### Implementation for User Story 7
 
-- [ ] T081 [US7] Add `booking_profile`, `booking_profile_genre_tag`,
+- [x] T081 [US7] Add `booking_profile`, `booking_profile_genre_tag`,
       `structure`, `structure_node`, `structure_track`,
       `suggestion_dismissal` models and Alembic migration in
       `engine/src/companion/db/models.py`, seeded profiles (horeca,
       bruiloft, prive, thema, FR-031)
-- [ ] T082 [P] [US7] Implement `GET/POST /api/profiles`,
+- [x] T082 [P] [US7] Implement `GET/POST /api/profiles`,
       `PUT/DELETE /api/profiles/{id}` in `engine/src/companion/api/profiles.py`
       (FR-031)
 - [x] T083 [US7] Implement `engine/src/companion/bookings/models.py`:
