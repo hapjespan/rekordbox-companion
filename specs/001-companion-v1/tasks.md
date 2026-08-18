@@ -639,26 +639,26 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
 
 ### Tests for User Story 6
 
-- [ ] T067 [P] [US6] Test in `engine/tests/enrichment/test_source.py`: a
+- [x] T067 [P] [US6] Test in `engine/tests/enrichment/test_source.py`: a
       manual genre override is never overwritten by a later enrichment run
       (FR-028)
-- [ ] T068 [P] [US6] Test in `engine/tests/enrichment/test_runner.py`: an
+- [x] T068 [P] [US6] Test in `engine/tests/enrichment/test_runner.py`: an
       enrichment run leaves `master.db` byte-for-byte unchanged (FR-030,
       Principle III)
-- [ ] T069 [US6] Test in `engine/tests/enrichment/test_runner.py`: an
+- [x] T069 [US6] Test in `engine/tests/enrichment/test_runner.py`: an
       interrupted enrichment run resumes without redoing done tracks
       (ADR 0013). Not [P] with T068: same file (gate-review finding).
 
 ### Implementation for User Story 6
 
-- [ ] T070 [US6] Implement `engine/src/companion/enrichment/source.py`:
+- [x] T070 [US6] Implement `engine/src/companion/enrichment/source.py`:
       `GenreSource` seam (ADR 0013)
 - [x] T071 [P] [US6] ~~Implement `engine/src/companion/enrichment/spotify_genres.py`
       adapter~~ Dropped, not built: T066's spike found Spotify artist genres
       unavailable to this app (ADR 0018). No code path would make this start
       working without an external, uncontrollable Spotify extended-quota
       approval.
-- [ ] T072 [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
+- [x] T072 [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
       adapter at 1 req/s (ADR 0013), reading the community `tags` field
       ranked by count (ADR 0018 -- not the curated `genres` field, which is
       too sparse). Sole adapter behind the `GenreSource` seam, no longer
@@ -667,9 +667,9 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
       found in T066's spike run, MusicBrainz has no artist by that combined
       name. Not [P]: was paired with the now-dropped T071 for parallel
       writing to different files; alone, no longer applicable.
-- [ ] T073 [US6] Implement `engine/src/companion/enrichment/runner.py`:
+- [x] T073 [US6] Implement `engine/src/companion/enrichment/runner.py`:
       incremental, resumable queue over `enrichment_state` (data-model.md)
-- [ ] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
+- [x] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
       migration in `engine/src/companion/db/models.py`
 - [ ] T075 [US6] Implement `POST /api/enrichment/run`,
       `GET /api/enrichment/status`, `GET /api/enrichment/unenriched`,
