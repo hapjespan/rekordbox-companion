@@ -483,6 +483,211 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/profiles": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Profiles */
+    get: operations["list_profiles_api_profiles_get"];
+    put?: never;
+    /** Create Profile */
+    post: operations["create_profile_api_profiles_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/profiles/{profile_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update Profile */
+    put: operations["update_profile_api_profiles__profile_id__put"];
+    post?: never;
+    /** Delete Profile */
+    delete: operations["delete_profile_api_profiles__profile_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Structures */
+    get: operations["list_structures_api_structures_get"];
+    put?: never;
+    /** Create Structure */
+    post: operations["create_structure_api_structures_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update Structure */
+    put: operations["update_structure_api_structures__structure_id__put"];
+    post?: never;
+    /** Delete Structure */
+    delete: operations["delete_structure_api_structures__structure_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Create Node */
+    post: operations["create_node_api_structures__structure_id__nodes_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes/{node_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Update Node */
+    put: operations["update_node_api_structures__structure_id__nodes__node_id__put"];
+    post?: never;
+    /** Delete Node */
+    delete: operations["delete_node_api_structures__structure_id__nodes__node_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes/{node_id}/suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Suggestions */
+    get: operations["get_suggestions_api_structures__structure_id__nodes__node_id__suggestions_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes/{node_id}/tracks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Add Track */
+    post: operations["add_track_api_structures__structure_id__nodes__node_id__tracks_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes/{node_id}/tracks/{rb_content_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Remove Track */
+    delete: operations["remove_track_api_structures__structure_id__nodes__node_id__tracks__rb_content_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/nodes/{node_id}/dismissals": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Dismiss Suggestion */
+    post: operations["dismiss_suggestion_api_structures__structure_id__nodes__node_id__dismissals_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/structures/{structure_id}/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Apply Structure
+     * @description FR-035/FR-018: guard -> backup -> write -> readback -> write_log ->
+     *     per-node ApplyResult (contracts/api.md), emitting `apply_done` on
+     *     `/api/events`. The exact same guarded write path as
+     *     `sync.apply_sync_session`, calling `writer.apply_structure` for a whole
+     *     folder/playlist tree instead of `writer.apply_playlist` for one playlist.
+     *
+     *     A pre-write refusal (guard or backup_failed) is a 409, nothing touched. A
+     *     write whose readback fails is a 200 -- the write and its backup are real,
+     *     only verification didn't confirm every node; `StructureNode.rb_ref` and
+     *     `structure.last_applied_at` are updated only when EVERY node verified, so a
+     *     partially-verified apply never falsely reads as fully owned by Rekordbox.
+     */
+    post: operations["apply_structure_api_structures__structure_id__apply_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -502,12 +707,14 @@ export interface components {
       /** Playlist Url */
       playlist_url?: string | null;
     };
+    /** DismissalBody */
+    DismissalBody: {
+      /** Rb Content Id */
+      rb_content_id: string;
+    };
     /** GenresBody */
     GenresBody: {
-      /**
-       * Genres
-       * @default []
-       */
+      /** Genres */
       genres: string[];
     };
     /** HTTPValidationError */
@@ -524,6 +731,61 @@ export interface components {
     MissingStatusBody: {
       /** Status */
       status?: string | null;
+    };
+    /** NodeBody */
+    NodeBody: {
+      /** Kind */
+      kind: string;
+      /** Name */
+      name: string;
+      /** Parent Id */
+      parent_id?: number | null;
+      /** Position */
+      position: number;
+      /** Set Phase */
+      set_phase?: string | null;
+    };
+    /** NodeUpdateBody */
+    NodeUpdateBody: {
+      /** Name */
+      name: string;
+      /** Parent Id */
+      parent_id?: number | null;
+      /** Position */
+      position: number;
+      /** Set Phase */
+      set_phase?: string | null;
+    };
+    /** ProfileBody */
+    ProfileBody: {
+      /** Name */
+      name: string;
+      /** Bpm Min */
+      bpm_min?: number | null;
+      /** Bpm Max */
+      bpm_max?: number | null;
+      /**
+       * Genre Tags
+       * @default []
+       */
+      genre_tags: string[];
+    };
+    /** StructureBody */
+    StructureBody: {
+      /** Name */
+      name: string;
+      /** Booking Profile Id */
+      booking_profile_id?: number | null;
+    };
+    /** TrackBody */
+    TrackBody: {
+      /** Rb Content Id */
+      rb_content_id: string;
+      /**
+       * Origin
+       * @default suggestion
+       */
+      origin: string;
     };
     /** ValidationError */
     ValidationError: {
@@ -1258,6 +1520,517 @@ export interface operations {
         "application/json": components["schemas"]["GenresBody"];
       };
     };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_profiles_api_profiles_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
+  create_profile_api_profiles_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProfileBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_profile_api_profiles__profile_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profile_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProfileBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_profile_api_profiles__profile_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profile_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_structures_api_structures_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
+  create_structure_api_structures_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StructureBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_structure_api_structures__structure_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StructureBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_structure_api_structures__structure_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  create_node_api_structures__structure_id__nodes_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["NodeBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_node_api_structures__structure_id__nodes__node_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["NodeUpdateBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_node_api_structures__structure_id__nodes__node_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_suggestions_api_structures__structure_id__nodes__node_id__suggestions_get: {
+    parameters: {
+      query?: {
+        limit?: number | null;
+      };
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  add_track_api_structures__structure_id__nodes__node_id__tracks_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TrackBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  remove_track_api_structures__structure_id__nodes__node_id__tracks__rb_content_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+        rb_content_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  dismiss_suggestion_api_structures__structure_id__nodes__node_id__dismissals_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DismissalBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  apply_structure_api_structures__structure_id__apply_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description Successful Response */
       200: {
