@@ -35,7 +35,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-void-black px-24 py-24 text-pure-white">
+    <main className="min-h-screen bg-void-black px-24 py-24 text-pure-white">
       <h1 className="text-heading font-bold">Rekordbox Companion</h1>
       <div className="mt-24">
         <SpotifyConnection />
@@ -66,6 +66,6 @@ export function App() {
       <div className="mt-24">
         <BookingWorkspace />
       </div>
-    </div>
+    </main>
   );
 }
