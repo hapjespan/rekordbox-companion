@@ -67,7 +67,10 @@ Apply de-duplicates, spec edge case).
 Status transitions: `review → matched` (accept), `review → rejected` (reject;
 spawns missing_track), `missing → matched` (auto, on re-sync per FR-023).
 `unmatchable` is terminal (no identifiers, spec edge case). `matched` never
-transitions away.
+transitions away. Accept/reject (T037) only ever apply to a track currently
+`review`; attempting either from any other status is refused (409
+`not_in_review`), not silently ignored or re-applied -- only `review` has an
+accept/reject transition listed above at all (T036 build finding).
 
 ### missing_track
 

@@ -327,7 +327,12 @@ only documented keys; both audio sources playable per item (spec.md).
 - [ ] T037 [US2] Implement
       `POST /api/sync/sessions/{id}/tracks/{tid}/accept` and
       `.../reject` in `engine/src/companion/api/sync.py`, persisting the
-      resolution immediately (FR-014)
+      resolution immediately (FR-014). Build finding: reject must spawn a
+      real `missing_track` row (FR-012; T036 tests this; T058 already says
+      "reject→missing_track spawn (from US2, T037)") -- but `missing_track`
+      was originally modelled in T056 (US4), scheduled well after this task.
+      `missing_track` model + Alembic migration move here, ahead of T056,
+      the same playlist_link-ahead-of-T049 pattern from T027.
 - [ ] T038 [US2] Implement `engine/src/companion/audio/stream.py`:
       `GET /api/player/stream/{rb_content_id}` with HTTP Range support for
       local candidate preview, path resolved only from `rb_content_id`
@@ -468,8 +473,10 @@ statuses persist, an acquired track leaves the queue on re-sync (spec.md).
 - [ ] T055 [US4] Implement `engine/src/companion/integrations/itunes.py`:
       iTunes Search API lookup, `country=NL`, outbound restricted to
       `itunes.apple.com` (ASVS V10/V14 SSRF)
-- [ ] T056 [US4] Add `missing_track` model (UNIQUE per `sync_track`) and
-      Alembic migration in `engine/src/companion/db/models.py`
+- [x] T056 [US4] Add `missing_track` model (UNIQUE per `sync_track`) and
+      Alembic migration in `engine/src/companion/db/models.py`. Moved to
+      T037 (build finding): `missing_track` is needed the moment reject
+      spawns one (FR-012, US2), before US4 exists.
 - [ ] T057 [US4] Implement `GET /api/missing`,
       `POST /api/missing/{id}/status`, `POST /api/missing/{id}/link`,
       `POST /api/missing/refresh-links` in `engine/src/companion/api/missing.py`
