@@ -43,23 +43,22 @@ def test_find_repo_root_raises_when_no_engine_marker_exists(tmp_path):
         pass
 
 
-def test_dotenv_file_is_loaded_if_present(monkeypatch):
+def test_dotenv_file_is_loaded_if_present(tmp_path, monkeypatch):
     import os
 
     import companion.config as config_module
 
+    # Phase 7 review finding: this test used to append to and rewrite the
+    # repo's real gitignored .env, so a crash before the finally-restore
+    # could corrupt the developer's secrets file, and parallel test runs
+    # raced on the same file. load_dotenv() takes the path as an argument
+    # (see companion.config's own call below `ENV_PATH`), so point it at a
+    # throwaway tmp_path file instead -- no real file is ever touched.
     monkeypatch.delenv("COMPANION_TEST_ENV_PROBE", raising=False)
-    env_file = config_module.REPO_ROOT / ".env"
-    existed_before = env_file.exists()
-    original = env_file.read_text() if existed_before else ""
+    env_file = tmp_path / ".env"
+    env_file.write_text("COMPANION_TEST_ENV_PROBE=present\n")
 
-    env_file.write_text(original + "\nCOMPANION_TEST_ENV_PROBE=present\n")
-    try:
-        config_module.load_dotenv(env_file, override=True)
-        assert os.environ["COMPANION_TEST_ENV_PROBE"] == "present"
-    finally:
-        if existed_before:
-            env_file.write_text(original)
-        else:
-            env_file.unlink()
-        monkeypatch.delenv("COMPANION_TEST_ENV_PROBE", raising=False)
+    config_module.load_dotenv(env_file, override=True)
+
+    assert os.environ["COMPANION_TEST_ENV_PROBE"] == "present"
+    monkeypatch.delenv("COMPANION_TEST_ENV_PROBE", raising=False)

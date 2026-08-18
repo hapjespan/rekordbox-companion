@@ -196,11 +196,15 @@ def test_read_collection_snapshot_handles_missing_optional_fields():
 
 
 def test_read_playlist_tree_maps_folders_and_playlists():
+    # The top folder's own id is deliberately NOT the literal string "root"
+    # here: pyrekordbox reserves that value as the top-level sentinel (see
+    # test_read_playlist_tree_maps_the_root_sentinel_parent_id_to_none
+    # below), so a real folder never has "root" as its own id.
     db = _FakeRekordboxDatabase(
         contents=[],
         playlists=[
-            _FakePlaylist(ID="root", name="Bookings", is_folder=True, seq=1),
-            _FakePlaylist(ID="child", name="Horeca", parent_id="root", is_folder=False, seq=2),
+            _FakePlaylist(ID="folder1", name="Bookings", is_folder=True, seq=1),
+            _FakePlaylist(ID="child", name="Horeca", parent_id="folder1", is_folder=False, seq=2),
         ],
     )
 
@@ -208,9 +212,26 @@ def test_read_playlist_tree_maps_folders_and_playlists():
 
     assert len(nodes) == 2
     root, child = nodes
-    assert root.rb_playlist_id == "root"
+    assert root.rb_playlist_id == "folder1"
     assert root.name == "Bookings"
     assert root.parent_id is None
     assert root.is_folder is True
-    assert child.parent_id == "root"
+    assert child.parent_id == "folder1"
     assert child.is_folder is False
+
+
+def test_read_playlist_tree_maps_the_root_sentinel_parent_id_to_none():
+    # pyrekordbox reports a top-level node's ParentID as the literal string
+    # "root" (db6/database.py), not None/empty. A falsy-only check would
+    # leave this node's parent_id as "root", matching no other node and
+    # breaking hierarchy reconstruction (phase 7 review finding).
+    db = _FakeRekordboxDatabase(
+        contents=[],
+        playlists=[
+            _FakePlaylist(ID="1", name="Top Level", parent_id="root", is_folder=False, seq=1),
+        ],
+    )
+
+    nodes = read_playlist_tree(db)
+
+    assert nodes[0].parent_id is None

@@ -28,6 +28,18 @@ def test_setup_target_syncs_both_projects():
     assert "pnpm install" in plan
 
 
+def test_setup_target_applies_database_migrations():
+    # Phase 7 review finding: nothing in the repo ever ran `alembic upgrade
+    # head` -- a fresh checkout's data/app.sqlite had no tables, so the
+    # first config/DB-touching request after `make setup` failed with
+    # "no such table" on a real install. Migrations must run after `uv
+    # sync` (alembic itself lives in the engine's dev dependencies) and
+    # before anything else needs the database.
+    plan = _make_dry_run("setup")
+    assert "alembic upgrade head" in plan
+    assert plan.index("uv sync") < plan.index("alembic upgrade head")
+
+
 def test_setup_target_installs_the_pre_commit_hook():
     plan = _make_dry_run("setup")
     assert "pre-commit-hook.sh" in plan

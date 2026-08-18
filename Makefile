@@ -10,6 +10,7 @@ UVICORN = uv run uvicorn companion.main:app --host $${DEV_HOST:-127.0.0.1} --por
 
 setup:
 	cd engine && uv sync
+	cd engine && uv run alembic upgrade head
 	cd web && pnpm install
 	cp scripts/pre-commit-hook.sh .git/hooks/pre-commit
 	chmod +x .git/hooks/pre-commit

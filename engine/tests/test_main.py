@@ -58,17 +58,36 @@ def test_starts_without_a_built_spa_present(tmp_path, monkeypatch):
     assert client.app is not None
 
 
+def _client_with_raising_route(path: str, exc: HTTPException) -> TestClient:
+    """A client on a real `create_app()` with one extra route that raises.
+
+    The route has to be moved ahead of whatever `create_app()` registered
+    last, because when `web/dist` exists the factory mounts the built SPA at
+    `/` as a catch-all and Starlette matches in registration order: a route
+    appended after the factory is swallowed. Without this, these two tests
+    passed only on a machine that had never built the frontend, which is why
+    they went green in CI (where the backend job never builds `web/`) and red
+    the moment anyone ran `make build` locally. Found in phase 7 review.
+    """
+    app = create_app()
+
+    @app.get(path)
+    def _raises():
+        raise exc
+
+    app.router.routes.insert(0, app.router.routes.pop())
+    return TestClient(app)
+
+
 def test_http_exceptions_return_the_flat_error_shape():
     # contracts/api.md's convention is {code, message, field?}, not
     # FastAPI's default {"detail": {...}} envelope (T016 review finding:
     # the first error path in the API set the wrong precedent for it).
-    app = create_app()
+    client = _client_with_raising_route(
+        "/raises-for-test",
+        HTTPException(status_code=409, detail={"code": "example", "message": "why"}),
+    )
 
-    @app.get("/raises-for-test")
-    def _raises():
-        raise HTTPException(status_code=409, detail={"code": "example", "message": "why"})
-
-    client = TestClient(app)
     response = client.get("/raises-for-test")
 
     assert response.status_code == 409
@@ -81,13 +100,11 @@ def test_http_exceptions_with_a_plain_string_detail_still_get_a_code():
     # own shorthand `HTTPException(404, "not found")`); the fallback branch
     # must still produce a valid, flat envelope rather than leaking a bare
     # string or crashing.
-    app = create_app()
+    client = _client_with_raising_route(
+        "/raises-plain-string-for-test",
+        HTTPException(status_code=404, detail="not found"),
+    )
 
-    @app.get("/raises-plain-string-for-test")
-    def _raises():
-        raise HTTPException(status_code=404, detail="not found")
-
-    client = TestClient(app)
     response = client.get("/raises-plain-string-for-test")
 
     assert response.status_code == 404

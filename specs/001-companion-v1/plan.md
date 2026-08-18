@@ -11,10 +11,11 @@ four capabilities: matching Spotify playlists against a 30.000+ track Rekordbox
 Collection (fuzzy-primary pipeline gated by a golden set), a guarded add-only
 write path into `master.db` via pyrekordbox, a missing-tracks-to-store-links
 queue, and hand-designed booking structures fed by app-side genre enrichment.
-The architecture is organised around five seams (see
+The architecture is organised around six seams (see
 `docs/architecture.md`): the `rb` interface over pyrekordbox, the pure matching
-engine, the `GenreSource` enrichment seam, the external-API integrations, and
-the OpenAPI schema between engine and SPA. Three spikes precede feature depth:
+engine, the `GenreSource` enrichment seam, the external-API integrations, the
+OpenAPI schema between engine and SPA, and Suggestions (pure booking-structure
+filtering over the collection index). Three spikes precede feature depth:
 pyrekordbox 7.2.17 write compatibility, enrichment coverage, and the Spotify
 Web Playback SDK on localhost (research R1-R3).
 

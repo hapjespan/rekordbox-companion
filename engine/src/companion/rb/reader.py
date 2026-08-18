@@ -145,13 +145,24 @@ class _PlaylistSource(Protocol):
     def get_playlist(self): ...
 
 
+def _normalize_parent_id(parent_id: str | None) -> str | None:
+    """pyrekordbox represents a top-level node's parent as the literal
+    string `"root"` (db6/database.py), not `None`/empty -- on a real
+    master.db a falsy-only check leaves every top-level node's parent_id as
+    `"root"`, matching no other node's id and breaking the hierarchy
+    reconstruction contracts/api.md promises for GET /api/playlists (phase
+    7 review finding). Map both falsy values and the `"root"` sentinel to
+    `None`."""
+    return None if not parent_id or parent_id == "root" else parent_id
+
+
 def read_playlist_tree(db: _PlaylistSource) -> list[PlaylistNode]:
     """The full playlist/folder tree, flat (each node carries its parent id)."""
     return [
         PlaylistNode(
             rb_playlist_id=playlist.ID,
             name=playlist.Name or "",
-            parent_id=playlist.ParentID or None,
+            parent_id=_normalize_parent_id(playlist.ParentID),
             is_folder=playlist.is_folder,
             position=playlist.Seq or 0,
         )

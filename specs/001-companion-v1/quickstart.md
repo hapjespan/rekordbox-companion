@@ -21,11 +21,16 @@ code; this is the validation script.
 ## Run
 
 ```bash
-make setup   # uv sync + pnpm install + hooks
+make setup   # uv sync + alembic upgrade head + pnpm install + hooks
 make dev     # uvicorn 127.0.0.1:8787 --reload + vite dev proxy
 make test    # pytest + vitest
 make build && make run   # production mode: SPA served by FastAPI
 ```
+
+`make setup` applies every Alembic migration to `data/app.sqlite` (created if
+absent), so `make dev`/`make run` always start against an up-to-date schema.
+Re-run `make setup` (or, from `engine/`, `uv run alembic upgrade head`
+directly) after pulling changes that add a new migration.
 
 `/api/health` must report `version_pin_ok: true` against the fixture, and
 `ffmpeg_ok: true`.

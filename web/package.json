@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint src tests --max-warnings=0",
     "format:check": "prettier --check src tests",
-    "openapi": "openapi-typescript http://127.0.0.1:8787/openapi.json -o src/api/generated/schema.d.ts"
+    "openapi": "uv run --project ../engine python -c \"import json; from companion.main import create_app; open('.openapi.json', 'w').write(json.dumps(create_app().openapi()))\" && openapi-typescript .openapi.json -o src/api/generated/schema.d.ts && prettier --write src/api/generated/schema.d.ts && rm .openapi.json"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
