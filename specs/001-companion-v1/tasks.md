@@ -495,7 +495,7 @@ statuses persist, an acquired track leaves the queue on re-sync (spec.md).
 - [x] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
       Link + copy action, status controls, manual override input with
       field-naming errors (WCAG)
-- [ ] T107 [US4] Playwright smoke e2e in `web/tests/e2e/missing-link.spec.ts`
+- [x] T107 [US4] Playwright smoke e2e in `web/tests/e2e/missing-link.spec.ts`
       covering the missing→link flow: a completed sync with Missing Tracks
       shows the queue, a Store Link resolves and copies (second of the two
       proof-of-value e2e flows, plan.md). Gate-review finding: this flow was

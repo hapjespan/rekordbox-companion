@@ -153,10 +153,22 @@ export function MissingQueue() {
   const [tracks, setTracks] = useState<MissingTrackDto[] | null>(null);
 
   async function refresh() {
-    const { data } = await apiClient.GET("/api/missing", {
-      params: { query: { status: "open" } },
-    });
-    setTracks(asApiResponse<MissingTrackDto[]>(data));
+    // A network-level failure (not an HTTP error response, which
+    // openapi-fetch already surfaces as `data: undefined, error: {...}`)
+    // rejects the fetch call itself; since this queue is mounted
+    // unconditionally on every page (T107 finding), it must degrade to
+    // "show nothing yet" rather than crash the rest of the page. The `?? []`
+    // on the success branch covers the HTTP-error case the same way
+    // (`data` is `undefined` there too) -- both failure shapes end up as an
+    // empty queue rather than a render crash on `tracks.length`.
+    try {
+      const { data } = await apiClient.GET("/api/missing", {
+        params: { query: { status: "open" } },
+      });
+      setTracks(asApiResponse<MissingTrackDto[]>(data) ?? []);
+    } catch {
+      setTracks((current) => current ?? []);
+    }
   }
 
   useEffect(() => {

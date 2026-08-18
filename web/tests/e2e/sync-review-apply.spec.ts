@@ -21,6 +21,10 @@ test("pasting a playlist URL renders the match report", async ({ page }) => {
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
+  // MissingQueue (T107) is mounted unconditionally on every page load;
+  // this spec isn't about the Missing Tracks queue, so it always starts
+  // empty here (missing-link.spec.ts exercises the queue itself).
+  await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") {
@@ -114,6 +118,10 @@ test("applying a synced session confirms, writes, and shows the backup result", 
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
+  // MissingQueue (T107) is mounted unconditionally on every page load;
+  // this spec isn't about the Missing Tracks queue, so it always starts
+  // empty here (missing-link.spec.ts exercises the queue itself).
+  await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") return route.continue();

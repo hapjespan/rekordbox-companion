@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { apiClient } from "./api/client";
+import { MissingQueue } from "./features/missing/MissingQueue";
 import { ApplyAction } from "./features/spotify-sync/ApplyAction";
 import { MatchReport } from "./features/spotify-sync/MatchReport";
 import { PlaylistUrlForm } from "./features/spotify-sync/PlaylistUrlForm";
@@ -8,11 +9,13 @@ import { SpotifyConnection } from "./features/spotify-sync/SpotifyConnection";
 import { asApiResponse } from "./features/spotify-sync/types";
 import type { SyncSession, SyncSessionDetail } from "./features/spotify-sync/types";
 
-// Minimal US1/US3-only wiring (T032 build finding, extended by T052): no
-// router, no nav -- premature before a fourth user story's UI exists.
-// Assembles PlaylistUrlForm -> MatchReport -> ApplyAction, plus
-// SpotifyConnection, so T033/T052's e2e tests have a real page to click
-// through.
+// Minimal US1/US3/US4-only wiring (T032 build finding, extended by
+// T052/T107): no router, no nav -- premature before a fifth user story's UI
+// exists. Assembles PlaylistUrlForm -> MatchReport -> ApplyAction, plus
+// SpotifyConnection and MissingQueue (not session-scoped: the Missing
+// Tracks queue spans every playlist lineage, per contracts/api.md's
+// `GET /api/missing` having no session id), so T033/T052/T107's e2e tests
+// have a real page to click through.
 export function App() {
   const [session, setSession] = useState<SyncSessionDetail | null>(null);
 
@@ -50,6 +53,9 @@ export function App() {
           />
         </div>
       )}
+      <div className="mt-24">
+        <MissingQueue />
+      </div>
     </div>
   );
 }

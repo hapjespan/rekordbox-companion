@@ -176,6 +176,16 @@ describe("MissingQueue", () => {
     expect(await screen.findByText("Geen openstaande ontbrekende nummers.")).toBeInTheDocument();
   });
 
+  it("degrades to the empty view instead of crashing when the fetch itself fails", async () => {
+    // T107 finding: this queue is mounted unconditionally on every page,
+    // so a network-level failure (not an HTTP error response) must not
+    // crash the surrounding page.
+    vi.mocked(apiClient.GET).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<MissingQueue />);
+
+    expect(await screen.findByText("Geen openstaande ontbrekende nummers.")).toBeInTheDocument();
+  });
+
   it("clicking refresh-links re-runs lookups and reloads the list", async () => {
     mockList([TRACK_WITH_LINK]);
     vi.mocked(apiClient.POST).mockResolvedValue({ data: {}, error: undefined } as never);
