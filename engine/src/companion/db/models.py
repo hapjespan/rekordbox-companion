@@ -128,6 +128,24 @@ class MissingTrack(Base):
     resolved_at: Mapped[datetime | None]
 
 
+class WriteLog(Base):
+    """Audit trail for every guarded write to `master.db` (data-model.md
+    `write_log`; NIS2 logging, SC-006). T049 (US3): built alongside T044/T096's
+    RED contract tests so they fail on missing behaviour (no route yet),
+    not a missing model import.
+    """
+
+    __tablename__ = "write_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str]  # sync_apply, structure_apply
+    subject_id: Mapped[int]  # session id or structure id, per `kind`
+    backup_path: Mapped[str]
+    readback_ok: Mapped[bool]
+    detail: Mapped[dict] = mapped_column(sa.JSON, default=dict)  # counts written, ids created
+    created_at: Mapped[datetime]
+
+
 class AppConfig(Base):
     """Key/value config: paths, pinned Rekordbox version, auto-match bar
     overrides if ever needed (data-model.md). A missing key means "use the
