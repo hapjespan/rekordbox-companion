@@ -190,3 +190,95 @@ class EnrichmentState(Base):
     status: Mapped[str] = mapped_column(default="pending")
     attempted_at: Mapped[datetime | None]
     last_source: Mapped[str | None]
+
+
+class BookingProfile(Base):
+    """A named filter preset for Suggestions (data-model.md `booking_profile`,
+    FR-031). Seeded rows (horeca, bruiloft, prive, thema) start with no genre
+    tags and no BPM range -- ADR 0008/FR-036 forbid the system having an
+    opinion about what genres or tempo belong to a booking type; the DJ
+    configures each profile themselves.
+    """
+
+    __tablename__ = "booking_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    slug: Mapped[str] = mapped_column(unique=True)
+    bpm_min: Mapped[int | None]
+    bpm_max: Mapped[int | None]
+
+
+class BookingProfileGenreTag(Base):
+    """Many genre tags per profile (data-model.md `booking_profile_genre_tag`)."""
+
+    __tablename__ = "booking_profile_genre_tag"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(sa.ForeignKey("booking_profile.id"))
+    tag: Mapped[str]
+
+
+class Structure(Base):
+    """One designed Booking Structure (data-model.md `structure`, ADR 0008):
+    a folder/playlist tree the DJ builds by hand, never generated."""
+
+    __tablename__ = "structure"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    booking_profile_id: Mapped[int | None] = mapped_column(sa.ForeignKey("booking_profile.id"))
+    created_at: Mapped[datetime]
+    last_applied_at: Mapped[datetime | None]
+
+
+class StructureNode(Base):
+    """One folder or playlist in a Structure's tree (data-model.md
+    `structure_node`, FR-032). `rb_ref` is set once Apply creates the real
+    Rekordbox folder/playlist for this node, which is what makes a re-apply
+    add-only (FR-018) instead of creating duplicates, and what triggers the
+    rename-lock (FR-032 edge case: an applied node's name is owned by
+    Rekordbox from that point on). `set_phase` is a label shown in the UI
+    (vooravond/mid/prime/sluit) -- never logic, per ADR 0008.
+    """
+
+    __tablename__ = "structure_node"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    structure_id: Mapped[int] = mapped_column(sa.ForeignKey("structure.id"))
+    parent_id: Mapped[int | None] = mapped_column(sa.ForeignKey("structure_node.id"))
+    kind: Mapped[str]  # folder, playlist
+    name: Mapped[str]
+    position: Mapped[int]
+    set_phase: Mapped[str | None]
+    rb_ref: Mapped[str | None]
+
+
+class StructureTrack(Base):
+    """One track in a playlist node (data-model.md `structure_track`).
+    Composite PK, not a synthetic id: a track appears at most once per
+    playlist node, which the PK enforces rather than a separate check.
+    `origin` distinguishes a DJ-accepted Suggestion from a manually-added
+    track -- both are equally real playlist contents, this is display-only.
+    """
+
+    __tablename__ = "structure_track"
+
+    node_id: Mapped[int] = mapped_column(sa.ForeignKey("structure_node.id"), primary_key=True)
+    rb_content_id: Mapped[str] = mapped_column(primary_key=True)
+    position: Mapped[int]
+    origin: Mapped[str]  # suggestion, manual
+
+
+class SuggestionDismissal(Base):
+    """A Suggestion the DJ dismissed for one playlist node (data-model.md
+    `suggestion_dismissal`, FR-034): excluded from that node's Suggestions
+    forever, since Suggestions are computed fresh every time, never stored.
+    Composite PK: dismissing the same track twice for the same node is
+    idempotent, not a second row.
+    """
+
+    __tablename__ = "suggestion_dismissal"
+
+    node_id: Mapped[int] = mapped_column(sa.ForeignKey("structure_node.id"), primary_key=True)
+    rb_content_id: Mapped[str] = mapped_column(primary_key=True)
