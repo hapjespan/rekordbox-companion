@@ -1,3 +1,4 @@
+import { TRACK_STATUS_LABELS, TRACK_STATUS_ORDER } from "./types";
 import type { SyncTotals, TrackStatus } from "./types";
 
 interface MatchReportTrack {
@@ -19,23 +20,13 @@ interface MatchReportProps {
 // text, never colour alone (WCAG; web/tests/features/spotify-sync/
 // MatchReport.test.tsx, T023, pins these exact labels and the
 // "label: count" totals format).
-const STATUS_LABELS: Record<TrackStatus, string> = {
-  matched: "Gematcht",
-  review: "Controleren",
-  missing: "Ontbreekt",
-  rejected: "Afgewezen",
-  unmatchable: "Niet matchbaar",
-};
-
-const TOTALS_ORDER: TrackStatus[] = ["matched", "review", "missing", "rejected", "unmatchable"];
-
 export function MatchReport({ totals, tracks }: MatchReportProps) {
   return (
     <div className="flex flex-col gap-16">
       <ul className="flex flex-wrap gap-16 text-body-lg text-pure-white" aria-label="Totalen">
-        {TOTALS_ORDER.map((status) => (
+        {TRACK_STATUS_ORDER.map((status) => (
           <li key={status}>
-            {STATUS_LABELS[status]}: {totals[status]}
+            {TRACK_STATUS_LABELS[status]}: {totals[status]}
           </li>
         ))}
       </ul>
@@ -59,7 +50,7 @@ export function MatchReport({ totals, tracks }: MatchReportProps) {
             <tr key={track.position} className="border-t border-iron">
               <td className="px-8 py-8">{track.artist}</td>
               <td className="px-8 py-8">{track.title}</td>
-              <td className="px-8 py-8">{STATUS_LABELS[track.status]}</td>
+              <td className="px-8 py-8">{TRACK_STATUS_LABELS[track.status]}</td>
             </tr>
           ))}
         </tbody>

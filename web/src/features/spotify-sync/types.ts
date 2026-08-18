@@ -18,6 +18,25 @@ export function asApiResponse<T>(data: unknown): T {
 
 export type TrackStatus = "matched" | "review" | "missing" | "rejected" | "unmatchable";
 
+// Shared Dutch labels/order for a totals breakdown (T032's MatchReport and
+// T041's QueueComplete both render "label: count" for the same five
+// statuses; a single source avoids the two drifting apart).
+export const TRACK_STATUS_LABELS: Record<TrackStatus, string> = {
+  matched: "Gematcht",
+  review: "Controleren",
+  missing: "Ontbreekt",
+  rejected: "Afgewezen",
+  unmatchable: "Niet matchbaar",
+};
+
+export const TRACK_STATUS_ORDER: TrackStatus[] = [
+  "matched",
+  "review",
+  "missing",
+  "rejected",
+  "unmatchable",
+];
+
 export interface SyncTotals {
   matched: number;
   review: number;

@@ -345,9 +345,9 @@ only documented keys; both audio sources playable per item (spec.md).
       candidate via `stream.py`, Spotify original via the Web Playback SDK
       (T099 token, or T034's fallback), playing/paused exposed to assistive
       tech (FR-013, WCAG)
-- [ ] T041 [P] [US2] Build `web/src/features/review/QueueComplete.tsx`:
+- [x] T041 [P] [US2] Build `web/src/features/review/QueueComplete.tsx`:
       completion state with updated session totals when the queue empties
-- [ ] T100 [P] [US2] Build `web/src/components/KeymapOverlay.tsx`: an
+- [x] T100 [P] [US2] Build `web/src/components/KeymapOverlay.tsx`: an
       on-screen, discoverable key map (arrows, A, R, space) satisfying US2's
       WCAG criterion that the key map is discoverable from the screen, not
       only documented externally (spec.md US2 accessibility criteria;
