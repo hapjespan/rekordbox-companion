@@ -33,5 +33,6 @@ def find_repo_root(start: Path) -> Path:
 
 REPO_ROOT = find_repo_root(Path(__file__).resolve())
 DATA_DIR = REPO_ROOT / "data"
+BACKUP_DIR = DATA_DIR / "backups"  # rb/backup.py's target dir (T047, ADR 0016)
 
 load_dotenv(REPO_ROOT / ".env")

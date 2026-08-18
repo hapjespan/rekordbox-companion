@@ -26,10 +26,12 @@ from sqlalchemy.orm import Session
 
 from companion.api import events
 from companion.api.auth import get_spotify_client
-from companion.db.models import MissingTrack, PlaylistLink, SyncSession, SyncTrack
+from companion.config import BACKUP_DIR
+from companion.db.models import MissingTrack, PlaylistLink, SyncSession, SyncTrack, WriteLog
 from companion.db.session import get_db
 from companion.integrations import spotify
 from companion.matching.engine import find_best_matches
+from companion.rb import backup, guard, reader, writer
 from companion.rb.index import IndexEntry
 
 router = APIRouter()
@@ -447,3 +449,101 @@ def reject_track(session_id: int, track_id: int, db: Session = Depends(get_db)):
     db.add(MissingTrack(sync_track_id=track.id, status="open"))
     db.commit()
     return _track_dict(track)
+
+
+class ApplyBody(BaseModel):
+    playlist_name: str | None = None  # falls back to the session's own name
+
+
+@router.post("/sync/sessions/{session_id}/apply")
+def apply_sync_session(session_id: int, body: ApplyBody, db: Session = Depends(get_db)):
+    """FR-015..FR-019: guard -> backup -> write -> readback -> write_log ->
+    ApplyResult (contracts/api.md), emitting `apply_done` on `/api/events`.
+
+    Two distinct failure shapes, per T096/scenario 7: a pre-write refusal
+    (guard or backup_failed) is a 409, since nothing was touched yet. A
+    write whose own readback fails is a 200 -- the write and its backup are
+    real, only verification didn't confirm it, so the session stays `ready`
+    (never `applied`) and the DJ is told which backup to restore via
+    `backup_path` in the response, not via an error code.
+    """
+    session = db.get(SyncSession, session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "sync_session_not_found", "message": f"no session {session_id}"},
+        )
+    link = db.get(PlaylistLink, session.playlist_link_id)
+
+    # guard.check()'s own version check fails (before it ever reaches the
+    # disk-headroom line that needs a real path) whenever Rekordbox isn't
+    # installed at all -- `detection.version` is None there, which can never
+    # equal PINNED_REKORDBOX_VERSION -- so passing `detection.db_path`
+    # through even when it's None is safe: the disk check is unreachable
+    # unless a real path already exists (version pin having passed implies
+    # Rekordbox, and therefore its database, is really there).
+    detection = reader.detect_rekordbox()
+    guard_result = guard.check(detection.db_path)
+    if not guard_result.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": guard_result.code, "message": guard_result.message},
+        )
+
+    backup_result = backup.create(detection.db_path, BACKUP_DIR)
+    if not backup_result.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "backup_failed",
+                "message": f"Backup could not be verified: {backup_result.error}",
+            },
+        )
+
+    matched_tracks = (
+        db.query(SyncTrack)
+        .filter_by(sync_session_id=session_id, status="matched")
+        .order_by(SyncTrack.position)
+        .all()
+    )
+    rb_content_ids = [track.rb_content_id for track in matched_tracks if track.rb_content_id]
+    playlist_name = body.playlist_name or session.name
+
+    write_result = writer.apply_playlist(
+        detection.db_path, link.rb_playlist_id, playlist_name, rb_content_ids
+    )
+
+    db.add(
+        WriteLog(
+            kind="sync_apply",
+            subject_id=session_id,
+            backup_path=str(backup_result.path),
+            readback_ok=write_result.readback_ok,
+            detail={
+                "rb_playlist_id": write_result.rb_playlist_id,
+                "tracks_added": write_result.tracks_added,
+                "tracks_already_present": write_result.tracks_already_present,
+            },
+            created_at=_utcnow(),
+        )
+    )
+    if write_result.readback_ok:
+        link.rb_playlist_id = write_result.rb_playlist_id
+        link.rb_playlist_name = playlist_name
+        link.last_applied_at = _utcnow()
+        session.status = "applied"
+    db.commit()
+
+    events.publish(
+        "apply_done",
+        {"session_id": session_id, "readback_ok": write_result.readback_ok},
+    )
+
+    return {
+        "rb_playlist_id": write_result.rb_playlist_id,
+        "created": write_result.created,
+        "tracks_added": write_result.tracks_added,
+        "tracks_already_present": write_result.tracks_already_present,
+        "backup_path": str(backup_result.path),
+        "readback_ok": write_result.readback_ok,
+    }
