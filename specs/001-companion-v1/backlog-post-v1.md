@@ -1,7 +1,7 @@
 # Backlog carried out of the phase 7 review
 
 Findings from the phase 7 two-axis review that were recorded rather than fixed in
-that phase, each with the reason it was not fixed. The eleven blocking findings
+that phase, each with the reason it was not fixed. The twelve blocking findings
 were fixed inside phase 7 and are listed in `review-phase-7.md`; nothing here is
 a defect the owner can currently reach and be harmed by.
 
@@ -75,3 +75,23 @@ uvicorn directly without ever running `make setup` reproduces the original "no
 such table". Left as a deliberate choice for now, because a migration side effect
 at import time is worse design than a documented setup step; revisit if the Mac
 install turns out to bypass `make setup`.
+
+## B9 — Give the page a real heading structure
+
+Every section title in the SPA is a styled `<p>` rather than an `<h2>`, so a
+screen reader gets no heading outline to navigate the page by: with all seven
+stories on one scrolling page, that outline is the main way a non-sighted user
+would move between them. axe does not flag it and no phase 2 acceptance criterion
+names it explicitly, which is why it passed the sweep, but it works against the
+same keyboard-and-screen-reader goal those criteria exist for. Fixing it means
+touching the three feature panels and their tests, so it was left out of phase 7
+rather than bundled into unrelated fixes.
+
+## B10 — Reconsider the single-page layout once every story has a screen
+
+`App.tsx` deliberately has no router and no navigation, which was right while
+stories were landing one at a time. Now that all seven are mounted, the result is
+one long scrolling column with the collection browser and the player below the
+booking workspace, and the visual hierarchy that a DJ would navigate by is
+missing. This is a product decision rather than a defect, and it belongs with the
+owner after they have used it once.

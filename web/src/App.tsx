@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import { apiClient } from "./api/client";
+import { PlayerBar, type PlayerBarTrack } from "./components/PlayerBar";
+import { TrackTable } from "./components/TrackTable";
 import { BookingWorkspace } from "./features/bookings/BookingWorkspace";
 import { EnrichmentPanel } from "./features/enrichment/EnrichmentPanel";
 import { MissingQueue } from "./features/missing/MissingQueue";
@@ -12,18 +14,22 @@ import { SpotifyConnection } from "./features/spotify-sync/SpotifyConnection";
 import { asApiResponse } from "./features/spotify-sync/types";
 import type { SyncSession, SyncSessionDetail } from "./features/spotify-sync/types";
 
-// Minimal US1/US2/US3/US4/US6/US7 wiring (T032 build finding, extended by
-// T052/T107/T077/T088 and the phase 7 review finding that added US2): no
-// router, no nav -- premature before every user story has its own screen.
-// Assembles PlaylistUrlForm -> MatchReport -> ReviewView -> ApplyAction,
-// plus SpotifyConnection, MissingQueue, EnrichmentPanel and
-// BookingWorkspace (all not session-scoped: they span every playlist
-// lineage or the whole collection, per contracts/api.md), so
-// T033/T052/T107's e2e tests have a real page to click through. US5's
-// TrackTable/PlayerBar (T064/T065) are not wired in here yet -- a
-// pre-existing gap, not this task's scope.
+// Wiring for all seven user stories (T032 build finding, extended by
+// T052/T107/T077/T088 and two phase 7 review findings that added US2 and US5):
+// no router, no nav -- premature before every user story has its own screen.
+// Assembles PlaylistUrlForm -> MatchReport -> ReviewView -> ApplyAction, plus
+// SpotifyConnection, MissingQueue, EnrichmentPanel, BookingWorkspace and the
+// collection browser (all not session-scoped: they span every playlist lineage
+// or the whole collection, per contracts/api.md), so T033/T052/T107's e2e
+// tests have a real page to click through.
+//
+// Every story must be reachable from here or it does not exist for the DJ,
+// however well its components are tested in isolation: US2 and US5 both
+// shipped as unmounted components and were caught in phase 7, US5 only by
+// running the app and looking at it.
 export function App() {
   const [session, setSession] = useState<SyncSessionDetail | null>(null);
+  const [playingTrack, setPlayingTrack] = useState<PlayerBarTrack | null>(null);
 
   async function refreshSession(sessionId: number) {
     const { data } = await apiClient.GET("/api/sync/sessions/{session_id}", {
@@ -73,6 +79,10 @@ export function App() {
       <div className="mt-24">
         <BookingWorkspace />
       </div>
+      <div className="mt-24">
+        <TrackTable onPlay={setPlayingTrack} />
+      </div>
+      <PlayerBar track={playingTrack} />
     </main>
   );
 }

@@ -37,7 +37,7 @@ tautologies; design asks whether the next change will be cheap.
 | US1 matching and sync backend | T019-T022, T097, T104, T105, T024-T030 | Pass with 1 blocking, 6 advisory |
 | US1/US2 frontend | T023, T031-T037, T039-T041, T099, T100, T102 | Pass with 2 blocking, 3 advisory |
 | US3 guarded write path | T042-T052, T096, T106 | Pass with 1 blocking, 5 advisory |
-| US5 audio and collection | T038, T060-T065 | Pass, 5 advisory |
+| US5 audio and collection | T038, T060-T065 | Pass with 1 blocking, 5 advisory |
 | US4 missing tracks | T053-T059, T107 | Pass with 1 blocking, 3 advisory |
 | US6 enrichment | T066-T077 | Pass with 2 blocking, 3 advisory |
 | US7 bookings | T078-T088 | Pass with 3 blocking, 4 advisory |
@@ -56,9 +56,16 @@ byte-for-byte: an enrichment run leaves `master.db` unchanged.
 
 ### Blocking findings
 
-Eleven findings were classified blocking. All eleven were fixed in this phase,
+Twelve findings were classified blocking. All twelve were fixed in this phase,
 each with a test that fails against the pre-fix code; the status column names
 the commit.
+
+The twelfth is the one this review nearly shipped without. It was found only by
+starting the app and looking at it, after the eight group reviews had finished,
+because no reviewer had "is this story reachable in the running app" as its
+remit: the US5 reviewer read the components and their tests, and the frontend
+reviewer's scope was US1 and US2. Component-level review cannot catch an
+unmounted feature, because the test mounts the component itself.
 
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -73,6 +80,7 @@ the commit.
 | 9 | US7 bookings | Booking profiles could not be edited and a structure could not be linked to one anywhere in the UI, so the seeded profiles stayed empty and suggestions always ran unfiltered: FR-031's "editable" and US7 scenarios 1 and 3 were dead ends despite a working backend. | Fixed, `fe95fa7` |
 | 10 | US7 bookings | The suggestions fetch passed no `limit`, so selecting a node fetched the whole collection and rendered a list item with two buttons per track: a multi-MB response and tens of thousands of DOM nodes per click at the target scale. | Fixed, `fe95fa7` |
 | 11 | US7 bookings | The suggestions query bound one SQL parameter per collection entry, roughly 20k per request and a hard `too many SQL variables` failure above SQLite's 32,766 cap, inside the project's own 40k sizing envelope. | Fixed, `fe95fa7` |
+| 12 | US5 frontend | `TrackTable` and `PlayerBar` were never imported by anything, so the collection browser and the player were unreachable in the running app, exactly like US2's components. `App.tsx` recorded the gap in a comment ("not wired in here yet, a pre-existing gap") rather than as a finding, and no test covered the page as a whole. | Fixed |
 
 ### Advisory findings
 
@@ -119,6 +127,15 @@ inverse of the decision beside them (a sync handler described as async, a
 fractional duration penalty described as per-whole-second, an SSE event type
 described as not yet built); `plan.md` still counting five architecture seams
 where `architecture.md` documents six.
+
+One accessibility weakness surfaced while wiring the page together and is
+recorded rather than fixed: every section title ("Ontbrekende nummers",
+"Genre-verrijking", "Boekingstructuren" and the rest) is a styled paragraph
+rather than a real heading, so the page offers a screen reader no heading
+structure to navigate by. axe does not flag it and no phase 2 criterion names it
+explicitly, which is why it survived the sweep, but it undercuts the same
+keyboard-and-screen-reader story those criteria are about. Carried as backlog
+item B9.
 
 Design, recorded and not fixed, with the reason. Each is carried in
 `backlog-post-v1.md` rather than in `tasks.md`, because the phase machine refuses
@@ -251,6 +268,28 @@ MusicBrainz (ADR 0018), and the deliverable is a `proof-of-value`, so the
 Golden Set holds four illustrative stub cases rather than the 50 real cases
 SC-003 requires. That last one is a genuine open gate, not a deviation absorbed
 silently, and it is why T094 stays unchecked.
+
+## What the development fixture can and cannot show
+
+The app was run end to end in the development container against the
+owner-supplied fixture `master.db`, served through `scripts/dev-serve-with-db.py`
+(dev-only: it builds the fake Pioneer tree pyrekordbox's detection expects
+around a copy of a database you name, because this container has no Rekordbox
+install). `/api/health` reports `status: ok`, `version_pin_ok: true` and
+`ffmpeg_ok: true`, the SPA is served, a reindex reads 119 tracks in 246ms, and
+the collection and playlist endpoints answer with no console errors in the
+browser.
+
+What the fixture supports: 119 tracks, 87 of them with an artist, 34 with a BPM,
+in mp3 and wav, including remix-marked titles, which is real enough to exercise
+matching, the collection browser, playback and the guarded write path.
+
+What it cannot show, which bounds what any demo here proves: every play count in
+the fixture is zero, so US7's suggestion ranking has nothing to rank on and
+SC-009 cannot be judged; only 34 tracks carry a BPM, so profile BPM filtering is
+thin; and the Golden Set is still four stubs, so SC-002 and SC-003 stay
+unproven. All three need the owner's real library, which is what T089 and T094
+are for.
 
 ## Open items the owner must close
 
