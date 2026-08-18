@@ -72,7 +72,11 @@ def test_upgrade_head_creates_all_three_tables(tmp_path, monkeypatch):
 
 def test_downgrade_removes_only_these_three_tables(tmp_path, monkeypatch):
     db_path = _alembic(tmp_path, monkeypatch, "upgrade", "head")
-    _alembic(tmp_path, monkeypatch, "downgrade", "-1")
+    # Target this migration's own revision explicitly, not "-1": head has
+    # grown further migrations since (T037's missing_track), so "-1 from
+    # head" no longer lands on this migration's own down_revision (same
+    # fix as T027's finding on the spotify_auth migration test).
+    _alembic(tmp_path, monkeypatch, "downgrade", "f2a9c1b47e30")
     engine = sa.create_engine(f"sqlite:///{db_path}")
     inspector = sa.inspect(engine)
     tables = inspector.get_table_names()

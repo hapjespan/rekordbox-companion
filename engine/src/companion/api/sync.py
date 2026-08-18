@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from companion.api import events
 from companion.api.auth import get_spotify_client
-from companion.db.models import PlaylistLink, SyncSession, SyncTrack
+from companion.db.models import MissingTrack, PlaylistLink, SyncSession, SyncTrack
 from companion.db.session import get_db
 from companion.integrations import spotify
 from companion.matching.engine import find_best_matches
@@ -348,6 +348,23 @@ def list_sync_sessions(db: Session = Depends(get_db)):
     return [_session_dict(db, session) for session in sessions]
 
 
+def _track_dict(track: SyncTrack) -> dict:
+    return {
+        "id": track.id,
+        "position": track.position,
+        "spotify_track_id": track.spotify_track_id,
+        "isrc": track.isrc,
+        "artist": track.artist,
+        "title": track.title,
+        "duration_ms": track.duration_ms,
+        "status": track.status,
+        "rb_content_id": track.rb_content_id,
+        "match_score": track.match_score,
+        "candidates": track.candidates,
+        "matched_at": track.matched_at,
+    }
+
+
 @router.get("/sync/sessions/{session_id}")
 def get_sync_session(session_id: int, db: Session = Depends(get_db)):
     session = db.get(SyncSession, session_id)
@@ -360,21 +377,73 @@ def get_sync_session(session_id: int, db: Session = Depends(get_db)):
         db.query(SyncTrack).filter_by(sync_session_id=session_id).order_by(SyncTrack.position).all()
     )
     body = _session_dict(db, session)
-    body["tracks"] = [
-        {
-            "id": track.id,
-            "position": track.position,
-            "spotify_track_id": track.spotify_track_id,
-            "isrc": track.isrc,
-            "artist": track.artist,
-            "title": track.title,
-            "duration_ms": track.duration_ms,
-            "status": track.status,
-            "rb_content_id": track.rb_content_id,
-            "match_score": track.match_score,
-            "candidates": track.candidates,
-            "matched_at": track.matched_at,
-        }
-        for track in tracks
-    ]
+    body["tracks"] = [_track_dict(track) for track in tracks]
     return body
+
+
+def _get_review_track(db: Session, session_id: int, track_id: int) -> SyncTrack:
+    """Shared lookup for accept/reject (T037): 404 for an unknown track (or
+    one belonging to a different session), 409 `not_in_review` for a track
+    that exists but isn't currently `review` -- accept/reject only ever
+    apply from that one status (data-model.md's sync_track transition note,
+    T036 build finding: `matched` never transitions away, and no other
+    status lists an accept/reject transition either)."""
+    track = db.get(SyncTrack, track_id)
+    if track is None or track.sync_session_id != session_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "sync_track_not_found", "message": f"no track {track_id}"},
+        )
+    if track.status != "review":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "not_in_review",
+                "message": f"track {track_id} is {track.status!r}, not review",
+            },
+        )
+    return track
+
+
+class AcceptTrackBody(BaseModel):
+    # Optional at the schema level, required by the manual check below --
+    # same reasoning as CreateSyncSessionBody above: a required Pydantic
+    # field would 422 via FastAPI's own validation-error shape instead of
+    # this router's flat {code, message, field} envelope (T037 review
+    # finding: this endpoint had drifted from that established pattern).
+    rb_content_id: str | None = None
+
+
+@router.post("/sync/sessions/{session_id}/tracks/{track_id}/accept")
+def accept_track(
+    session_id: int, track_id: int, body: AcceptTrackBody, db: Session = Depends(get_db)
+):
+    """FR-012/FR-014: the selected candidate becomes the accepted Match,
+    persisted immediately."""
+    if not body.rb_content_id:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "missing_field",
+                "message": "rb_content_id is required",
+                "field": "rb_content_id",
+            },
+        )
+    track = _get_review_track(db, session_id, track_id)
+    track.status = "matched"
+    track.rb_content_id = body.rb_content_id
+    track.matched_at = _utcnow()
+    db.commit()
+    return _track_dict(track)
+
+
+@router.post("/sync/sessions/{session_id}/tracks/{track_id}/reject")
+def reject_track(session_id: int, track_id: int, db: Session = Depends(get_db)):
+    """FR-012: reject means "wrong match" -- the Spotify Track becomes a
+    Missing Track (a real row, never silently dropped), persisted
+    immediately (FR-014)."""
+    track = _get_review_track(db, session_id, track_id)
+    track.status = "rejected"
+    db.add(MissingTrack(sync_track_id=track.id, status="open"))
+    db.commit()
+    return _track_dict(track)

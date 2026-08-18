@@ -107,6 +107,27 @@ class SyncTrack(Base):
     matched_at: Mapped[datetime | None]
 
 
+class MissingTrack(Base):
+    """A Spotify Track rejected or scored below threshold (data-model.md
+    `missing_track`). Moved here from its original task (T056, User Story 4)
+    because reject (T037, User Story 2) must spawn a real row the moment it
+    happens (FR-012) -- before User Story 4 exists, the same playlist_link-
+    ahead-of-T049 pattern from T027 (T036 build finding).
+    """
+
+    __tablename__ = "missing_track"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sync_track_id: Mapped[int] = mapped_column(sa.ForeignKey("sync_track.id"), unique=True)
+    itunes_track_id: Mapped[str | None]
+    itunes_url_auto: Mapped[str | None]  # best-effort pick (FR-022 keeps it)
+    itunes_url_chosen: Mapped[str | None]  # manual override wins when set
+    # open -> acquired / ignored; open -> closed via FR-023 auto-match.
+    # `ignored` is sticky across re-syncs of the same playlist (US4 scenario 3).
+    status: Mapped[str] = mapped_column(default="open")
+    resolved_at: Mapped[datetime | None]
+
+
 class AppConfig(Base):
     """Key/value config: paths, pinned Rekordbox version, auto-match bar
     overrides if ever needed (data-model.md). A missing key means "use the

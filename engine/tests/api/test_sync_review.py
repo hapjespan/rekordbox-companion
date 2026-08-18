@@ -25,10 +25,10 @@ from companion.db.session import Base, create_session_factory, get_db
 from companion.main import create_app
 
 
-def _seed_review_track(session_local, *, status="review"):
+def _seed_review_track(session_local, *, status="review", playlist_id="abc123"):
     with session_local() as db:
         link = PlaylistLink(
-            spotify_playlist_id="abc123",
+            spotify_playlist_id=playlist_id,
             rb_playlist_id=None,
             rb_playlist_name="Booking 2026",
             created_at=datetime(2026, 8, 17),
@@ -177,3 +177,31 @@ def test_accept_with_an_unknown_track_id_returns_404():
     )
 
     assert response.status_code == 404
+
+
+def test_accept_with_a_track_id_from_a_different_session_returns_404():
+    # T037 review finding: a real track_id that belongs to a DIFFERENT
+    # session must 404, the same as an unknown one -- not accept/reject it
+    # under the wrong session's URL (an IDOR-adjacent concern).
+    client, session_local = _client()
+    _first_session_id, other_session_track_id = _seed_review_track(session_local)
+    second_session_id, _track_id = _seed_review_track(session_local, playlist_id="xyz789")
+
+    response = client.post(
+        f"/api/sync/sessions/{second_session_id}/tracks/{other_session_track_id}/accept",
+        json={"rb_content_id": "rb-a"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_accept_without_rb_content_id_returns_a_field_naming_error():
+    client, session_local = _client()
+    session_id, track_id = _seed_review_track(session_local)
+
+    response = client.post(f"/api/sync/sessions/{session_id}/tracks/{track_id}/accept", json={})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "missing_field"
+    assert body["field"] == "rb_content_id"
