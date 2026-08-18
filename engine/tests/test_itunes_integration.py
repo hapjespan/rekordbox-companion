@@ -5,6 +5,7 @@ unit tests, matching `test_spotify_integration.py`'s established pattern.
 """
 
 import httpx
+import pytest
 
 from companion.integrations import itunes
 
@@ -89,3 +90,25 @@ def test_find_store_link_returns_none_none_when_nothing_is_found():
 
     assert result.itunes_track_id is None
     assert result.url is None
+
+
+# Review finding: `find_store_link` used to let `response.raise_for_status()`
+# raise a raw `httpx.HTTPStatusError` straight out, unlike
+# `integrations/spotify.py`'s typed `*Error` family -- a caller had no way
+# to catch just this failure mode without also swallowing programming
+# errors.
+def test_find_store_link_raises_store_lookup_error_on_a_non_2xx_response():
+    # e.g. the free-tier ~20/min rate limit's 403.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"errorMessage": "rate limited"})
+
+    with pytest.raises(itunes.StoreLookupError):
+        itunes.find_store_link(_client(handler), "Daft Punk", "One More Time")
+
+
+def test_find_store_link_raises_store_lookup_error_on_a_network_failure():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with pytest.raises(itunes.StoreLookupError):
+        itunes.find_store_link(_client(handler), "Daft Punk", "One More Time")

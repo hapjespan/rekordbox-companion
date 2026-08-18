@@ -13,6 +13,15 @@ const STATUS_LABELS: Record<MissingTrackStatus, string> = {
 
 const STATUS_ORDER: MissingTrackStatus[] = ["open", "acquired", "ignored"];
 
+// Dutch copy for the empty state per filter view (review finding: only the
+// "open" default had reachable UI at all -- "Genegeerd"/"Aangeschaft" were
+// row status choices with no way back to see what landed there).
+const EMPTY_STATE_LABELS: Record<MissingTrackStatus, string> = {
+  open: "Geen openstaande ontbrekende nummers.",
+  acquired: "Geen aangeschafte nummers.",
+  ignored: "Geen genegeerde nummers.",
+};
+
 // Same code-keyed-switch convention as PlaylistUrlForm.tsx's
 // errorMessageFor: Dutch text for known codes, the raw (English) backend
 // message only as a last resort (review finding: this previously always
@@ -26,6 +35,25 @@ function overrideErrorMessageFor(error: ApiError): string {
     default:
       return error.message || "Kon de link niet opslaan. Probeer het opnieuw.";
   }
+}
+
+// Review finding: handleStatusChange/handleRefreshLinks never inspected
+// their response's error, so a failed status change or refresh left the UI
+// silently unchanged (unlike the link-override path, which already named
+// the field and the fix). Both now surface a Dutch message the same way.
+function statusChangeErrorMessageFor(error: ApiError): string {
+  switch (error.code) {
+    case "invalid_status":
+      return "Ongeldige status.";
+    case "missing_track_not_found":
+      return "Dit ontbrekende nummer bestaat niet meer.";
+    default:
+      return error.message || "Kon de status niet wijzigen. Probeer het opnieuw.";
+  }
+}
+
+function refreshLinksErrorMessageFor(error: ApiError): string {
+  return error.message || "Vernieuwen van links is mislukt. Probeer het opnieuw.";
 }
 
 interface MissingTrackRowProps {
@@ -151,8 +179,15 @@ function MissingTrackRow({ track, onStatusChange, onLinkOverride }: MissingTrack
 
 export function MissingQueue() {
   const [tracks, setTracks] = useState<MissingTrackDto[] | null>(null);
+  // Review finding: "open" was the only reachable view -- an accidental tap
+  // on "Genegeerd"/"Aangeschaft" in the per-row status control removed a
+  // row from this (only) list with no way back short of the API. Default
+  // stays "open" (spec-sanctioned default view); the filter group below
+  // makes the other two statuses reachable.
+  const [statusFilter, setStatusFilter] = useState<MissingTrackStatus>("open");
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  async function refresh() {
+  async function refresh(status: MissingTrackStatus) {
     // A network-level failure (not an HTTP error response, which
     // openapi-fetch already surfaces as `data: undefined, error: {...}`)
     // rejects the fetch call itself; since this queue is mounted
@@ -163,7 +198,7 @@ export function MissingQueue() {
     // empty queue rather than a render crash on `tracks.length`.
     try {
       const { data } = await apiClient.GET("/api/missing", {
-        params: { query: { status: "open" } },
+        params: { query: { status } },
       });
       setTracks(asApiResponse<MissingTrackDto[]>(data) ?? []);
     } catch {
@@ -172,15 +207,22 @@ export function MissingQueue() {
   }
 
   useEffect(() => {
-    void refresh();
-  }, []);
+    void refresh(statusFilter);
+  }, [statusFilter]);
 
   async function handleStatusChange(id: number, status: MissingTrackStatus) {
-    await apiClient.POST("/api/missing/{missing_id}/status", {
+    const { error } = await apiClient.POST("/api/missing/{missing_id}/status", {
       params: { path: { missing_id: id } },
       body: { status },
     });
-    await refresh();
+    if (error) {
+      // Review finding: this used to ignore the response entirely, leaving
+      // the UI silently unchanged on failure.
+      setActionError(statusChangeErrorMessageFor(asApiResponse<ApiError>(error)));
+      return;
+    }
+    setActionError(null);
+    await refresh(statusFilter);
   }
 
   async function handleLinkOverride(id: number, url: string): Promise<ApiError | null> {
@@ -189,13 +231,20 @@ export function MissingQueue() {
       body: { itunes_url: url },
     });
     if (error) return asApiResponse<ApiError>(error);
-    await refresh();
+    await refresh(statusFilter);
     return null;
   }
 
   async function handleRefreshLinks() {
-    await apiClient.POST("/api/missing/refresh-links");
-    await refresh();
+    const { error } = await apiClient.POST("/api/missing/refresh-links");
+    if (error) {
+      // Review finding: this used to ignore the response entirely -- a 500
+      // (or any other failure) left the UI silently unchanged.
+      setActionError(refreshLinksErrorMessageFor(asApiResponse<ApiError>(error)));
+      return;
+    }
+    setActionError(null);
+    await refresh(statusFilter);
   }
 
   if (tracks === null) {
@@ -219,8 +268,32 @@ export function MissingQueue() {
         </button>
       </div>
 
+      <div className="flex flex-wrap gap-8" role="group" aria-label="Filter op status">
+        {STATUS_ORDER.map((status) => (
+          <button
+            key={status}
+            type="button"
+            aria-pressed={statusFilter === status}
+            onClick={() => setStatusFilter(status)}
+            className={`min-h-24 rounded-full-2 border border-iron px-12 py-8 text-body-lg font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green ${
+              statusFilter === status
+                ? "bg-pure-white text-void-black"
+                : "bg-transparent text-pure-white"
+            }`}
+          >
+            {STATUS_LABELS[status]}
+          </button>
+        ))}
+      </div>
+
+      {actionError && (
+        <p role="alert" className="text-body-lg font-semibold text-pure-white">
+          {actionError}
+        </p>
+      )}
+
       {tracks.length === 0 ? (
-        <p className="text-body-lg text-mist">Geen openstaande ontbrekende nummers.</p>
+        <p className="text-body-lg text-mist">{EMPTY_STATE_LABELS[statusFilter]}</p>
       ) : (
         <ul className="flex flex-col gap-16">
           {tracks.map((track) => (

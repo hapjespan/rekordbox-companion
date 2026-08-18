@@ -37,6 +37,13 @@ SEARCH_URL = f"https://{ITUNES_HOST}/search"
 STOREFRONT_COUNTRY = "NL"  # FR-020: Dutch storefront
 RESULT_LIMIT = 5
 
+# ADR 0011: the free-tier iTunes Search API allows roughly 20 requests per
+# minute. A hair over the resulting 3s-per-call cadence, the same margin
+# `enrichment/musicbrainz.py`'s REQUEST_INTERVAL_SECONDS keeps over its own
+# documented limit. Callers that issue more than one lookup per request
+# cycle (api/missing.py's refresh_links) must sleep this long between calls.
+REQUEST_INTERVAL_SECONDS = 3.1
+
 
 def build_client() -> httpx.Client:
     """A short-lived httpx client for one request cycle, matching
@@ -45,6 +52,17 @@ def build_client() -> httpx.Client:
     `security.build_allowlisted_client` (T090), the outbound allowlist
     backstop this module's own docstring already commits to."""
     return security.build_allowlisted_client(timeout=15.0)
+
+
+class StoreLookupError(Exception):
+    """A `find_store_link` call failed: a non-2xx response (including the
+    free-tier rate limit's 403) or a network-level failure. Mirrors
+    `integrations/spotify.py`'s `*Error` family (e.g.
+    `PlaylistUnreachableError`) so a caller (api/missing.py) can catch one
+    typed exception instead of letting a raw `httpx.HTTPError` reach FastAPI
+    as an unhandled 500 -- exactly what `response.raise_for_status()` used
+    to do here (review finding: a queue of open Missing Tracks large enough
+    to hit the rate limit mid-loop turned into one uncaught exception)."""
 
 
 @dataclass(frozen=True)
@@ -59,18 +77,26 @@ def find_store_link(client: httpx.Client, artist: str, title: str) -> StoreLinkR
     Returns `StoreLinkResult(None, None)` when nothing is found (spec.md
     US4 scenario 5: "no link was found", not an error) -- this is a normal
     outcome for an obscure or mistagged track, never raised as an
-    exception.
+    exception. A failed REQUEST (rate limit, network error) raises
+    `StoreLookupError` instead, distinct from "found nothing".
     """
-    response = client.get(
-        SEARCH_URL,
-        params={
-            "term": f"{artist} {title}",
-            "country": STOREFRONT_COUNTRY,
-            "entity": "song",
-            "limit": RESULT_LIMIT,
-        },
-    )
-    response.raise_for_status()
+    try:
+        response = client.get(
+            SEARCH_URL,
+            params={
+                "term": f"{artist} {title}",
+                "country": STOREFRONT_COUNTRY,
+                "entity": "song",
+                "limit": RESULT_LIMIT,
+            },
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        # httpx.HTTPError is the shared base of both raise_for_status()'s
+        # HTTPStatusError and a network-level RequestError (DNS, timeout,
+        # connection refused) -- one except clause covers every way this
+        # request can fail.
+        raise StoreLookupError(f"iTunes Search API request failed: {exc}") from exc
     results = response.json().get("results", [])
     best = _pick_best(artist, title, results)
     if best is None:

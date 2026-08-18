@@ -1,6 +1,6 @@
 // T059: Store Link + copy action, status controls, manual override input
 // with field-naming errors (FR-020..FR-022, WCAG).
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "../../../src/api/client";
@@ -97,7 +97,10 @@ describe("MissingQueue", () => {
     render(<MissingQueue />);
     await screen.findByText("Daft Punk – One More Time");
 
-    fireEvent.click(screen.getByRole("button", { name: "Genegeerd" }));
+    // Scoped to the row's own status group: the top-level status filter
+    // (review finding) also has a button named "Genegeerd".
+    const statusGroup = screen.getByRole("group", { name: "Status wijzigen" });
+    fireEvent.click(within(statusGroup).getByRole("button", { name: "Genegeerd" }));
 
     await waitFor(() =>
       expect(apiClient.POST).toHaveBeenCalledWith(
@@ -110,6 +113,72 @@ describe("MissingQueue", () => {
     );
     // Refresh is the second GET call (initial load + post-change refresh).
     await waitFor(() => expect(apiClient.GET).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows an error and does not refresh when a status change fails (review finding)", async () => {
+    mockList([TRACK_WITH_LINK]);
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: undefined,
+      error: { code: "missing_track_not_found", message: "no missing track 1" },
+    } as never);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    const statusGroup = screen.getByRole("group", { name: "Status wijzigen" });
+    fireEvent.click(within(statusGroup).getByRole("button", { name: "Genegeerd" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Dit ontbrekende nummer bestaat niet meer.");
+    // A failed status change must not silently refresh/replace the queue
+    // (previously the error was never inspected at all).
+    expect(apiClient.GET).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an error and does not refresh when refresh-links fails (review finding)", async () => {
+    mockList([TRACK_WITH_LINK]);
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: undefined,
+      error: { code: "itunes_unreachable", message: "iTunes Search API is unreachable" },
+    } as never);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    fireEvent.click(screen.getByRole("button", { name: "Links vernieuwen" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("iTunes Search API is unreachable");
+    expect(apiClient.GET).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a filter to reach the acquired/ignored views, not just the open default (review finding)", async () => {
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    const ACQUIRED_TRACK = { ...TRACK_WITH_LINK, id: 3, status: "acquired" };
+    mockList([ACQUIRED_TRACK]);
+    const filterGroup = screen.getByRole("group", { name: "Filter op status" });
+    fireEvent.click(within(filterGroup).getByRole("button", { name: "Aangeschaft" }));
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/missing",
+        expect.objectContaining({ params: { query: { status: "acquired" } } }),
+      ),
+    );
+    expect(await screen.findByText("Status: Aangeschaft")).toBeInTheDocument();
+  });
+
+  it("shows a filter-specific empty state for the ignored view", async () => {
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    mockList([]);
+    const filterGroup = screen.getByRole("group", { name: "Filter op status" });
+    fireEvent.click(within(filterGroup).getByRole("button", { name: "Genegeerd" }));
+
+    expect(await screen.findByText("Geen genegeerde nummers.")).toBeInTheDocument();
   });
 
   it("submitting the override without a value names the field and the fix", async () => {
