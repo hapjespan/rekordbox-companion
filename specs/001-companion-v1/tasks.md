@@ -297,11 +297,21 @@ only documented keys; both audio sources playable per item (spec.md).
       the Web Playback SDK (contracts/api.md "Spotify auth"). Must land
       before T034 can run despite the higher ID — the spike depends on it.
       Gate-review finding: the endpoint T034/T040 depend on had no task.
-- [ ] T034 [US2] R2 spike in `web/src/features/review/spotify-playback-spike.tsx`:
+- [x] T034 [US2] R2 spike in `web/src/features/review/spotify-playback-spike.tsx`:
       Spotify Web Playback SDK connect + play one full track on `127.0.0.1`
       from a throwaway page, using T099's player token; record pass/fail. On
       failure, fall back to local preview + a `spotify:track:` deep link and
-      amend ADR 0009 (research.md R2, unknown #3)
+      amend ADR 0009 (research.md R2, unknown #3). Owner decision
+      2026-08-18: the exploratory throwaway spike is skipped -- this dev
+      container has no real Spotify Premium account, no real browser with
+      Widevine/EME, and no guaranteed network path to Spotify's CDN, so no
+      pass/fail here would be genuine evidence either way. Owner committed
+      directly to the SDK-embedded approach (ADR 0009 stands, unchanged, not
+      amended to the fallback); T040 builds `DualPlayback.tsx` straight
+      against the Web Playback SDK using T099's player-token endpoint, with
+      real playback verification left to the owner's Mac (same pattern as
+      T089/quickstart.md's owner-supplied-fixture tasks) rather than
+      simulated here.
 
 ### Tests for User Story 2
 

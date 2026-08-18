@@ -1,8 +1,6 @@
 """Spotify auth endpoints (contracts/api.md "Spotify auth"): the PKCE
-login/callback/status/disconnect flow (T026, US1).
-
-`GET /api/auth/spotify/player-token` is deliberately absent: it is a separate
-later task (T099, US2). The heavy lifting (PKCE, token exchange, HTTP) lives in
+login/callback/status/disconnect flow (T026, US1) plus the player-token
+endpoint (T099, US2). The heavy lifting (PKCE, token exchange, HTTP) lives in
 `companion.integrations.spotify`; this router is a thin HTTP adapter that maps
 the integration's typed errors onto the contract's `{code, message, field?}`
 envelope.
@@ -82,3 +80,26 @@ def disconnect(db: Session = Depends(get_db)):
     """Delete the stored Spotify session (the AVG/GDPR deletion path)."""
     spotify.disconnect(db)
     return spotify.connection_status(db)
+
+
+@router.get("/auth/spotify/player-token")
+def player_token(db: Session = Depends(get_db), client=Depends(get_spotify_client)):
+    """`{access_token, expires_in}` for the Web Playback SDK (T099, R2)."""
+    try:
+        return spotify.get_player_token(db, client)
+    except spotify.NotConnectedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "spotify_not_connected", "message": str(exc)},
+        ) from exc
+    except spotify.SessionExpiredError as exc:
+        # T099 review finding: get_player_token refreshes the token first,
+        # which can raise this on a revoked refresh token (same failure
+        # mode T104 already fixed for the sync flow) -- without this catch
+        # it would surface as an unhandled 500 instead of the contract's
+        # flat error envelope, for a token a long-running review session
+        # is realistically likely to hit.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "spotify_session_expired", "message": str(exc)},
+        ) from exc

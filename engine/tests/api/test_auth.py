@@ -152,3 +152,78 @@ def test_disconnect_deletes_the_session_row():
     assert response.json()["connected"] is False
     with session_local() as db:
         assert db.get(SpotifyAuth, 1) is None
+
+
+def test_player_token_returns_access_token_and_expiry():
+    # T099, R2: short-lived token for the Web Playback SDK.
+    app, session_local = _app_with_db()
+    app.dependency_overrides[get_spotify_client] = lambda: _mock_spotify_client()
+    client = TestClient(app)
+    with session_local() as db:
+        db.add(
+            SpotifyAuth(
+                id=1,
+                access_token="good-access",
+                refresh_token="r",
+                token_expires_at=_utcnow() + timedelta(seconds=1800),
+                account_id="acc",
+                display_name="DJ",
+                product="premium",
+            )
+        )
+        db.commit()
+
+    response = client.get("/api/auth/spotify/player-token")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"] == "good-access"
+    assert 1790 <= body["expires_in"] <= 1800
+
+
+def test_player_token_without_a_session_returns_409():
+    app, _ = _app_with_db()
+    app.dependency_overrides[get_spotify_client] = lambda: _mock_spotify_client()
+    client = TestClient(app)
+
+    response = client.get("/api/auth/spotify/player-token")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "spotify_not_connected"
+
+
+def test_player_token_with_a_revoked_refresh_token_returns_409(monkeypatch):
+    # T099 review finding: a stale token triggers a refresh inside
+    # get_player_token; if Spotify rejects that refresh (revoked at
+    # Spotify's end), this must map to the flat error envelope, not an
+    # unhandled 500.
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+
+    def handler(request):
+        if request.url.path == "/api/token":
+            return httpx.Response(400, json={"error": "invalid_grant"})
+        raise AssertionError(f"unexpected {request.url}")
+
+    app, session_local = _app_with_db()
+    app.dependency_overrides[get_spotify_client] = lambda: httpx.Client(
+        transport=httpx.MockTransport(handler)
+    )
+    client = TestClient(app)
+    with session_local() as db:
+        db.add(
+            SpotifyAuth(
+                id=1,
+                access_token="stale-access",
+                refresh_token="revoked",
+                token_expires_at=_utcnow() - timedelta(seconds=10),
+                account_id="acc",
+                display_name="DJ",
+                product="premium",
+            )
+        )
+        db.commit()
+
+    response = client.get("/api/auth/spotify/player-token")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "spotify_session_expired"

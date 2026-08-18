@@ -314,6 +314,17 @@ def _get_valid_access_token(db, client: httpx.Client) -> str:
     return row.access_token
 
 
+def get_player_token(db, client: httpx.Client) -> dict:
+    """`{access_token, expires_in}` for the Web Playback SDK (T099,
+    contracts/api.md "player-token", R2). Reuses `_get_valid_access_token`'s
+    refresh-if-needed logic -- the SDK gets the same live token every other
+    Spotify API call in this module would use, not a separate credential."""
+    access_token = _get_valid_access_token(db, client)
+    row = db.get(SpotifyAuth, 1)
+    expires_in = max(0, int((row.token_expires_at - _utcnow()).total_seconds()))
+    return {"access_token": access_token, "expires_in": expires_in}
+
+
 # --------------------------------------------------------------------------- #
 # Status / disconnect
 # --------------------------------------------------------------------------- #

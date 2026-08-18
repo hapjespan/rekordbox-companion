@@ -272,6 +272,45 @@ def test_access_token_rejected_mid_pagination_raises_session_expired(session):
 
 
 # --------------------------------------------------------------------------- #
+# Player token (T099, R2)
+# --------------------------------------------------------------------------- #
+def test_get_player_token_returns_the_access_token_and_seconds_remaining(session):
+    _store_auth(session, expires_in_seconds=1800, access_token="good-access")
+
+    def handler(request):  # pragma: no cover - must never be called
+        raise AssertionError("a valid token needs no HTTP call")
+
+    result = spotify.get_player_token(session, _client(handler))
+
+    assert result["access_token"] == "good-access"
+    # Allow a little slack for wall-clock time elapsed during the test.
+    assert 1790 <= result["expires_in"] <= 1800
+
+
+def test_get_player_token_refreshes_an_expired_token_first(monkeypatch, session):
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+    _store_auth(session, expires_in_seconds=-10, access_token="stale-access")
+
+    def handler(request):
+        if request.url.path == "/api/token":
+            return httpx.Response(200, json={"access_token": "fresh-access", "expires_in": 3600})
+        raise AssertionError(f"unexpected {request.url}")
+
+    result = spotify.get_player_token(session, _client(handler))
+
+    assert result["access_token"] == "fresh-access"
+    assert 3590 <= result["expires_in"] <= 3600
+
+
+def test_get_player_token_without_a_session_raises_not_connected(session):
+    def handler(request):  # pragma: no cover - must never be called
+        raise AssertionError("no HTTP call without a stored session")
+
+    with pytest.raises(NotConnectedError):
+        spotify.get_player_token(session, _client(handler))
+
+
+# --------------------------------------------------------------------------- #
 # Pagination + 999 cap short-circuit (the T022 review finding)
 # --------------------------------------------------------------------------- #
 def test_pagination_short_circuits_once_total_exceeds_cap(session):
