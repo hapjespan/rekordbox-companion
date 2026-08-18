@@ -4,10 +4,10 @@
 # wired up yet (project rule 7, phase-per-PR), so this is the only gate today.
 set -e
 
-if [ -d engine ]; then
+if [ -f engine/pyproject.toml ]; then
   (cd engine && uv run ruff check . && uv run ruff format --check .)
 fi
 
-if [ -d web ]; then
+if [ -f web/package.json ]; then
   (cd web && pnpm run lint && pnpm run format:check)
 fi
