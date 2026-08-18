@@ -752,11 +752,24 @@ the one documented exception to story independence in this feature.
       `POST .../dismissals` in `engine/src/companion/api/structures.py`
       (FR-033, FR-034). Not [P] with T084/T086: same file (gate-review
       finding).
-- [ ] T086 [US7] Implement `POST /api/structures/{id}/apply` in
+- [ ] T086 [US7] [complexity: high] Implement `POST /api/structures/{id}/apply` in
       `engine/src/companion/api/structures.py`, reusing `rb/writer.py` +
       `rb/guard.py` + `rb/backup.py` from US3 (T046-T048); per-node
       `ApplyResult`, add-only re-apply, emitting `apply_done` on
       `/api/events` (FR-018, FR-035, R4)
+
+      **Escalated during phase 6 build** (not originally flagged in phase 5
+      decomposition): `rb/writer.py`'s existing `apply_playlist` (T048) only
+      creates a single playlist at the tree root (`parent=None`) -- it has
+      no folder-creation or nested-parent logic at all. Writing a whole
+      Structure (folders + nested playlists per `structure_node.parent_id`)
+      is new write-path logic against the DJ's real, irreplaceable database
+      (project rule 2's own security boundary), not a thin reuse of an
+      existing function -- exactly the "security boundary" criterion
+      `docs/process/workflow.md`'s model routing names for this flag. T080's
+      RED integration test (`engine/tests/bookings/test_structure_apply.py`)
+      already pins the target interface (`writer.apply_structure`,
+      `NodeSpec`, `NodeWriteResult`) against the real fixture `master.db`.
 - [ ] T087 [P] [US7] Build `web/src/components/Tree.tsx`: folder/playlist
       tree editor (create/rename/nest/move/delete), Set Phase labels,
       Run-of-Show folder, keyboard-operable (WCAG)
