@@ -114,6 +114,14 @@ def apply_playlist(
             already_present_ids: set[str] = set()
         else:
             playlist = existing_playlist
+            # The DJ's explicit intent on this call, applied to the one
+            # playlist this module already owns (it created it on a
+            # previous apply) -- not "editing something it didn't create"
+            # (FR-017), and without this the companion's own record
+            # (PlaylistLink.rb_playlist_name) would silently drift from
+            # the real Rekordbox playlist's name (review finding).
+            if playlist.Name != playlist_name:
+                playlist.Name = playlist_name
             already_present_ids = {song.ContentID for song in playlist.Songs}
 
         tracks_added = 0

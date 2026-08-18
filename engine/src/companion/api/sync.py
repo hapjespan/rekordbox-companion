@@ -474,14 +474,19 @@ def apply_sync_session(session_id: int, body: ApplyBody, db: Session = Depends(g
             detail={"code": "sync_session_not_found", "message": f"no session {session_id}"},
         )
     link = db.get(PlaylistLink, session.playlist_link_id)
+    if link is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "playlist_link_not_found",
+                "message": f"no playlist link {session.playlist_link_id}",
+            },
+        )
 
-    # guard.check()'s own version check fails (before it ever reaches the
-    # disk-headroom line that needs a real path) whenever Rekordbox isn't
-    # installed at all -- `detection.version` is None there, which can never
-    # equal PINNED_REKORDBOX_VERSION -- so passing `detection.db_path`
-    # through even when it's None is safe: the disk check is unreachable
-    # unless a real path already exists (version pin having passed implies
-    # Rekordbox, and therefore its database, is really there).
+    # guard.check() refuses cleanly (code version_mismatch) when Rekordbox
+    # isn't installed or its database file can't be found, so passing
+    # `detection.db_path` straight through -- even when it's None -- is
+    # safe; this endpoint never needs to special-case that itself.
     detection = reader.detect_rekordbox()
     guard_result = guard.check(detection.db_path)
     if not guard_result.ok:
@@ -509,9 +514,30 @@ def apply_sync_session(session_id: int, body: ApplyBody, db: Session = Depends(g
     rb_content_ids = [track.rb_content_id for track in matched_tracks if track.rb_content_id]
     playlist_name = body.playlist_name or session.name
 
-    write_result = writer.apply_playlist(
-        detection.db_path, link.rb_playlist_id, playlist_name, rb_content_ids
-    )
+    try:
+        write_result = writer.apply_playlist(
+            detection.db_path, link.rb_playlist_id, playlist_name, rb_content_ids
+        )
+    except Exception as exc:
+        # A genuine write failure (an unexpected pyrekordbox error, or its
+        # own "Rekordbox is running" commit()-time backstop if the DJ
+        # opened it in the race window after guard.check() passed) must
+        # still leave an audit trail: the backup already exists by this
+        # point, so the DJ needs a durable record of where to restore
+        # from even though the write itself never confirmed (review
+        # finding: this previously crashed with no write_log row at all).
+        db.add(
+            WriteLog(
+                kind="sync_apply",
+                subject_id=session_id,
+                backup_path=str(backup_result.path),
+                readback_ok=False,
+                detail={"error": str(exc)},
+                created_at=_utcnow(),
+            )
+        )
+        db.commit()
+        raise
 
     db.add(
         WriteLog(
@@ -521,6 +547,7 @@ def apply_sync_session(session_id: int, body: ApplyBody, db: Session = Depends(g
             readback_ok=write_result.readback_ok,
             detail={
                 "rb_playlist_id": write_result.rb_playlist_id,
+                "created": write_result.created,
                 "tracks_added": write_result.tracks_added,
                 "tracks_already_present": write_result.tracks_already_present,
             },

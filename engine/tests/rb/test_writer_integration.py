@@ -111,6 +111,22 @@ def test_second_apply_after_resync_adds_only_new_tracks(db_copy: Path, tmp_path:
     reopened.close()
 
 
+def test_second_apply_with_a_new_name_renames_the_reused_playlist(db_copy: Path):
+    # Review finding: without this, PlaylistLink.rb_playlist_name (the
+    # companion's own record) would drift from the real Rekordbox
+    # playlist's name the moment the DJ supplies a new name on a re-apply.
+    (content_id,) = _content_ids(db_copy, 1)
+    first = writer.apply_playlist(db_copy, None, PLAYLIST_NAME, [content_id])
+
+    renamed = writer.apply_playlist(db_copy, first.rb_playlist_id, "Renamed Playlist", [content_id])
+
+    assert renamed.rb_playlist_id == first.rb_playlist_id
+    reopened = Rekordbox6Database(path=str(db_copy))
+    playlist = reopened.get_playlist(ID=first.rb_playlist_id)
+    assert playlist.Name == "Renamed Playlist"
+    reopened.close()
+
+
 def test_target_playlist_deleted_in_rekordbox_is_detected_and_recreated(db_copy: Path):
     (content_id,) = _content_ids(db_copy, 1)
     first = writer.apply_playlist(db_copy, None, PLAYLIST_NAME, [content_id])

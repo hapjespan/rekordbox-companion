@@ -21,6 +21,7 @@ dependencies = [
     # SC-001's time budget at Collection scale (~40k entries) -- previously
     # only a transitive dependency of rapidfuzz, now used directly.
     "numpy>=2.0",
+    "defusedxml>=0.7.1",
 ]
 
 [dependency-groups]

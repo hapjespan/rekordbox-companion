@@ -109,6 +109,57 @@ def test_check_refuses_exactly_at_the_headroom_boundary(monkeypatch, tmp_path):
     assert result.code == "insufficient_disk"
 
 
+def test_check_passes_exactly_at_the_headroom_boundary(monkeypatch, tmp_path):
+    # The other half of the boundary (test above pins "one byte short
+    # refuses"): exactly 2x must pass, not just "far above" (review finding).
+    db_path = _dummy_db(tmp_path)
+    size = db_path.stat().st_size
+    monkeypatch.setattr("companion.rb.reader.is_rekordbox_running", lambda: False)
+    monkeypatch.setattr("companion.rb.reader.detect_rekordbox", lambda: _detection(db_path))
+    monkeypatch.setattr(
+        "companion.rb.guard.shutil.disk_usage",
+        lambda path: type("Usage", (), {"free": 2 * size})(),
+    )
+
+    result = guard.check(db_path)
+
+    assert result.ok is True
+
+
+def test_check_refuses_when_the_database_file_is_missing(monkeypatch, tmp_path):
+    # reader.py's own documented edge case: pyrekordbox's config can resolve
+    # a path from install-time settings without the file still being there
+    # (moved/deleted since). Must refuse cleanly, not crash on `.stat()`
+    # (review finding: this previously raised an unhandled FileNotFoundError).
+    missing_path = tmp_path / "master.db"  # never created
+    monkeypatch.setattr("companion.rb.reader.is_rekordbox_running", lambda: False)
+    monkeypatch.setattr("companion.rb.reader.detect_rekordbox", lambda: _detection(missing_path))
+
+    result = guard.check(missing_path)
+
+    assert result.ok is False
+    assert result.code == "version_mismatch"
+    assert result.message
+
+
+def test_check_refuses_when_db_path_is_none(monkeypatch):
+    # Rekordbox not installed at all: reader.detect_rekordbox().db_path is
+    # None. The endpoint (sync.py) passes this straight through rather than
+    # special-casing it -- check() itself must refuse cleanly.
+    monkeypatch.setattr("companion.rb.reader.is_rekordbox_running", lambda: False)
+    monkeypatch.setattr(
+        "companion.rb.reader.detect_rekordbox",
+        lambda: RekordboxDetection(
+            installed=False, version=None, version_pin_ok=False, db_path=None, db_file_exists=False
+        ),
+    )
+
+    result = guard.check(None)
+
+    assert result.ok is False
+    assert result.code == "version_mismatch"
+
+
 def test_running_check_wins_when_both_running_and_version_mismatch(monkeypatch, tmp_path):
     # Order of precedence (FR-015 list order): running is the first check,
     # so it must win even when the version is also wrong.

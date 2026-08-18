@@ -16,6 +16,10 @@ This module is in `rb/` (project rule 1) and imports pyrekordbox to verify a
 backup is actually re-openable, not just a structurally valid zip -- the
 whole point of "verify readability" is that the DJ could restore from this
 file and have Rekordbox open it, not merely that `zipfile` didn't complain.
+
+Every create (success and failure) and every prune is logged
+(constraints.md's NIS2 logging plan names "backup creation/rotation"
+explicitly).
 """
 
 import shutil
@@ -24,9 +28,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from defusedxml import ElementTree
 from pyrekordbox.db6.database import Rekordbox6Database
 
-from companion.rb import reader  # noqa: F401 -- see rb/guard.py's ordering note (T018)
+from companion.logging import configure_logging, get_logger
+
+configure_logging()
+
+_logger = get_logger(__name__)
 
 MASTER_PLAYLISTS_XML = "masterPlaylists6.xml"
 KEEP_NEWEST = 10
@@ -70,8 +79,10 @@ def create(db_path: Path, backup_dir: Path) -> BackupResult:
             backup_path.unlink(missing_ok=True)
         except OSError:
             pass
+        _logger.info("backup create failed", extra={"backup": {"error": str(exc)}})
         return BackupResult(ok=False, path=None, error=str(exc))
 
+    _logger.info("backup created", extra={"backup": {"path": str(backup_path)}})
     _prune_old_backups(backup_dir)
     return BackupResult(ok=True, path=backup_path, error=None)
 
@@ -79,14 +90,20 @@ def create(db_path: Path, backup_dir: Path) -> BackupResult:
 def _verify_readable(backup_path: Path) -> None:
     """Raise if `backup_path` is not a genuinely restorable backup.
 
-    Two layers: the zip itself must be structurally intact (`testzip()`),
-    and the `master.db` it contains must actually open as a real Rekordbox
-    database -- a zip can be valid while the database inside it is garbage.
+    Three layers: the zip itself must be structurally intact (`testzip()`),
+    the `master.db` it contains must actually open as a real Rekordbox
+    database -- a zip can be valid while the database inside it is garbage
+    -- and, if `masterPlaylists6.xml` was included, it must at least parse
+    as well-formed XML (T042 finding: a restore missing/corrupting this
+    file is a real behavioural gap on the Mac, not just an empty nice-to-have).
     """
     with zipfile.ZipFile(backup_path) as zf:
         bad_file = zf.testzip()
         if bad_file is not None:
             raise ValueError(f"backup zip is corrupt: {bad_file}")
+
+        if MASTER_PLAYLISTS_XML in zf.namelist():
+            ElementTree.fromstring(zf.read(MASTER_PLAYLISTS_XML))
 
         with zf.open("master.db") as member:
             extracted = backup_path.with_suffix(".verify.db")
@@ -111,5 +128,11 @@ def _prune_old_backups(backup_dir: Path) -> None:
     chronologically as plain strings.
     """
     backups = sorted(backup_dir.glob("*.db.zip"))
-    for stale in backups[:-KEEP_NEWEST]:
+    stale_backups = backups[:-KEEP_NEWEST]
+    for stale in stale_backups:
         stale.unlink(missing_ok=True)
+    if stale_backups:
+        _logger.info(
+            "backup rotation pruned",
+            extra={"backup": {"pruned": [p.name for p in stale_backups]}},
+        )

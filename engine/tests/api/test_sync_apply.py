@@ -149,6 +149,7 @@ def test_apply_succeeds_guards_backs_up_writes_and_logs(monkeypatch, tmp_path):
         log = db.query(WriteLog).filter_by(subject_id=session_id, kind="sync_apply").one()
         assert log.readback_ok is True
         assert log.backup_path == "/tmp/backup-1.db.zip"
+        assert log.detail["created"] is True  # data-model.md: "counts written, ids created"
 
 
 def test_apply_refused_when_rekordbox_is_running(monkeypatch, tmp_path):
@@ -285,3 +286,40 @@ def test_apply_writes_a_duplicated_track_to_the_target_playlist_exactly_once(mon
     assert response.status_code == 200
     assert set(captured["rb_content_ids"]) == {"rb-dup"}
     assert response.json()["tracks_added"] == 1
+
+
+def test_apply_logs_a_write_attempt_even_when_the_writer_raises_unexpectedly(monkeypatch, tmp_path):
+    # Review finding: a genuine write failure (an unexpected pyrekordbox
+    # error, or its own "Rekordbox is running" commit()-time backstop --
+    # rb_write_smoke.py -- firing in the race window after guard.check()
+    # already passed) must still leave an audit trail. The backup already
+    # exists by this point; without a write_log row, there would be no
+    # durable record of where to restore from.
+    client, session_local, dummy_db = _client(tmp_path)
+    _, session_id = _seed_ready_session(session_local)
+    monkeypatch.setattr("companion.rb.reader.is_rekordbox_running", lambda: False)
+    monkeypatch.setattr("companion.rb.reader.detect_rekordbox", lambda: _detection(dummy_db))
+    monkeypatch.setattr(
+        "companion.rb.backup.create",
+        lambda db_path, backup_dir: backup.BackupResult(
+            ok=True, path=Path("/tmp/backup-1.db.zip"), error=None
+        ),
+    )
+
+    def raising_apply_playlist(*args, **kwargs):
+        raise RuntimeError("Rekordbox is running. Please close Rekordbox before commiting changes.")
+
+    monkeypatch.setattr("companion.rb.writer.apply_playlist", raising_apply_playlist)
+
+    try:
+        client.post(f"/api/sync/sessions/{session_id}/apply", json={})
+    except RuntimeError:
+        pass  # the TestClient re-raises server exceptions by default; expected here
+
+    with session_local() as db:
+        session = db.get(SyncSession, session_id)
+        assert session.status == "ready"
+        log = db.query(WriteLog).filter_by(subject_id=session_id, kind="sync_apply").one()
+        assert log.readback_ok is False
+        assert log.backup_path == "/tmp/backup-1.db.zip"
+        assert "Rekordbox is running" in log.detail["error"]
