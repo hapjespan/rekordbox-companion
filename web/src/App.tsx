@@ -1,24 +1,30 @@
 import { useState } from "react";
 
 import { apiClient } from "./api/client";
+import { ApplyAction } from "./features/spotify-sync/ApplyAction";
 import { MatchReport } from "./features/spotify-sync/MatchReport";
 import { PlaylistUrlForm } from "./features/spotify-sync/PlaylistUrlForm";
 import { SpotifyConnection } from "./features/spotify-sync/SpotifyConnection";
 import { asApiResponse } from "./features/spotify-sync/types";
 import type { SyncSession, SyncSessionDetail } from "./features/spotify-sync/types";
 
-// Minimal US1-only wiring (T032 build finding): no router, no nav --
-// premature before a second user story's UI exists. Assembles
-// PlaylistUrlForm -> MatchReport, plus SpotifyConnection, so T033's e2e
-// test has a real page to click through.
+// Minimal US1/US3-only wiring (T032 build finding, extended by T052): no
+// router, no nav -- premature before a fourth user story's UI exists.
+// Assembles PlaylistUrlForm -> MatchReport -> ApplyAction, plus
+// SpotifyConnection, so T033/T052's e2e tests have a real page to click
+// through.
 export function App() {
   const [session, setSession] = useState<SyncSessionDetail | null>(null);
 
-  async function handleSessionCreated(created: SyncSession) {
+  async function refreshSession(sessionId: number) {
     const { data } = await apiClient.GET("/api/sync/sessions/{session_id}", {
-      params: { path: { session_id: created.id } },
+      params: { path: { session_id: sessionId } },
     });
     setSession(asApiResponse<SyncSessionDetail>(data));
+  }
+
+  async function handleSessionCreated(created: SyncSession) {
+    await refreshSession(created.id);
   }
 
   return (
@@ -33,6 +39,15 @@ export function App() {
       {session && (
         <div className="mt-24">
           <MatchReport totals={session.totals} tracks={session.tracks} />
+        </div>
+      )}
+      {session && (
+        <div className="mt-24">
+          <ApplyAction
+            sessionId={session.id}
+            defaultPlaylistName={session.name}
+            onApplied={() => void refreshSession(session.id)}
+          />
         </div>
       )}
     </div>

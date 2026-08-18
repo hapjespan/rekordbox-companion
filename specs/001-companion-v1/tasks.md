@@ -441,7 +441,7 @@ apply adds only new tracks, refusals fire when guard conditions fail
 - [x] T051 [P] [US3] Build `web/src/features/spotify-sync/ApplyAction.tsx`:
       confirmation dialog, result state, refusal/failure messages naming the
       blocking condition and the fix, keyboard-operable (WCAG)
-- [ ] T052 [US3] Extend `web/tests/e2e/sync-review-apply.spec.ts` (T033) to
+- [x] T052 [US3] Extend `web/tests/e2e/sync-review-apply.spec.ts` (T033) to
       cover apply against the fixture `master.db`, completing the first of
       the two proof-of-value e2e flows
 
