@@ -5,9 +5,10 @@
   `ITUNES_HOST` via the fixed `/search` path; artist/title are passed as
   the `term` query parameter's VALUE, never used to build the host or
   path -- the same "fixed endpoint, user data only ever a parameter value"
-  discipline `integrations/spotify.py` establishes. T090 (polish phase)
-  adds the process-wide outbound allowlist enforcement layer; this module
-  only needs to not be the kind of code that layer would have to catch.
+  discipline `integrations/spotify.py` establishes. `build_client()` routes
+  through `security.build_allowlisted_client` (T090), the process-wide
+  outbound allowlist backstop that refuses this module's own request if it
+  were ever built with the wrong host.
 * **No auth, no secrets.** The Search API is public and unauthenticated;
   nothing here needs redaction.
 * **Best-effort auto-pick.** Apple's own relevance ranking is a reasonable
@@ -29,6 +30,8 @@ from dataclasses import dataclass
 import httpx
 from rapidfuzz import fuzz
 
+from companion import security
+
 ITUNES_HOST = "itunes.apple.com"
 SEARCH_URL = f"https://{ITUNES_HOST}/search"
 STOREFRONT_COUNTRY = "NL"  # FR-020: Dutch storefront
@@ -38,8 +41,10 @@ RESULT_LIMIT = 5
 def build_client() -> httpx.Client:
     """A short-lived httpx client for one request cycle, matching
     `integrations/spotify.py`'s factory-not-global pattern (test
-    injection via `httpx.MockTransport`)."""
-    return httpx.Client(timeout=15.0)
+    injection via `httpx.MockTransport`). Routed through
+    `security.build_allowlisted_client` (T090), the outbound allowlist
+    backstop this module's own docstring already commits to."""
+    return security.build_allowlisted_client(timeout=15.0)
 
 
 @dataclass(frozen=True)

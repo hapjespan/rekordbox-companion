@@ -28,12 +28,12 @@ failure) must not spin this background task in an unthrottled infinite loop
 with zero backoff -- see its own docstring for the circuit breaker.
 """
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from companion import security
 from companion.api import events
 from companion.db.models import EnrichmentState
 from companion.db.session import SessionLocal, get_db
@@ -60,7 +60,7 @@ def _publish_progress(progress) -> None:
 def _run_to_completion(artists_by_id: dict[str, str]) -> None:
     db = SessionLocal()
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with security.build_allowlisted_client(timeout=15.0) as client:
             genre_source = MusicBrainzGenreSource(client)
             runner.run_until_drained(
                 db,

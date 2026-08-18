@@ -15,10 +15,9 @@ objects and `GET /v1/artists/{id}` both omit `genres` entirely, and
 import sys
 from pathlib import Path
 
-import httpx
-
 from companion.enrichment.musicbrainz import MusicBrainzGenreSource
 from companion.rb.reader import open_database, read_collection_snapshot
+from companion.security import build_allowlisted_client
 
 SAMPLE_SIZE = 50
 
@@ -29,7 +28,7 @@ def main(db_path: Path) -> None:
     print(f"{len(tracks)} tracks with a named artist, {len(unique_artists)} unique artists")
 
     genres_by_artist: dict[str, list[str]] = {}
-    with httpx.Client(timeout=15.0) as client:
+    with build_allowlisted_client(timeout=15.0) as client:
         source = MusicBrainzGenreSource(client)
         for i, artist in enumerate(unique_artists, start=1):
             genres_by_artist[artist] = source.genres_for(artist)

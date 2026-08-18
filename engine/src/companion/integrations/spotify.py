@@ -32,6 +32,7 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 
+from companion import security
 from companion.db.models import SpotifyAuth
 from companion.logging import get_logger
 
@@ -167,9 +168,13 @@ def build_client() -> httpx.Client:
 
     A factory, not a module global, so tests inject an `httpx.MockTransport`
     client and no real network client leaks between them (same reasoning as
-    `db.session.create_session_factory`).
+    `db.session.create_session_factory`). Routed through
+    `security.build_allowlisted_client` (T090): a defense-in-depth backstop
+    that refuses any request whose host isn't `api.spotify.com` or
+    `accounts.spotify.com`, on top of this module already only ever
+    building URLs from those two fixed constants.
     """
-    return httpx.Client(timeout=15.0)
+    return security.build_allowlisted_client(timeout=15.0)
 
 
 def _utcnow() -> datetime:

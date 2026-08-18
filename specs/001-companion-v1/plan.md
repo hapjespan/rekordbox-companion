@@ -165,7 +165,7 @@ decision or an explicitly accepted risk with an owner.
 | ASVS V2/V3/V4 (auth, session, access) | no app auth (out of scope, recorded); tokens in `spotify_auth` with owner-only file perms; disconnect endpoint is the deletion path |
 | ASVS V5 (validation) | playlist URL → id parse at the boundary; schema-validated external payloads; SQLAlchemy parameterised throughout |
 | ASVS V6/V12 (secrets, files) | `.env` untracked; stream paths resolved only from `rb_content_id` |
-| ASVS V10/V14 + SSRF | pinned deps + lockfiles; outbound HTTP restricted to api.spotify.com, itunes.apple.com, musicbrainz.org |
+| ASVS V10/V14 + SSRF | pinned deps + lockfiles; outbound HTTP restricted to api.spotify.com, accounts.spotify.com (OAuth token exchange/refresh), itunes.apple.com, musicbrainz.org -- enforced at the transport layer, `security.build_allowlisted_client` (T090), not just by convention |
 | AVG retention/deletion | `spotify_auth` deleted whole on disconnect (contracts); PII inventory carried forward |
 | Unknown #1 pyrekordbox writes | spike gates the write path (R3); failure reopens phase 4 |
 | Unknown #2 enrichment coverage | spike with owner judgement against SC-008 (R1) |
