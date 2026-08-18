@@ -825,11 +825,21 @@ the one documented exception to story independence in this feature.
 - [ ] T094 Verify `engine/tests/fixtures/matching_golden.yaml` holds ≥50
       cases with ≥10 hard cases and passes at 100% (SC-003) — execution
       depends on the owner-supplied real cases; this task records the gate
-- [ ] T095 [P] Run the Playwright suite
+- [x] T095 [P] Run the Playwright suite
       (`web/tests/e2e/sync-review-apply.spec.ts`,
       `web/tests/e2e/missing-link.spec.ts` from T107) as the CI-facing
       regression guard for the two core flows (proof-of-value e2e budget,
       plan.md)
+
+      **Reconciliation**: "run as the CI-facing regression guard" read as
+      establishing actual CI wiring, not a one-off manual run (this session
+      already ran the suite constantly; that alone doesn't make it
+      "CI-facing"). Added `.github/workflows/ci.yml` (backend + frontend
+      jobs, on push/PR to release and main) and filled in dependabot.yml's
+      already-anticipated npm/uv entries. Verified locally that the full
+      suite is CI-safe (passes with `.env` removed); not yet verified
+      against a real GitHub Actions run, which this session has no way to
+      trigger.
 - [x] T098 [P] Verify all user-facing SPA copy is Dutch (FR-038) across every
       component in `web/src/features/` and `web/src/components/`: labels,
       button text, empty states, toasts and error messages; only `code`
