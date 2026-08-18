@@ -56,16 +56,17 @@ byte-for-byte: an enrichment run leaves `master.db` unchanged.
 
 ### Blocking findings
 
-Twelve findings were classified blocking. All twelve were fixed in this phase,
+Thirteen findings were classified blocking. All thirteen were fixed in this phase,
 each with a test that fails against the pre-fix code; the status column names
 the commit.
 
-The twelfth is the one this review nearly shipped without. It was found only by
-starting the app and looking at it, after the eight group reviews had finished,
+The twelfth and thirteenth are the ones this review nearly shipped without. Both
+were found only by starting the app and using it, after the eight group reviews had finished,
 because no reviewer had "is this story reachable in the running app" as its
 remit: the US5 reviewer read the components and their tests, and the frontend
 reviewer's scope was US1 and US2. Component-level review cannot catch an
-unmounted feature, because the test mounts the component itself.
+unmounted feature or a missing step between features, because each test supplies
+its own component and its own data.
 
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -81,6 +82,7 @@ unmounted feature, because the test mounts the component itself.
 | 10 | US7 bookings | The suggestions fetch passed no `limit`, so selecting a node fetched the whole collection and rendered a list item with two buttons per track: a multi-MB response and tens of thousands of DOM nodes per click at the target scale. | Fixed, `fe95fa7` |
 | 11 | US7 bookings | The suggestions query bound one SQL parameter per collection entry, roughly 20k per request and a hard `too many SQL variables` failure above SQLite's 32,766 cap, inside the project's own 40k sizing envelope. | Fixed, `fe95fa7` |
 | 12 | US5 frontend | `TrackTable` and `PlayerBar` were never imported by anything, so the collection browser and the player were unreachable in the running app, exactly like US2's components. `App.tsx` recorded the gap in a comment ("not wired in here yet, a pre-existing gap") rather than as a finding, and no test covered the page as a whole. | Fixed |
+| 13 | US5 / collection index | The collection index is an in-memory cache rebuilt from `master.db` on demand (ADR 0012), and nothing ever demanded it: no UI control called `POST /api/collection/reindex` and no startup path filled it. Every freshly started app therefore showed an empty collection, empty enrichment coverage and empty suggestions, with no way to fix it from the UI. Verified by restarting the app: the collection reported `total: 0` until an external POST. | Fixed |
 
 ### Advisory findings
 

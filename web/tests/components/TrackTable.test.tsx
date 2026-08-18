@@ -6,7 +6,7 @@ import { apiClient } from "../../src/api/client";
 import { TrackTable } from "../../src/components/TrackTable";
 
 vi.mock("../../src/api/client", () => ({
-  apiClient: { GET: vi.fn() },
+  apiClient: { GET: vi.fn(), POST: vi.fn() },
 }));
 
 function mockCollection(total: number, items: unknown[]) {
@@ -188,6 +188,11 @@ describe("TrackTable", () => {
   it("shows an empty state when nothing matches", async () => {
     mockCollection(0, []);
     render(<TrackTable />);
+    // A search term is what makes this "nothing matches" rather than "the
+    // index is empty", which since the phase 7 review are different messages.
+    fireEvent.change(screen.getByLabelText("Zoeken in collectie"), {
+      target: { value: "iets dat niet bestaat" },
+    });
 
     expect(await screen.findByText("Geen nummers gevonden.")).toBeInTheDocument();
   });
@@ -230,5 +235,67 @@ describe("TrackTable", () => {
 
     await screen.findByText("Adele");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("collection index refresh", () => {
+  // Phase 7 review: the index is an in-memory cache rebuilt on demand
+  // (ADR 0012) and nothing in the UI ever demanded it, so a freshly started
+  // app showed an empty collection with no way to fill it.
+  it("tells the DJ how to fill an empty collection instead of calling it no results", async () => {
+    mockCollection(0, []);
+
+    render(<TrackTable />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/nog niet ingelezen/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Geen nummers gevonden.")).not.toBeInTheDocument();
+  });
+
+  it("still says no results when a search matches nothing", async () => {
+    mockCollection(0, []);
+
+    render(<TrackTable />);
+    fireEvent.change(screen.getByLabelText("Zoeken in collectie"), {
+      target: { value: "iets dat niet bestaat" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Geen nummers gevonden.")).toBeInTheDocument();
+    });
+  });
+
+  it("rebuilds the index and reloads the table", async () => {
+    mockCollection(0, []);
+    vi.mocked(apiClient.POST).mockResolvedValue({ data: {}, error: undefined } as never);
+
+    render(<TrackTable />);
+    await waitFor(() => {
+      expect(screen.getByText(/nog niet ingelezen/i)).toBeInTheDocument();
+    });
+
+    mockCollection(TRACKS.length, TRACKS);
+    fireEvent.click(screen.getByRole("button", { name: "Collectie verversen" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Rolling in the Deep")).toBeInTheDocument();
+    });
+    expect(vi.mocked(apiClient.POST)).toHaveBeenCalledWith("/api/collection/reindex", {});
+  });
+
+  it("reports a failed rebuild instead of leaving the table silently empty", async () => {
+    mockCollection(0, []);
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: undefined,
+      error: { code: "rekordbox_not_found", message: "geen Rekordbox" },
+    } as never);
+
+    render(<TrackTable />);
+    fireEvent.click(screen.getByRole("button", { name: "Collectie verversen" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
   });
 });

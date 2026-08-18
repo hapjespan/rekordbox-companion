@@ -70,6 +70,13 @@ export function TrackTable({ onPlay }: TrackTableProps) {
   const [tracks, setTracks] = useState<CollectionTrackDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
+  // The collection index is an in-memory cache rebuilt from master.db on
+  // demand (ADR 0012), and nothing demanded it: on every app start the table
+  // was empty with no way to fill it from the UI, which also left matching,
+  // enrichment coverage and suggestions empty (phase 7 review). This is that
+  // demand, and the counter re-runs the load once the rebuild returns.
+  const [reindexing, setReindexing] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const rowButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const searchInputId = useId();
 
@@ -116,7 +123,25 @@ export function TrackTable({ onPlay }: TrackTableProps) {
     return () => {
       cancelled = true;
     };
-  }, [query, sort, descending, page]);
+  }, [query, sort, descending, page, reloadToken]);
+
+  async function handleReindex() {
+    setReindexing(true);
+    try {
+      const { error: apiError } = await apiClient.POST("/api/collection/reindex", {});
+      if (apiError) {
+        setError(errorMessageFor(apiError));
+        return;
+      }
+      setError(null);
+      setPage(0);
+      setReloadToken((token) => token + 1);
+    } catch {
+      setError(errorMessageFor(undefined));
+    } finally {
+      setReindexing(false);
+    }
+  }
 
   function handleSort(field: SortField) {
     if (field === sort) {
@@ -146,6 +171,17 @@ export function TrackTable({ onPlay }: TrackTableProps) {
 
   return (
     <div className="flex flex-col gap-16">
+      <div className="flex items-center justify-between gap-16">
+        <p className="text-heading font-bold">Collectie</p>
+        <button
+          type="button"
+          onClick={() => void handleReindex()}
+          disabled={reindexing}
+          className="min-h-24 rounded-full bg-pure-white px-16 py-8 text-body-lg font-bold text-void-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green disabled:bg-iron disabled:text-mist"
+        >
+          {reindexing ? "Verversen..." : "Collectie verversen"}
+        </button>
+      </div>
       <div className="flex flex-col gap-8">
         <label htmlFor={searchInputId} className="text-body-lg font-semibold text-pure-white">
           Zoeken in collectie
@@ -223,8 +259,14 @@ export function TrackTable({ onPlay }: TrackTableProps) {
           {error}
         </p>
       )}
+      {/* An empty index and an empty search result need different copy: the
+          first is fixed by verversen, the second by a different search term. */}
       {!error && tracks.length === 0 && (
-        <p className="text-body-lg text-mist">Geen nummers gevonden.</p>
+        <p className="text-body-lg text-mist">
+          {query
+            ? "Geen nummers gevonden."
+            : "De collectie is nog niet ingelezen. Kies Collectie verversen om hem uit Rekordbox te lezen."}
+        </p>
       )}
 
       <div className="flex items-center gap-16">
