@@ -155,6 +155,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/auth/spotify/player-token": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Player Token
+     * @description `{access_token, expires_in}` for the Web Playback SDK (T099, R2).
+     */
+    get: operations["player_token_api_auth_spotify_player_token_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/sync/sessions": {
     parameters: {
       query?: never;
@@ -190,6 +210,49 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/sync/sessions/{session_id}/tracks/{track_id}/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Accept Track
+     * @description FR-012/FR-014: the selected candidate becomes the accepted Match,
+     *     persisted immediately.
+     */
+    post: operations["accept_track_api_sync_sessions__session_id__tracks__track_id__accept_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/sync/sessions/{session_id}/tracks/{track_id}/reject": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reject Track
+     * @description FR-012: reject means "wrong match" -- the Spotify Track becomes a
+     *     Missing Track (a real row, never silently dropped), persisted
+     *     immediately (FR-014).
+     */
+    post: operations["reject_track_api_sync_sessions__session_id__tracks__track_id__reject_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/events": {
     parameters: {
       query?: never;
@@ -207,10 +270,32 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/player/stream/{rb_content_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Stream Track */
+    get: operations["stream_track_api_player_stream__rb_content_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** AcceptTrackBody */
+    AcceptTrackBody: {
+      /** Rb Content Id */
+      rb_content_id?: string | null;
+    };
     /** CreateSyncSessionBody */
     CreateSyncSessionBody: {
       /** Playlist Url */
@@ -455,6 +540,26 @@ export interface operations {
       };
     };
   };
+  player_token_api_auth_spotify_player_token_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
   list_sync_sessions_api_sync_sessions_get: {
     parameters: {
       query?: never;
@@ -539,6 +644,74 @@ export interface operations {
       };
     };
   };
+  accept_track_api_sync_sessions__session_id__tracks__track_id__accept_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        session_id: number;
+        track_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AcceptTrackBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  reject_track_api_sync_sessions__session_id__tracks__track_id__reject_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        session_id: number;
+        track_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_events_api_events_get: {
     parameters: {
       query?: never;
@@ -555,6 +728,37 @@ export interface operations {
         };
         content: {
           "application/json": unknown;
+        };
+      };
+    };
+  };
+  stream_track_api_player_stream__rb_content_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rb_content_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
         };
       };
     };

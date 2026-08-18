@@ -341,7 +341,7 @@ only documented keys; both audio sources playable per item (spec.md).
 - [x] T039 [US2] Build `web/src/features/review/ReviewQueue.tsx`: arrows/A/R/
       space wiring, focus never lost on resolve, candidates and scores in
       text (FR-011, WCAG)
-- [ ] T040 [US2] Build `web/src/features/review/DualPlayback.tsx`: local
+- [x] T040 [US2] Build `web/src/features/review/DualPlayback.tsx`: local
       candidate via `stream.py`, Spotify original via the Web Playback SDK
       (T099 token, or T034's fallback), playing/paused exposed to assistive
       tech (FR-013, WCAG)
