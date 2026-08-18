@@ -770,10 +770,10 @@ the one documented exception to story independence in this feature.
       RED integration test (`engine/tests/bookings/test_structure_apply.py`)
       already pins the target interface (`writer.apply_structure`,
       `NodeSpec`, `NodeWriteResult`) against the real fixture `master.db`.
-- [ ] T087 [P] [US7] Build `web/src/components/Tree.tsx`: folder/playlist
+- [x] T087 [P] [US7] Build `web/src/components/Tree.tsx`: folder/playlist
       tree editor (create/rename/nest/move/delete), Set Phase labels,
       Run-of-Show folder, keyboard-operable (WCAG)
-- [ ] T088 [P] [US7] Build `web/src/features/bookings/BookingWorkspace.tsx`:
+- [x] T088 [P] [US7] Build `web/src/features/bookings/BookingWorkspace.tsx`:
       profile editor, suggestion list (accept/dismiss, already-in-playlist
       flag), apply action and result state, naming-error inputs (WCAG)
 
