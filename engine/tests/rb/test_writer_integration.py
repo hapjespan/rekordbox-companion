@@ -16,7 +16,6 @@ until T046 (guard, used transitively)/T047 (backup)/T048 (writer) build them.
 """
 
 import shutil
-import stat
 from pathlib import Path
 
 import pytest
@@ -137,21 +136,22 @@ def test_target_playlist_deleted_in_rekordbox_is_detected_and_recreated(db_copy:
     reopened.close()
 
 
-def test_backup_create_fails_when_the_backup_directory_is_unwritable(db_copy: Path, tmp_path: Path):
+def test_backup_create_fails_when_the_backup_directory_is_blocked(db_copy: Path, tmp_path: Path):
     # T096: a real (not mocked) backup failure -- constraints.md: "A backup
     # that fails verification blocks the write, the same as insufficient
-    # disk space." No corruption of anything: an unwritable directory is a
-    # genuine, safe-to-induce failure mode.
-    backup_dir = tmp_path / "unwritable-backups"
-    backup_dir.mkdir()
-    backup_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # read+execute only, no write
-    try:
-        result = backup.create(db_copy, backup_dir)
-        assert result.ok is False
-        assert result.path is None
-        assert result.error
-    finally:
-        backup_dir.chmod(stat.S_IRWXU)  # restore so tmp_path cleanup can remove it
+    # disk space." A path component that exists as a plain FILE, not a
+    # directory, is a genuine, uid-independent failure mode: unlike a
+    # permission-bit denial (chmod), it fails even when the process runs as
+    # root, which this sandbox's tests do.
+    blocked = tmp_path / "backups" / "blocked"
+    blocked.parent.mkdir()
+    blocked.write_bytes(b"not a directory")
+
+    result = backup.create(db_copy, blocked)
+
+    assert result.ok is False
+    assert result.path is None
+    assert result.error
 
 
 def test_writer_reports_readback_failure_instead_of_claiming_success(
