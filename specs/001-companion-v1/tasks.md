@@ -709,7 +709,7 @@ the one documented exception to story independence in this feature.
 - [x] T079 [P] [US7] Test in `engine/tests/bookings/test_structures.py`:
       dismissed suggestions never return for that playlist (FR-034); a node
       already applied to Rekordbox is rename-locked (FR-032, edge case)
-- [ ] T080 [P] [US7] Integration test in
+- [x] T080 [P] [US7] Integration test in
       `engine/tests/bookings/test_structure_apply.py`: apply writes the full
       folder/playlist tree to fixture `master.db` through the same guard/
       backup/readback path as US3; re-apply after edits is add-only
@@ -752,7 +752,7 @@ the one documented exception to story independence in this feature.
       `POST .../dismissals` in `engine/src/companion/api/structures.py`
       (FR-033, FR-034). Not [P] with T084/T086: same file (gate-review
       finding).
-- [ ] T086 [US7] [complexity: high] Implement `POST /api/structures/{id}/apply` in
+- [x] T086 [US7] [complexity: high] Implement `POST /api/structures/{id}/apply` in
       `engine/src/companion/api/structures.py`, reusing `rb/writer.py` +
       `rb/guard.py` + `rb/backup.py` from US3 (T046-T048); per-node
       `ApplyResult`, add-only re-apply, emitting `apply_done` on
