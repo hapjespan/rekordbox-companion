@@ -33,8 +33,12 @@ Tiers (kickoff.md section 8, FR-005..FR-007):
 
 One numeric design decision this test file pins, not specified beyond "a
 duration penalty" (FR-007) -- T024/T025's to implement and this suite's to
-hold fixed once chosen: 2 score points per whole second beyond the 5s grace
-(e.g. 10s difference = 5s excess = 10 points off). Fuzzy scores are computed
+hold fixed once chosen: 2 score points per second beyond the 5s grace, using
+the fractional excess, not rounded to a whole second (e.g. 10s difference =
+5s excess = 10 points off; a 6.5s difference would be 1.5s excess = 3 points
+off -- every boundary case below uses whole-second diffs, so this fractional
+behaviour isn't itself exercised by a test here, only documented accurately;
+see engine.py's module docstring). Fuzzy scores are computed
 by rapidfuzz.fuzz.token_set_ratio on the normalised strings, so this file's
 expected numbers were read off real rapidfuzz output for the exact strings
 below, not hand-derived -- an independent source of truth per the TDD
@@ -214,6 +218,25 @@ def test_remix_marker_veto_forces_review_even_above_the_auto_match_bar():
     assert result.status == "review"
 
 
+def test_remix_marker_veto_leaves_a_sub_review_bar_pair_missing():
+    # ADR 0019: the veto only demotes. A remix-marked Spotify track that simply
+    # isn't in the Collection must stay "missing" so it becomes a Missing Track
+    # and reaches the US4 purchase flow (FR-007, scenario 5). Promoting it to
+    # "review" on the strength of the marker alone made it unbuyable, and
+    # attached candidates that mean nothing.
+    spotify = {
+        "artist": "Some Artist",
+        "title": "Some Song (Club Mix)",
+        "duration_ms": 300_000,
+    }
+    collection = _collection("Wholly Unrelated Band", "Nothing Like It", 300_000)
+
+    result = classify_match(spotify, collection)
+
+    assert result.score < 75
+    assert result.status == "missing"
+
+
 def test_remix_marker_veto_does_not_apply_when_isrc_matches():
     # Tier 1 is an identifier match, definitionally the same recording, so
     # the veto does not second-guess it even if title text superficially
@@ -359,6 +382,9 @@ def _mixed_tracks():
         {"artist": "Example Artist", "title": "Example Song", "duration_ms": 300_000},
         # Missing: nothing scores anywhere close.
         {"artist": "Totally Unrelated", "title": "Totally Unrelated", "duration_ms": 999_000},
+        # Remix-marked and absent from the Collection: the veto must not lift it
+        # out of "missing" (ADR 0019), or it can never become a Missing Track.
+        {"artist": "Some Artist", "title": "Some Song (Club Mix)", "duration_ms": 300_000},
     ]
 
 
@@ -381,6 +407,44 @@ def test_find_best_matches_matches_find_best_match_for_the_same_inputs():
         assert {c["rb_content_id"] for c in batch_candidates} == {
             c["rb_content_id"] for c in single_candidates
         }
+
+
+def test_find_best_matches_matches_find_best_match_when_a_vetoed_tier2_entry_precedes_isrc():
+    # Phase-7 review finding: the differential fixture above
+    # (_mixed_collection/_mixed_tracks) never placed a vetoed tier-2 entry
+    # (remix marker differs, forced to "review" at score 100.0) AHEAD of a
+    # genuine ISRC match (also score 100.0) in collection order -- the one
+    # ordering that exposed find_best_match ranking by score alone: a stable
+    # sort on tied scores lets collection order, not tier, decide the
+    # winner, so the earlier vetoed entry won instead of the ISRC match.
+    # find_best_matches never had this bug (its ISRC lane is checked before
+    # any tier-2/3 ranking, independent of collection order).
+    spotify = {
+        "artist": "Example Artist",
+        "title": "Example Song",
+        "duration_ms": 300_000,
+        "isrc": "USRC17607839",
+    }
+    collection = [
+        _collection(
+            "Example Artist", "Example Song (Club Mix)", 300_000, rb_content_id="rb-vetoed"
+        ),
+        _collection(
+            "Example Artist", "Example Song", 300_000, isrc="USRC17607839", rb_content_id="rb-isrc"
+        ),
+    ]
+    tracks = [spotify]
+
+    batched = find_best_matches(tracks, collection)
+    individually = [find_best_match(track, collection) for track in tracks]
+
+    assert len(batched) == len(individually) == 1
+    batch_result, batch_rb_id, batch_candidates = batched[0]
+    single_result, single_rb_id, single_candidates = individually[0]
+
+    assert batch_result.status == single_result.status == "matched"
+    assert batch_rb_id == single_rb_id == "rb-isrc"
+    assert batch_candidates == single_candidates == []
 
 
 def test_find_best_matches_returns_missing_for_every_track_against_an_empty_collection():

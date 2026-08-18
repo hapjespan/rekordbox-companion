@@ -6,11 +6,15 @@ pinned by T021's tests (`engine/tests/matching/test_engine.py`):
   2. Normalised artist+title exact equality AND duration within 3s ->
      matched (score 100.0), unless the remix veto applies.
   3. Otherwise: rapidfuzz token_set_ratio on normalised artist (40%) and
-     title (60%), penalised 2 points per whole second beyond a 5s grace,
-     then 92+ -> matched, 75-92 -> review, <75 -> missing.
-Remix veto (FR-008): whenever the two sides' remix/edit markers differ,
-tiers 2 and 3 are forced to "review" regardless of score; tier 1 (an ISRC
-match, definitionally the same recording) is unaffected.
+     title (60%), penalised 2 points per second (fractional, not rounded to
+     a whole second) beyond a 5s grace, then 92+ -> matched, 75-92 ->
+     review, <75 -> missing.
+Remix veto (FR-008): whenever the two sides' remix/edit markers differ, tiers 2
+and 3 may not auto-match. The veto only demotes (ADR 0019): a pair that would
+clear a bar drops into "review", while a pair scoring below 75 stays "missing",
+because FR-007 and scenario 5 are unconditional about that and a promoted pair
+could never become a Missing Track. Tier 1 (an ISRC match, definitionally the
+same recording) is unaffected.
 
 `collection`'s `norm_artist`/`norm_title`/`remix_tokens` are PRECOMPUTED
 (data-model.md's "Matching engine seam" note, ADR 0012) -- this module never
@@ -74,9 +78,11 @@ def classify_match(spotify: dict, collection: dict) -> MatchResult:
         excess_seconds = max(0.0, duration_diff / 1000 - _TIER3_DURATION_GRACE_S)
         score = max(0.0, score - excess_seconds * _DURATION_PENALTY_PER_SECOND)
 
-    if remix_differs:
-        return MatchResult(status="review", score=score)
-    if score >= _AUTO_MATCH_BAR:
+    # The veto only ever demotes (ADR 0019): it blocks an auto-match, it does
+    # not lift a sub-75 pair into review. Promoting would make a remix-marked
+    # track the DJ doesn't own impossible to buy, since it would never become a
+    # Missing Track.
+    if score >= _AUTO_MATCH_BAR and not remix_differs:
         return MatchResult(status="matched", score=score)
     if score >= _REVIEW_BAR:
         return MatchResult(status="review", score=score)
@@ -101,9 +107,26 @@ def find_best_match(
     T028 (`POST /api/sync/sessions`, which needs to find a Spotify track's
     best candidate among up to ~40k Collection entries, not just classify a
     single given pair), not something task text for T025/T028 spelled out.
+
+    ISRC (tier 1) is checked as its own lane BEFORE the general score sort,
+    exactly like `find_best_matches`' `isrc_index` lookup, rather than
+    relying on `classify_match`'s tier-1/tier-2 results both scoring 100.0
+    to sort together (phase-7 review finding): a vetoed tier-2 entry (remix
+    markers differ, forced to "review" at score 100.0) can appear earlier in
+    `collection` than a genuine ISRC match (also score 100.0, "matched") --
+    sorting by score alone is a tie there, and Python's stable sort would
+    then let COLLECTION ORDER, not match quality, decide the winner. An ISRC
+    match is definitionally the same recording (FR-005), so it must win that
+    tie unconditionally, not just when it happens to sort first.
     """
     if not collection:
         return MatchResult(status="missing", score=0.0), None, []
+
+    spotify_isrc = spotify.get("isrc")
+    if spotify_isrc:
+        for entry in collection:
+            if entry.get("isrc") == spotify_isrc:
+                return MatchResult(status="matched", score=100.0), entry["rb_content_id"], []
 
     scored = sorted(
         ((classify_match(spotify, entry), entry) for entry in collection),
@@ -254,10 +277,9 @@ def find_best_matches(
         best_score = float(scores_row[best_idx])
         remix_differs = spotify_remix != collection_remix[best_idx]
 
-        if remix_differs:
-            candidates = top_candidates(scores_row)
-            results.append((MatchResult(status="review", score=best_score), None, candidates))
-        elif best_score >= _AUTO_MATCH_BAR:
+        # Same demote-only veto as `classify_match` (ADR 0019); the two must
+        # agree, which the differential test pins.
+        if best_score >= _AUTO_MATCH_BAR and not remix_differs:
             rb_content_id = collection[best_idx]["rb_content_id"]
             results.append((MatchResult(status="matched", score=best_score), rb_content_id, []))
         elif best_score >= _REVIEW_BAR:
