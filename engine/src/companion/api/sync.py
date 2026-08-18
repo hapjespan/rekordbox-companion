@@ -202,6 +202,48 @@ def _session_dict(db: Session, session: SyncSession) -> dict:
     }
 
 
+def _prior_missing_tracks_query(db: Session, playlist_link_id: int, spotify_track_id: str | None):
+    """Every `missing_track` for this Spotify Track under this playlist's
+    lineage, across ALL of its sessions (T058, US4 scenario 3/FR-023) --
+    `None` when there's no id to match on (a local/unavailable track never
+    has a Missing Track lineage to look up)."""
+    if not spotify_track_id:
+        return None
+    return (
+        db.query(MissingTrack)
+        .join(SyncTrack, MissingTrack.sync_track_id == SyncTrack.id)
+        .join(SyncSession, SyncTrack.sync_session_id == SyncSession.id)
+        .filter(
+            SyncSession.playlist_link_id == playlist_link_id,
+            SyncTrack.spotify_track_id == spotify_track_id,
+        )
+    )
+
+
+def _sticky_missing_status(db: Session, playlist_link_id: int, spotify_track_id: str | None) -> str:
+    """`"ignored"` if any prior sync of this playlist lineage already
+    ignored this Spotify Track, else `"open"` (US4 scenario 3: ignored
+    must never reset to open on a later sync)."""
+    query = _prior_missing_tracks_query(db, playlist_link_id, spotify_track_id)
+    if query is not None and query.filter(MissingTrack.status == "ignored").first() is not None:
+        return "ignored"
+    return "open"
+
+
+def _close_prior_missing_tracks(
+    db: Session, playlist_link_id: int, spotify_track_id: str | None
+) -> None:
+    """FR-023: a Match found on a later sync closes any not-yet-acquired
+    Missing Track this Spotify Track already had (the DJ bought it and
+    re-synced)."""
+    query = _prior_missing_tracks_query(db, playlist_link_id, spotify_track_id)
+    if query is None:
+        return
+    for missing in query.filter(MissingTrack.status != "acquired").all():
+        missing.status = "acquired"
+        missing.resolved_at = _utcnow()
+
+
 @router.post("/sync/sessions")
 def create_sync_session(
     body: CreateSyncSessionBody,
@@ -301,22 +343,44 @@ def create_sync_session(
             chunk_tracks, chunk_classifications, strict=True
         ):
             position += 1
-            db.add(
-                SyncTrack(
-                    sync_session_id=session.id,
-                    position=position,
-                    spotify_track_id=track.spotify_track_id,
-                    isrc=track.isrc,
-                    artist=track.artist,
-                    title=track.title,
-                    duration_ms=track.duration_ms,
-                    status=status,
-                    rb_content_id=rb_content_id,
-                    match_score=score,
-                    candidates=candidates,
-                    matched_at=_utcnow() if status == "matched" else None,
-                )
+            sync_track = SyncTrack(
+                sync_session_id=session.id,
+                position=position,
+                spotify_track_id=track.spotify_track_id,
+                isrc=track.isrc,
+                artist=track.artist,
+                title=track.title,
+                duration_ms=track.duration_ms,
+                status=status,
+                rb_content_id=rb_content_id,
+                match_score=score,
+                candidates=candidates,
+                matched_at=_utcnow() if status == "matched" else None,
             )
+            db.add(sync_track)
+            # T058 (FR-023, US4 scenario 3): a Match scoring below 75
+            # becomes a Missing Track automatically (spec.md US1 scenario
+            # 1), not only via explicit reject (T037) -- and "ignored" must
+            # survive a re-sync rather than resetting to "open" every time.
+            # A track that now auto-matches on a LATER sync closes any
+            # still-open Missing Track from an earlier one (the DJ bought
+            # it and re-synced, spec.md US4 scenario 4).
+            if status == "missing":
+                # One flush per missing-status track, to get sync_track.id
+                # for the FK below -- a real per-row round-trip, but SQLite
+                # is local and even a heavily-missing 999-track playlist
+                # stays well inside the 5-minute budget (review finding,
+                # accepted rather than batching MissingTrack creation after
+                # the chunk loop).
+                db.flush()
+                db.add(
+                    MissingTrack(
+                        sync_track_id=sync_track.id,
+                        status=_sticky_missing_status(db, link.id, track.spotify_track_id),
+                    )
+                )
+            elif status == "matched":
+                _close_prior_missing_tracks(db, link.id, track.spotify_track_id)
             # T030: one sync_progress event per track. This handler stays a
             # plain sync `def`, run in FastAPI's threadpool -- NOT `async
             # def` -- so the event loop stays free to flush already-queued
@@ -443,10 +507,19 @@ def accept_track(
 def reject_track(session_id: int, track_id: int, db: Session = Depends(get_db)):
     """FR-012: reject means "wrong match" -- the Spotify Track becomes a
     Missing Track (a real row, never silently dropped), persisted
-    immediately (FR-014)."""
+    immediately (FR-014). Reuses the same sticky-ignore lookup as the
+    automatic missing-classification path (T058, US4 scenario 3): a track
+    the DJ already ignored must not resurface as open just because it was
+    rejected under a different session (review finding)."""
     track = _get_review_track(db, session_id, track_id)
     track.status = "rejected"
-    db.add(MissingTrack(sync_track_id=track.id, status="open"))
+    session = db.get(SyncSession, session_id)
+    db.add(
+        MissingTrack(
+            sync_track_id=track.id,
+            status=_sticky_missing_status(db, session.playlist_link_id, track.spotify_track_id),
+        )
+    )
     db.commit()
     return _track_dict(track)
 

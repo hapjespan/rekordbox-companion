@@ -460,29 +460,38 @@ statuses persist, an acquired track leaves the queue on re-sync (spec.md).
 
 ### Tests for User Story 4
 
-- [ ] T053 [P] [US4] Contract test in `engine/tests/api/test_missing.py`: at
+- [x] T053 [P] [US4] Contract test in `engine/tests/api/test_missing.py`: at
       least 90% of a 20-track test set resolve to the correct NL store page
       (SC-004)
-- [ ] T054 [US4] Test in `engine/tests/api/test_missing.py`: `ignored` is
+- [x] T054 [US4] Test in `engine/tests/api/test_missing.py`: `ignored` is
       sticky across re-syncs of the same playlist (scenario 3); a re-synced
       acquired track auto-closes (FR-023). Not [P] with T053: same file
       (gate-review finding).
 
 ### Implementation for User Story 4
 
-- [ ] T055 [US4] Implement `engine/src/companion/integrations/itunes.py`:
+- [x] T055 [US4] Implement `engine/src/companion/integrations/itunes.py`:
       iTunes Search API lookup, `country=NL`, outbound restricted to
       `itunes.apple.com` (ASVS V10/V14 SSRF)
 - [x] T056 [US4] Add `missing_track` model (UNIQUE per `sync_track`) and
       Alembic migration in `engine/src/companion/db/models.py`. Moved to
       T037 (build finding): `missing_track` is needed the moment reject
       spawns one (FR-012, US2), before US4 exists.
-- [ ] T057 [US4] Implement `GET /api/missing`,
+- [x] T057 [US4] Implement `GET /api/missing`,
       `POST /api/missing/{id}/status`, `POST /api/missing/{id}/link`,
       `POST /api/missing/refresh-links` in `engine/src/companion/api/missing.py`
-- [ ] T058 [US4] Wire FR-023 auto-close: reject→missing_track spawn (from
+- [x] T058 [US4] Wire FR-023 auto-close: reject→missing_track spawn (from
       US2, T037) and re-sync match transition back to `matched` in
-      `engine/src/companion/api/sync.py`
+      `engine/src/companion/api/sync.py`. Build finding (phase 6): spec.md's
+      own acceptance scenario 1 ("a Match scoring below 75 becomes a Missing
+      Track") requires `create_sync_session`'s automatic `status="missing"`
+      classification to ALSO spawn a `missing_track` row, not only explicit
+      reject (T037) -- no task previously covered this path. Also wires the
+      sticky-ignore lookup (US4 scenario 3): before spawning a new
+      `missing_track` as `open`, check whether a prior session's
+      `missing_track` for the same `playlist_link`+`spotify_track_id` was
+      `ignored`, and if so spawn `ignored` again instead of resetting to
+      `open`.
 - [ ] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
       Link + copy action, status controls, manual override input with
       field-naming errors (WCAG)
