@@ -21,6 +21,7 @@ from companion.api import (
     missing,
     player,
     profiles,
+    structures,
     sync,
 )
 from companion.config import REPO_ROOT
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(player.router, prefix="/api")
     app.include_router(enrichment.router, prefix="/api")
     app.include_router(profiles.router, prefix="/api")
+    app.include_router(structures.router, prefix="/api")
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")
