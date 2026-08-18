@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from companion.api import auth, collection, config, events, health, sync
+from companion.api import auth, collection, config, events, health, player, sync
 from companion.config import REPO_ROOT
 from companion.logging import configure_logging
 from companion.rb.index import CollectionIndex
@@ -31,7 +31,10 @@ async def _flat_http_exception(request: Request, exc: HTTPException) -> JSONResp
         if isinstance(exc.detail, dict)
         else {"code": "http_error", "message": str(exc.detail)}
     )
-    return JSONResponse(status_code=exc.status_code, content=body)
+    # Preserve any headers the raising endpoint set (e.g. the RFC 7233
+    # `Content-Range` on a 416 from the audio stream); endpoints that set none
+    # pass `None`, leaving the envelope unchanged.
+    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
 
 
 def create_app() -> FastAPI:
@@ -54,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(sync.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
+    app.include_router(player.router, prefix="/api")
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")
