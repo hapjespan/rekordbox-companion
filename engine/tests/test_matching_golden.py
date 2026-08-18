@@ -26,6 +26,8 @@ here, the same conversion a real caller would run once per Collection index
 entry at build time.
 """
 
+import hashlib
+import json
 from pathlib import Path
 
 import yaml
@@ -52,9 +54,32 @@ def _load_cases():
     return data["cases"]
 
 
-def _load_baseline_ids():
+def _case_signature(case: dict) -> str:
+    """Content hash of everything that actually drives a case's outcome:
+    `spotify`, `collection` and `expected_status` -- NOT free-text fields
+    like `description`, which are free to be clarified without triggering a
+    false "edited in place" failure below.
+    """
+    payload = {
+        "spotify": case["spotify"],
+        "collection": case["collection"],
+        "expected_status": case["expected_status"],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def _load_baseline() -> dict[str, str]:
+    """Return {id: content_hash}, parsed from matching_golden_baseline.txt's
+    "<id> <sha256-hex>" lines (blank lines and '#'-comments ignored)."""
     lines = BASELINE_PATH.read_text().splitlines()
-    return {line.strip() for line in lines if line.strip() and not line.strip().startswith("#")}
+    baseline = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        case_id, _, digest = stripped.partition(" ")
+        baseline[case_id] = digest
+    return baseline
 
 
 def test_golden_set_passes_100_percent():
@@ -73,15 +98,32 @@ def test_golden_set_only_ever_grows():
     """FR-009 / project rule 7: only ever extended, never weakened.
 
     Every id recorded in matching_golden_baseline.txt must still exist in
-    the live fixture. Removing or renaming a case fails this; adding a new
-    case to the fixture without also adding its id to the baseline (in the
-    same commit) is the expected, required step for extending the set.
+    the live fixture, AND its `spotify`/`collection`/`expected_status`
+    content must still hash to the value recorded there. An id check alone
+    only catches removal or renaming -- it is blind to a case's inputs being
+    edited or its expected_status flipped in place, which is exactly as
+    real a way to weaken the set as deleting it outright (phase-7 review
+    finding; the fixture history shows this already happened once, for
+    stub-fuzzy-review-tier's title, before this hash existed). Adding a new
+    case to the fixture without also adding its "<id> <hash>" line to the
+    baseline (in the same commit) is the expected, required step for
+    extending the set.
     """
-    current_ids = {case["id"] for case in _load_cases()}
-    baseline_ids = _load_baseline_ids()
+    current_cases = {case["id"]: case for case in _load_cases()}
+    baseline = _load_baseline()
 
-    missing = baseline_ids - current_ids
+    missing = set(baseline) - set(current_cases)
     assert not missing, f"case id(s) removed from the golden set: {sorted(missing)}"
+
+    changed = sorted(
+        case_id
+        for case_id, digest in baseline.items()
+        if _case_signature(current_cases[case_id]) != digest
+    )
+    assert not changed, (
+        "case(s) edited in place (spotify/collection/expected_status no "
+        f"longer matches the recorded baseline hash): {changed}"
+    )
 
 
 def test_every_case_id_is_unique():

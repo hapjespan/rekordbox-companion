@@ -124,8 +124,7 @@ export function ApplyAction({ sessionId, defaultPlaylistName, onApplied }: Apply
 
       {state.status === "success" && (
         <p role="status" className="text-body-lg text-pure-white">
-          Toegepast: {state.result.tracks_added} nieuw, {state.result.tracks_already_present} al
-          aanwezig. Backup: {state.result.backup_path}.
+          {successMessageFor(state.result)}
         </p>
       )}
 
@@ -143,6 +142,18 @@ export function ApplyAction({ sessionId, defaultPlaylistName, onApplied }: Apply
       )}
     </div>
   );
+}
+
+// FR-019/US3 scenario 5: a Target Playlist deleted inside Rekordbox since the
+// last apply is detected and recreated, and the DJ must be told -- a
+// recreated playlist is a NEW Rekordbox id under `writer.apply_playlist`'s
+// own create-vs-reuse rule, so `result.created` is exactly the signal this
+// needs. Without this, "created" and "reused-and-updated" read identically.
+function successMessageFor(result: ApplyResult): string {
+  if (result.created) {
+    return `Playlist aangemaakt: ${result.tracks_added} nummer(s) toegevoegd. Backup: ${result.backup_path}.`;
+  }
+  return `Playlist bijgewerkt: ${result.tracks_added} nieuw, ${result.tracks_already_present} al aanwezig. Backup: ${result.backup_path}.`;
 }
 
 function refusalMessageFor(error: ApiError): string {

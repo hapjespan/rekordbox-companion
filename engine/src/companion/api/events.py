@@ -4,10 +4,10 @@ Plain `StreamingResponse` over `text/event-stream`, no extra dependency --
 Starlette already supports this natively (research.md R4: "SSE is
 one-directional, trivial over localhost"). `publish()` is the only seam
 other modules need: `api/sync.py`'s `create_sync_session` calls it once per
-track to emit `sync_progress` (T030). A future enrichment runner would call
-it the same way for `enrichment_progress`/`apply_done` (contracts/api.md);
-those event types aren't built yet, only the channel and `sync_progress` are
-in this task's scope.
+track to emit `sync_progress` (T030), `api/enrichment.py`'s run calls it for
+`enrichment_progress` (T076), and the apply endpoints in `api/structures.py`
+and `api/sync.py` call it for `apply_done` (contracts/api.md) -- all three
+event types share this one channel.
 
 `publish()` is called from a WORKER THREAD, not the event loop (T030 review
 finding): `create_sync_session` stays a plain sync `def`, which FastAPI runs
@@ -49,8 +49,14 @@ def publish(event: str, data: dict) -> None:
     Safe to call from any thread: each subscriber's own event loop is asked
     (via `call_soon_threadsafe`) to enqueue the message, rather than this
     function touching the queue directly.
+
+    Iterates a snapshot (`list(_subscribers)`), not `_subscribers` itself:
+    this runs on a worker thread while `_stream()`'s `finally` block removes
+    a disconnecting subscriber from the event-loop thread, so iterating the
+    live list directly would race a mutation against this iteration (phase-7
+    review finding).
     """
-    for loop, queue in _subscribers:
+    for loop, queue in list(_subscribers):
         loop.call_soon_threadsafe(queue.put_nowait, (event, data))
 
 

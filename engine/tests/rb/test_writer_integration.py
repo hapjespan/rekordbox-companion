@@ -206,6 +206,32 @@ def test_writer_reports_readback_failure_instead_of_claiming_success(
     assert result.readback_ok is False
 
 
+def test_apply_playlist_writes_a_duplicated_content_id_exactly_once(db_copy: Path):
+    # T106 review finding: `test_sync_apply.py`'s API contract test only pins
+    # the endpoint's own pass-through behaviour against a FAKE writer that
+    # merely computes `len(set(rb_content_ids))` -- it can never fail on a
+    # real dedup regression. This test pins the actual invariant
+    # (writer.py:71-82,103, `_dedupe_preserving_order`) against the real
+    # fixture DB: the same content id given twice (spec.md edge case: the
+    # same Match accepted at two different playlist positions) must land as
+    # exactly one `DjmdSongPlaylist` row, not two.
+    (content_id,) = _content_ids(db_copy, 1)
+
+    result = writer.apply_playlist(db_copy, None, PLAYLIST_NAME, [content_id, content_id])
+
+    assert result.created is True
+    assert result.tracks_added == 1
+    assert result.tracks_already_present == 0
+    assert result.readback_ok is True
+
+    reopened = Rekordbox6Database(path=str(db_copy))
+    song_rows = reopened.get_playlist_songs(PlaylistID=result.rb_playlist_id).count()
+    assert song_rows == 1
+    playlist = reopened.get_playlist(ID=result.rb_playlist_id)
+    assert [song.ContentID for song in playlist.Songs] == [content_id]
+    reopened.close()
+
+
 def _extract_backup(zip_path: Path, dest: Path) -> None:
     import zipfile
 

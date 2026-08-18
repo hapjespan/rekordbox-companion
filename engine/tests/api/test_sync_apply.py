@@ -2,9 +2,10 @@
 (FR-015..FR-019, contracts/api.md).
 
 This file tests the ENDPOINT's own orchestration (guard -> backup -> write ->
-write_log -> ApplyResult, refusal mapping, dedup-before-write) against a
-seeded in-memory companion DB. It does not touch the real Rekordbox fixture
-DB -- that's `test_writer_integration.py`'s job (T043/T045/T096-integration).
+write_log -> ApplyResult, refusal mapping, pass-through of duplicate
+positions to the writer) against a seeded in-memory companion DB. It does not
+touch the real Rekordbox fixture DB -- that's `test_writer_integration.py`'s
+job (T043/T045/T096-integration), including the real dedup invariant itself.
 `guard.check`/`backup.create`/`writer.apply_playlist` are the seam: refusal
 tests monkeypatch guard.check's own OS-level dependencies (`is_rekordbox_running`,
 `detect_rekordbox`, disk usage) so guard.py's real logic runs; backup_failed
@@ -260,15 +261,22 @@ def test_apply_reports_readback_failure_without_marking_the_session_applied(monk
         assert log.backup_path == "/tmp/backup-1.db.zip"
 
 
-def test_apply_writes_a_duplicated_track_to_the_target_playlist_exactly_once(monkeypatch, tmp_path):
+def test_apply_passes_every_position_of_a_duplicated_content_id_through_untouched(
+    monkeypatch, tmp_path
+):
     # T106: the same rb_content_id accepted at two different playlist
-    # positions (spec.md edge case) is still one Match, so it must be
-    # written to the Target Playlist exactly once. Whether the dedup itself
-    # happens here or inside writer.apply_playlist is an implementation
-    # detail (it's writer.py's job -- see test_writer_integration.py); this
-    # contract test only pins the outward-facing outcome: the endpoint must
-    # never pass MORE positions worth of the same id than exist, and the
-    # reported result must reflect exactly one track.
+    # positions (spec.md edge case) is still one Match. Deduplicating it is
+    # writer.apply_playlist's own job (FR-017/FR-018), proven for real
+    # against the fixture DB by
+    # test_writer_integration.py::test_apply_playlist_writes_a_duplicated_content_id_exactly_once.
+    # This contract test only pins the endpoint's OWN responsibility: it must
+    # not silently drop or collapse duplicate positions itself before handing
+    # the list to the writer (that would hide a real ordering/position bug
+    # behind an apparently-correct dedup), and it must report back whatever
+    # tracks_added the writer computes rather than recomputing its own count.
+    # Asserting the exact list (not just the set) is what makes this
+    # failable: an endpoint that started deduping on its own would still pass
+    # `set(...) == {"rb-dup"}` but would fail the list equality below.
     client, session_local, dummy_db = _client(tmp_path)
     _, session_id = _seed_ready_session(
         session_local,
@@ -284,7 +292,7 @@ def test_apply_writes_a_duplicated_track_to_the_target_playlist_exactly_once(mon
     response = client.post(f"/api/sync/sessions/{session_id}/apply", json={})
 
     assert response.status_code == 200
-    assert set(captured["rb_content_ids"]) == {"rb-dup"}
+    assert captured["rb_content_ids"] == ["rb-dup", "rb-dup"]
     assert response.json()["tracks_added"] == 1
 
 

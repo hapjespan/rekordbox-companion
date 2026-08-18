@@ -17,8 +17,10 @@ populated via the existing `/api/collection/reindex` seam, T016); this test
 seeds it directly through `CollectionIndex.rebuild()`. SSE progress
 reporting (contracts/api.md: "starts fetch+match; progress via SSE") was a
 separate concern when this file was first written (T022) but landed in T030,
-which made `create_sync_session` `async def` and added one `sync_progress`
-`events.publish()` call per track -- see
+which added one `sync_progress` `events.publish()` call per track and
+DELIBERATELY KEPT `create_sync_session` a plain sync `def`, run in FastAPI's
+threadpool (an `async def` version was tried and reverted, since it starved
+the SSE stream for the whole run -- see `api/sync.py`'s docstring) -- see
 `test_publishes_one_sync_progress_event_per_track` below.
 
 The three behaviours tasks.md names for T022 are covered first -- exactly

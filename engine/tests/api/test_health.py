@@ -36,6 +36,25 @@ def test_health_reports_degraded_when_rekordbox_is_not_installed():
     assert body["rekordbox_running"] is False
 
 
+def test_degraded_status_matches_rekordbox_backed_endpoints_refusing_outright():
+    # T105: "blocking Rekordbox-backed features instead of erroring per
+    # screen" -- /api/health reporting "degraded" must correspond to
+    # Rekordbox-backed endpoints (api/collection.py's `get_database`
+    # dependency) refusing the request up front with a typed 503, not the
+    # frontend discovering the same problem separately, one screen at a
+    # time. Real assertion, no mocking: this dev container genuinely has no
+    # Rekordbox install, so both the health check and the real dependency
+    # observe the same missing install.
+    client = _client()
+
+    health_body = client.get("/api/health").json()
+    reindex_response = client.post("/api/collection/reindex")
+
+    assert health_body["status"] == "degraded"
+    assert reindex_response.status_code == 503
+    assert reindex_response.json()["code"] == "rekordbox_not_found"
+
+
 def test_health_reports_ok_when_rekordbox_matches_the_pinned_version_and_db_file_exists(
     monkeypatch, tmp_path
 ):

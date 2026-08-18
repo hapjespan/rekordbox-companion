@@ -82,7 +82,55 @@ describe("ApplyAction", () => {
       ),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "Toegepast: 3 nieuw, 1 al aanwezig. Backup: /data/backups/master-1.db.zip.",
+      "Playlist aangemaakt: 3 nummer(s) toegevoegd. Backup: /data/backups/master-1.db.zip.",
+    );
+  });
+
+  it("shows an 'updated' message, distinct from 'created', when the Target Playlist already existed (FR-019)", async () => {
+    mockApply({
+      data: {
+        rb_playlist_id: "rb-1",
+        created: false,
+        tracks_added: 2,
+        tracks_already_present: 5,
+        backup_path: "/data/backups/master-3.db.zip",
+        readback_ok: true,
+      },
+      error: undefined,
+    });
+    renderApplyAction();
+    fireEvent.click(screen.getByRole("button", { name: "Toepassen op Rekordbox" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Bevestig toepassen" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Playlist bijgewerkt: 2 nieuw, 5 al aanwezig. Backup: /data/backups/master-3.db.zip.",
+    );
+  });
+
+  it("shows a 'created' message when the Target Playlist was deleted in Rekordbox and recreated (US3 scenario 5)", async () => {
+    // writer.apply_playlist reports a recreated Target Playlist the same way
+    // as a genuinely new one (`created: true`, a fresh rb_playlist_id) -- see
+    // its docstring. The DJ still needs to see this differ from a plain
+    // update, which this message does regardless of which case it was.
+    mockApply({
+      data: {
+        rb_playlist_id: "rb-2",
+        created: true,
+        tracks_added: 1,
+        tracks_already_present: 0,
+        backup_path: "/data/backups/master-4.db.zip",
+        readback_ok: true,
+      },
+      error: undefined,
+    });
+    renderApplyAction();
+    fireEvent.click(screen.getByRole("button", { name: "Toepassen op Rekordbox" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Bevestig toepassen" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Playlist aangemaakt: 1 nummer(s) toegevoegd. Backup: /data/backups/master-4.db.zip.",
     );
   });
 
