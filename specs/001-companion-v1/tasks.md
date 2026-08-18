@@ -677,7 +677,7 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
       forever, FR-028) in `engine/src/companion/api/enrichment.py`
 - [x] T076 [US6] Implement the `enrichment_progress` SSE event on
       `GET /api/events` (R4)
-- [ ] T077 [P] [US6] Build `web/src/features/enrichment/EnrichmentPanel.tsx`:
+- [x] T077 [P] [US6] Build `web/src/features/enrichment/EnrichmentPanel.tsx`:
       coverage status, unenriched work list, manual genre editor with
       field-naming errors, manual/automatic origin conveyed in text not
       colour (WCAG)
