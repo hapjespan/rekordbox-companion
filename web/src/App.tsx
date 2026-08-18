@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { apiClient } from "./api/client";
+import { BookingWorkspace } from "./features/bookings/BookingWorkspace";
 import { EnrichmentPanel } from "./features/enrichment/EnrichmentPanel";
 import { MissingQueue } from "./features/missing/MissingQueue";
 import { ApplyAction } from "./features/spotify-sync/ApplyAction";
@@ -10,14 +11,15 @@ import { SpotifyConnection } from "./features/spotify-sync/SpotifyConnection";
 import { asApiResponse } from "./features/spotify-sync/types";
 import type { SyncSession, SyncSessionDetail } from "./features/spotify-sync/types";
 
-// Minimal US1/US3/US4/US6 wiring (T032 build finding, extended by
-// T052/T107/T077): no router, no nav -- premature before every user story
-// has its own screen. Assembles PlaylistUrlForm -> MatchReport ->
-// ApplyAction, plus SpotifyConnection, MissingQueue and EnrichmentPanel (all
-// three not session-scoped: they span every playlist lineage or the whole
-// collection, per contracts/api.md), so T033/T052/T107's e2e tests have a
-// real page to click through. US5's TrackTable/PlayerBar (T064/T065) are
-// not wired in here yet -- a pre-existing gap, not this task's (T077) scope.
+// Minimal US1/US3/US4/US6/US7 wiring (T032 build finding, extended by
+// T052/T107/T077/T088): no router, no nav -- premature before every user
+// story has its own screen. Assembles PlaylistUrlForm -> MatchReport ->
+// ApplyAction, plus SpotifyConnection, MissingQueue, EnrichmentPanel and
+// BookingWorkspace (all not session-scoped: they span every playlist
+// lineage or the whole collection, per contracts/api.md), so
+// T033/T052/T107's e2e tests have a real page to click through. US5's
+// TrackTable/PlayerBar (T064/T065) are not wired in here yet -- a
+// pre-existing gap, not this task's (T088) scope.
 export function App() {
   const [session, setSession] = useState<SyncSessionDetail | null>(null);
 
@@ -60,6 +62,9 @@ export function App() {
       </div>
       <div className="mt-24">
         <EnrichmentPanel />
+      </div>
+      <div className="mt-24">
+        <BookingWorkspace />
       </div>
     </div>
   );

@@ -562,7 +562,8 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
+    /** List Nodes */
+    get: operations["list_nodes_api_structures__structure_id__nodes_get"];
     put?: never;
     /** Create Node */
     post: operations["create_node_api_structures__structure_id__nodes_post"];
@@ -1749,6 +1750,37 @@ export interface operations {
     };
   };
   delete_structure_api_structures__structure_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        structure_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_nodes_api_structures__structure_id__nodes_get: {
     parameters: {
       query?: never;
       header?: never;
