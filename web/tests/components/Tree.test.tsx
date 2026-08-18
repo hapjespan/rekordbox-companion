@@ -52,7 +52,7 @@ describe("Tree", () => {
 
     expect(screen.getByText("Vooravond")).toBeInTheDocument();
     expect(screen.getByText("Ontvangst")).toBeInTheDocument();
-    expect(screen.getByText("Set Phase: vooravond")).toBeInTheDocument();
+    expect(screen.getByText("Setfase: vooravond")).toBeInTheDocument();
   });
 
   it("renders as a real tree with nesting conveyed structurally", () => {

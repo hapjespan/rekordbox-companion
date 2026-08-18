@@ -89,7 +89,8 @@ export function ApplyAction({ sessionId, defaultPlaylistName, onApplied }: Apply
         <form onSubmit={handleConfirm} className="flex flex-col gap-16">
           <p className="text-heading font-bold">Toepassen op Rekordbox</p>
           <p className="text-body-lg text-mist">
-            Dit schrijft de geaccepteerde Matches als playlist naar Rekordbox, na een backup.
+            Dit schrijft de geaccepteerde, gematchte nummers als playlist naar Rekordbox, na een
+            backup.
           </p>
           <label htmlFor={nameInputId} className="text-body-lg font-semibold">
             Playlistnaam

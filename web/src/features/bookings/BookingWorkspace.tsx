@@ -358,7 +358,7 @@ export function BookingWorkspace() {
 
   return (
     <div className="flex flex-col gap-16">
-      <p className="text-heading font-bold">Booking Structures</p>
+      <p className="text-heading font-bold">Boekingstructuren</p>
 
       <div className="flex flex-wrap gap-8" role="group" aria-label="Structuren">
         {structures.map((structure) => (

@@ -14,7 +14,7 @@ export function QueueComplete({ totals }: QueueCompleteProps) {
   return (
     <div role="status" className="flex flex-col gap-16 text-body-lg text-pure-white">
       <p className="text-heading font-bold">Review afgerond</p>
-      <p className="text-mist">Alle Matches in deze Sync Session zijn beoordeeld.</p>
+      <p className="text-mist">Alle gematchte nummers in deze synchronisatie zijn beoordeeld.</p>
       <ul className="flex flex-wrap gap-16" aria-label="Eindtotalen">
         {TRACK_STATUS_ORDER.map((status) => (
           <li key={status}>

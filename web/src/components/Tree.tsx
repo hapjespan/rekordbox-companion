@@ -181,7 +181,7 @@ function TreeItem({
           <span className="text-body-lg font-semibold text-pure-white">{node.name}</span>
         )}
         {node.set_phase && (
-          <span className="text-body-lg text-mist">{`Set Phase: ${node.set_phase}`}</span>
+          <span className="text-body-lg text-mist">{`Setfase: ${node.set_phase}`}</span>
         )}
         {node.rb_ref && <span className="text-body-lg text-mist">Toegepast in Rekordbox</span>}
 
@@ -297,7 +297,7 @@ export function Tree({
           Nieuwe playlist
         </button>
       </div>
-      <ul role="tree" aria-label="Booking Structure">
+      <ul role="tree" aria-label="Boekingstructuur">
         {roots.map((node) => (
           <TreeItem
             key={node.id}
