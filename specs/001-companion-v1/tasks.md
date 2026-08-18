@@ -515,18 +515,24 @@ fixture file (spec.md).
 
 ### Tests for User Story 5
 
-- [ ] T060 [P] [US5] Perf test in `engine/tests/test_collection_perf.py`:
+- [x] T060 [P] [US5] Perf test in `engine/tests/test_collection_perf.py`:
       `/api/collection` search responds <100ms/keystroke at 40.000 indexed
       tracks (SC-005; tested above the 30k target per constraints)
-- [ ] T061 [P] [US5] Test in `engine/tests/audio/test_stream.py`: a missing or
+- [x] T061 [P] [US5] Test in `engine/tests/audio/test_stream.py`: a missing or
       unreadable audio file reports `file_missing` instead of failing
       silently (FR-026)
 
 ### Implementation for User Story 5
 
-- [ ] T062 [US5] Implement `GET /api/collection` in
+- [x] T062 [US5] Implement `GET /api/collection` in
       `engine/src/companion/api/collection.py`: query/sort/limit/offset over
-      the in-memory index (T013), sort by artist/title/BPM/Play Count
+      the in-memory index (T013), sort by artist/title/BPM/Play Count.
+      `CollectionTrack.genres` is `[]` for every track until US6's
+      enrichment lands (contracts/api.md's `[{genre, source}]` shape is
+      vacuously satisfied by an empty list) -- the same stub-and-replace
+      forward-reference pattern T013 used for `norm_artist`/`norm_title`
+      before T024 existed; whichever US6 task first populates
+      `enriched_genre` data must replace this literal `[]` (review finding).
 - [ ] T063 [US5] Extend `engine/src/companion/audio/stream.py` (T038) with
       the ffmpeg pipe fallback for non-native formats (ALAC fixture) — no
       waveform, no gapless, no preload (proof-of-value cut, plan.md)
@@ -536,7 +542,15 @@ fixture file (spec.md).
       flagged on T038, which doesn't build the pipe; moved to the task that
       actually implements it.
 - [ ] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
-      sortable table, keyboard navigation, AA contrast at dense layout (WCAG)
+      sortable table, keyboard navigation, AA contrast at dense layout (WCAG).
+      Review finding: a plain `<table>` with one tab stop per row (fine for
+      MatchReport's read-only report, T032) would force tabbing through up
+      to 50 rows to reach a distant one on this actively browsable, playable
+      table -- not real "keyboard navigation" as this task's own wording
+      names it, separately from "searchable, sortable". Built as a roving-
+      tabindex row list instead (ArrowUp/ArrowDown move the active row's
+      focus without re-tabbing, ReviewQueue.tsx/T039's technique), inside a
+      real `<table>` so screen-reader row/column semantics stay intact.
 - [ ] T065 [P] [US5] Build `web/src/components/PlayerBar.tsx`: progress bar +
       seek only, playing/paused/seek state exposed to assistive tech (WCAG;
       proof-of-value cut: no waveform, per plan.md)

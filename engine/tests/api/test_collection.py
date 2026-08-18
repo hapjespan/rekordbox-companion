@@ -1,4 +1,6 @@
-"""T016: POST /api/collection/reindex -- rebuilds the in-memory index (R6)."""
+"""T016: POST /api/collection/reindex -- rebuilds the in-memory index (R6).
+T062: GET /api/collection -- search/sort/paginate over it (FR-024, US5).
+"""
 
 from fastapi.testclient import TestClient
 
@@ -159,3 +161,148 @@ def test_playlists_returns_the_tree_from_reader(monkeypatch):
     assert body[0]["rb_playlist_id"] == "root"
     assert body[0]["is_folder"] is True
     assert body[1]["parent_id"] == "root"
+
+
+def _seeded_client():
+    app = create_app()
+    app.state.collection_index.rebuild(
+        [
+            CollectionTrack(
+                rb_content_id="rb1",
+                artist="Daft Punk",
+                title="One More Time",
+                duration_ms=210_000,
+                bpm=123.0,
+                isrc=None,
+                play_count=50,
+                location="/music/one-more-time.mp3",
+            ),
+            CollectionTrack(
+                rb_content_id="rb2",
+                artist="Daft Punk",
+                title="Get Lucky",
+                duration_ms=240_000,
+                bpm=116.0,
+                isrc=None,
+                play_count=10,
+                location="/music/get-lucky.M4A",
+            ),
+            CollectionTrack(
+                rb_content_id="rb3",
+                artist="Adele",
+                title="Rolling in the Deep",
+                duration_ms=228_000,
+                bpm=None,
+                isrc=None,
+                play_count=30,
+                location=None,
+            ),
+        ]
+    )
+    return TestClient(app)
+
+
+def test_collection_lists_everything_by_default_sorted_by_artist():
+    client = _seeded_client()
+
+    response = client.get("/api/collection")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert [item["artist"] for item in body["items"]] == ["Adele", "Daft Punk", "Daft Punk"]
+
+
+def test_collection_search_matches_artist_or_title_case_insensitively():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"query": "LUCKY"})
+
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["rb_content_id"] == "rb2"
+
+
+def test_collection_search_over_artist_finds_both_daft_punk_tracks():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"query": "daft"})
+
+    body = response.json()
+    assert body["total"] == 2
+    assert {item["rb_content_id"] for item in body["items"]} == {"rb1", "rb2"}
+
+
+def test_collection_sorts_by_play_count_descending():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"sort": "-play_count"})
+
+    body = response.json()
+    assert [item["rb_content_id"] for item in body["items"]] == ["rb1", "rb3", "rb2"]
+
+
+def test_collection_sorts_by_bpm_with_missing_bpm_always_last():
+    client = _seeded_client()
+
+    ascending = client.get("/api/collection", params={"sort": "bpm"}).json()
+    descending = client.get("/api/collection", params={"sort": "-bpm"}).json()
+
+    assert [item["rb_content_id"] for item in ascending["items"]] == ["rb2", "rb1", "rb3"]
+    assert [item["rb_content_id"] for item in descending["items"]] == ["rb1", "rb2", "rb3"]
+
+
+def test_collection_pagination_slices_items_but_reports_the_full_total():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"limit": 1, "offset": 1})
+
+    body = response.json()
+    assert body["total"] == 3
+    assert len(body["items"]) == 1
+    assert body["items"][0]["artist"] == "Daft Punk"  # second in default artist-sorted order
+
+
+def test_collection_rejects_an_unknown_sort_field_by_name():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"sort": "genre"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "invalid_sort"
+    assert body["field"] == "sort"
+
+
+def test_collection_item_shape_matches_the_contract():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"query": "one more time"})
+
+    item = response.json()["items"][0]
+    assert item == {
+        "rb_content_id": "rb1",
+        "artist": "Daft Punk",
+        "title": "One More Time",
+        "duration_ms": 210_000,
+        "bpm": 123.0,
+        "play_count": 50,
+        "genres": [],  # US6 (T067+) wires real enriched-genre data in here
+        "format": "mp3",
+    }
+
+
+def test_collection_format_is_derived_from_the_location_extension_case_insensitively():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"query": "get lucky"})
+
+    assert response.json()["items"][0]["format"] == "m4a"
+
+
+def test_collection_format_is_none_when_the_track_has_no_location():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"query": "rolling"})
+
+    assert response.json()["items"][0]["format"] is None
