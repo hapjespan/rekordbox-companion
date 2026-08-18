@@ -671,11 +671,11 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
       incremental, resumable queue over `enrichment_state` (data-model.md)
 - [x] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
       migration in `engine/src/companion/db/models.py`
-- [ ] T075 [US6] Implement `POST /api/enrichment/run`,
+- [x] T075 [US6] Implement `POST /api/enrichment/run`,
       `GET /api/enrichment/status`, `GET /api/enrichment/unenriched`,
       `PUT /api/collection/{rb_content_id}/genres` (manual override wins
       forever, FR-028) in `engine/src/companion/api/enrichment.py`
-- [ ] T076 [US6] Implement the `enrichment_progress` SSE event on
+- [x] T076 [US6] Implement the `enrichment_progress` SSE event on
       `GET /api/events` (R4)
 - [ ] T077 [P] [US6] Build `web/src/features/enrichment/EnrichmentPanel.tsx`:
       coverage status, unenriched work list, manual genre editor with
