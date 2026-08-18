@@ -377,19 +377,19 @@ apply adds only new tracks, refusals fire when guard conditions fail
 
 ### Tests for User Story 3
 
-- [ ] T043 [P] [US3] Integration tests in
+- [x] T043 [P] [US3] Integration tests in
       `engine/tests/rb/test_writer_integration.py` against fixture
       `master.db`: backup created before write, readback verifies every
       accepted match present, a second apply after re-sync adds only new
       tracks (add-only, ADR 0006)
-- [ ] T044 [P] [US3] Contract tests in `engine/tests/api/test_sync_apply.py`
+- [x] T044 [P] [US3] Contract tests in `engine/tests/api/test_sync_apply.py`
       for the three refusal codes (`rekordbox_running`, `version_mismatch`,
       `insufficient_disk`) naming the fix (409, scenarios 2-3, edge case)
-- [ ] T045 [US3] Test in `engine/tests/rb/test_writer_integration.py` that
+- [x] T045 [US3] Test in `engine/tests/rb/test_writer_integration.py` that
       a Target Playlist deleted inside Rekordbox is detected and recreated on
       the next Apply, reported to the DJ (FR-019, scenario 5). Not [P] with
       T043: same file (gate-review finding).
-- [ ] T096 [US3] Contract and integration tests for the two remaining
+- [x] T096 [US3] Contract and integration tests for the two remaining
       apply failure paths, in `engine/tests/api/test_sync_apply.py` and
       `engine/tests/rb/test_writer_integration.py`: a backup that fails
       verification blocks the write and returns `backup_failed` (409, same
@@ -397,14 +397,14 @@ apply adds only new tracks, refusals fire when guard conditions fail
       readback verification fails reports which Backup to restore and does
       not mark the session applied (scenario 7). Not [P] with T043-T045:
       shares both files. Gate-review finding.
-- [ ] T106 [US3] Test in `engine/tests/api/test_sync_apply.py`: a playlist
+- [x] T106 [US3] Test in `engine/tests/api/test_sync_apply.py`: a playlist
       containing the same track twice is reported once per playlist
       position (already covered by T022) but Apply writes it to the Target
       Playlist exactly once (edge case, de-duplication on write)
 
 ### Implementation for User Story 3
 
-- [ ] T046 [US3] Implement `engine/src/companion/rb/guard.py`: running-check,
+- [x] T046 [US3] Implement `engine/src/companion/rb/guard.py`: running-check,
       version-pin (7.2.17) check, disk-headroom check, refusing any write
       before it starts (FR-015) [complexity: high] — security boundary: the
       sole gate protecting the irreplaceable Rekordbox library from a bad
@@ -414,27 +414,27 @@ apply adds only new tracks, refusals fire when guard conditions fail
       side effect runs before pyrekordbox does — nothing enforces rule 1's
       "pyrekordbox confined to rb/" mechanically, so the ordering guarantee
       currently holds by convention only (T018 final-review finding).
-- [ ] T047 [US3] Implement `engine/src/companion/rb/backup.py`: timestamped
+- [x] T047 [US3] Implement `engine/src/companion/rb/backup.py`: timestamped
       zipped Backup, verify readability, prune beyond newest 10 only after a
       verified create (ADR 0016). Standard, not high: the destructive prune
       step only ever runs after a verified create, which bounds the risk
       that guard.py/writer.py carry directly (gate-review finding, recorded
       rather than silently omitted).
-- [ ] T048 [US3] Implement `engine/src/companion/rb/writer.py`: guarded
+- [x] T048 [US3] Implement `engine/src/companion/rb/writer.py`: guarded
       playlist/folder writes, add-only updates, readback verification; never
       edits metadata/cues/beat grids, never deletes or reorders anything it
       did not create (FR-016..FR-018, Principle II/III) [complexity: high] —
       cross-cutting security boundary: the sole write path into `master.db`,
       shared by US3 and US7 (T086). Same T018 ordering note as T046: ensure
       `configure_logging()` has run before this module uses pyrekordbox.
-- [ ] T049 [US3] Add `write_log` model and Alembic migration in
+- [x] T049 [US3] Add `write_log` model and Alembic migration in
       `engine/src/companion/db/models.py`; audits every write (SC-006).
       `playlist_link` moved to T027 (T027 build finding): `sync_session`
       needs `playlist_link_id` for FR-010's "re-use one Sync Session lineage
       per Spotify playlist URL", which T028 (US1, `POST /api/sync/sessions`)
       must satisfy — that's before US3 exists, so `playlist_link` cannot wait
       for T049.
-- [ ] T050 [US3] Implement `POST /api/sync/sessions/{id}/apply` in
+- [x] T050 [US3] Implement `POST /api/sync/sessions/{id}/apply` in
       `engine/src/companion/api/sync.py`: guard → backup → write → readback →
       `write_log` row → `ApplyResult`, emitting the `apply_done` SSE event on
       `/api/events` on completion (contracts/api.md, R4)
