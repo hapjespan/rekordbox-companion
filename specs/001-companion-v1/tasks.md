@@ -804,7 +804,7 @@ the one documented exception to story independence in this feature.
       across all seven stories: keyboard-only pass, focus visibility, AA
       contrast, 24x24 targets, form-error announcements (WCAG 2.2 AA, phase 7
       review checklist input)
-- [ ] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
+- [x] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
       features (collection browse, playback) stay usable while a Sync
       Session or enrichment run is in progress (FR-040, edge case)
 - [ ] T093 [P] Update `docs/architecture.md` with any seam deltas discovered
