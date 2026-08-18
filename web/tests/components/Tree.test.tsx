@@ -71,6 +71,28 @@ describe("Tree", () => {
     expect(playlistItem).toBeInTheDocument();
   });
 
+  it("indents by depth through the spacing token, never a hardcoded pixel value", () => {
+    // Project rule 5 / FR-039: every spacing value traces to a token in
+    // design-input/theme.css. The indent used to be `depth * 16` in raw
+    // pixels (phase 7 review finding).
+    render(
+      <Tree
+        nodes={[FOLDER, PLAYLIST]}
+        onCreate={noop}
+        onRename={vi.fn()}
+        onMove={noop}
+        onDelete={noop}
+      />,
+    );
+
+    const nestedRow = screen
+      .getByRole("treeitem", { name: "Ontvangst" })
+      .querySelector<HTMLElement>("div");
+    const style = nestedRow?.getAttribute("style") ?? "";
+    expect(style).toContain("var(--spacing-16)");
+    expect(style).not.toMatch(/\d+px/);
+  });
+
   it("renames a node via the field-naming form, no colour-only state", async () => {
     const onRename = vi.fn().mockResolvedValue(null);
     render(

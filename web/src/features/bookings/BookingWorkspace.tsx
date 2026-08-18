@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
-import { Tree } from "../../components/Tree";
+import { Tree, nextPositionAmong } from "../../components/Tree";
 import type { TreeNodeDto } from "../../components/Tree";
 import { asApiResponse } from "../spotify-sync/types";
 import type { ApiError } from "../spotify-sync/types";
@@ -20,14 +20,39 @@ function applyErrorMessageFor(error: ApiError): string {
   }
 }
 
-interface StructureFormProps {
-  onCreate: (name: string) => void;
+// One page of Suggestions per request: the endpoint's `limit` is not
+// optional in practice -- an unfiltered call returns the whole Collection
+// (tens of thousands of rows at the project's sizing envelope), which is a
+// multi-MB response and a list item with two buttons per track in the DOM.
+const SUGGESTION_PAGE_SIZE = 50;
+
+const INPUT_CLASSES =
+  "min-h-24 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
+
+const PRIMARY_BUTTON_CLASSES =
+  "min-h-24 rounded-full-2 bg-pure-white px-12 py-8 text-body-lg font-bold text-void-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
+
+const SECONDARY_BUTTON_CLASSES =
+  "min-h-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
+
+function parseGenreTags(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
 }
 
-function StructureForm({ onCreate }: StructureFormProps) {
+interface StructureFormProps {
+  profiles: ProfileDto[];
+  onCreate: (name: string, bookingProfileId: number | null) => void;
+}
+
+function StructureForm({ profiles, onCreate }: StructureFormProps) {
   const [name, setName] = useState("");
+  const [profileId, setProfileId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
+  const profileSelectId = useId();
   const errorId = useId();
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -38,7 +63,7 @@ function StructureForm({ onCreate }: StructureFormProps) {
       return;
     }
     setError(null);
-    onCreate(trimmed);
+    onCreate(trimmed, profileId === "" ? null : Number(profileId));
     setName("");
   }
 
@@ -55,12 +80,25 @@ function StructureForm({ onCreate }: StructureFormProps) {
           onChange={(event) => setName(event.target.value)}
           aria-invalid={error !== null}
           aria-describedby={error ? errorId : undefined}
-          className="min-h-24 flex-1 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+          className={`flex-1 ${INPUT_CLASSES}`}
         />
-        <button
-          type="submit"
-          className="min-h-24 rounded-full-2 bg-pure-white px-12 py-8 text-body-lg font-bold text-void-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+        <label htmlFor={profileSelectId} className="text-body-lg font-semibold">
+          Profiel
+        </label>
+        <select
+          id={profileSelectId}
+          value={profileId}
+          onChange={(event) => setProfileId(event.target.value)}
+          className={INPUT_CLASSES}
         >
+          <option value="">Geen profiel</option>
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}
+            </option>
+          ))}
+        </select>
+        <button type="submit" className={PRIMARY_BUTTON_CLASSES}>
           Structuur aanmaken
         </button>
       </div>
@@ -73,8 +111,16 @@ function StructureForm({ onCreate }: StructureFormProps) {
   );
 }
 
-interface ProfileFormProps {
-  onCreate: (
+interface ProfileFieldsFormProps {
+  legend: string;
+  nameLabel: string;
+  submitLabel: string;
+  initialName?: string;
+  initialBpmMin?: number | null;
+  initialBpmMax?: number | null;
+  initialGenreTags?: string[];
+  resetAfterSubmit?: boolean;
+  onSubmit: (
     name: string,
     bpmMin: number | null,
     bpmMax: number | null,
@@ -82,15 +128,31 @@ interface ProfileFormProps {
   ) => void;
 }
 
-function ProfileForm({ onCreate }: ProfileFormProps) {
-  const [name, setName] = useState("");
-  const [bpmMin, setBpmMin] = useState("");
-  const [bpmMax, setBpmMax] = useState("");
-  const [genreTags, setGenreTags] = useState("");
+// One form body for creating a profile and for editing one: FR-031 makes the
+// same three things editable in both directions (name, genre tags, BPM
+// range), so they live in a single component instead of two that drift. The
+// caller keys an edit instance by profile id, so switching profiles remounts
+// it with that profile's values as the drafts.
+function ProfileFieldsForm({
+  legend,
+  nameLabel,
+  submitLabel,
+  initialName = "",
+  initialBpmMin = null,
+  initialBpmMax = null,
+  initialGenreTags = [],
+  resetAfterSubmit = false,
+  onSubmit,
+}: ProfileFieldsFormProps) {
+  const [name, setName] = useState(initialName);
+  const [bpmMin, setBpmMin] = useState(initialBpmMin === null ? "" : String(initialBpmMin));
+  const [bpmMax, setBpmMax] = useState(initialBpmMax === null ? "" : String(initialBpmMax));
+  const [genreTags, setGenreTags] = useState(initialGenreTags.join(", "));
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
   const bpmMinId = useId();
   const bpmMaxId = useId();
+  const genreTagsId = useId();
   const errorId = useId();
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -101,72 +163,137 @@ function ProfileForm({ onCreate }: ProfileFormProps) {
       return;
     }
     setError(null);
-    const tags = genreTags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0);
-    onCreate(trimmed, bpmMin ? Number(bpmMin) : null, bpmMax ? Number(bpmMax) : null, tags);
-    setName("");
-    setBpmMin("");
-    setBpmMax("");
-    setGenreTags("");
+    onSubmit(
+      trimmed,
+      bpmMin ? Number(bpmMin) : null,
+      bpmMax ? Number(bpmMax) : null,
+      parseGenreTags(genreTags),
+    );
+    if (resetAfterSubmit) {
+      setName("");
+      setBpmMin("");
+      setBpmMax("");
+      setGenreTags("");
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-8">
-      <label htmlFor={inputId} className="text-body-lg font-semibold">
-        Naam nieuw profiel
-      </label>
-      <input
-        id={inputId}
-        type="text"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        aria-invalid={error !== null}
-        aria-describedby={error ? errorId : undefined}
-        className="min-h-24 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
-      />
-      <div className="flex flex-wrap gap-8">
-        <label htmlFor={bpmMinId} className="text-body-lg font-semibold">
-          BPM min
+    <form onSubmit={handleSubmit}>
+      <fieldset className="flex flex-col gap-8 border-0 p-0">
+        <legend className="text-body-lg font-semibold text-pure-white">{legend}</legend>
+        <label htmlFor={inputId} className="text-body-lg font-semibold">
+          {nameLabel}
         </label>
         <input
-          id={bpmMinId}
-          type="number"
-          value={bpmMin}
-          onChange={(event) => setBpmMin(event.target.value)}
-          className="min-h-24 flex-1 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+          id={inputId}
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          aria-invalid={error !== null}
+          aria-describedby={error ? errorId : undefined}
+          className={INPUT_CLASSES}
         />
-        <label htmlFor={bpmMaxId} className="text-body-lg font-semibold">
-          BPM max
+        <div className="flex flex-wrap gap-8">
+          <label htmlFor={bpmMinId} className="text-body-lg font-semibold">
+            BPM min
+          </label>
+          <input
+            id={bpmMinId}
+            type="number"
+            value={bpmMin}
+            onChange={(event) => setBpmMin(event.target.value)}
+            className={`flex-1 ${INPUT_CLASSES}`}
+          />
+          <label htmlFor={bpmMaxId} className="text-body-lg font-semibold">
+            BPM max
+          </label>
+          <input
+            id={bpmMaxId}
+            type="number"
+            value={bpmMax}
+            onChange={(event) => setBpmMax(event.target.value)}
+            className={`flex-1 ${INPUT_CLASSES}`}
+          />
+        </div>
+        <label htmlFor={genreTagsId} className="text-body-lg font-semibold">
+          Genre tags, komma-gescheiden
         </label>
         <input
-          id={bpmMaxId}
-          type="number"
-          value={bpmMax}
-          onChange={(event) => setBpmMax(event.target.value)}
-          className="min-h-24 flex-1 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+          id={genreTagsId}
+          type="text"
+          value={genreTags}
+          onChange={(event) => setGenreTags(event.target.value)}
+          className={INPUT_CLASSES}
         />
-      </div>
-      <input
-        type="text"
-        value={genreTags}
-        onChange={(event) => setGenreTags(event.target.value)}
-        placeholder="genre tags, komma-gescheiden"
-        className="min-h-24 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white placeholder-bone focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
-      />
-      <button
-        type="submit"
-        className="min-h-24 rounded-full-2 bg-pure-white px-12 py-8 text-body-lg font-bold text-void-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
-      >
-        Profiel aanmaken
-      </button>
-      {error && (
-        <p id={errorId} role="alert" className="text-body-lg font-semibold text-pure-white">
-          {error}
-        </p>
-      )}
+        <button type="submit" className={PRIMARY_BUTTON_CLASSES}>
+          {submitLabel}
+        </button>
+        {error && (
+          <p id={errorId} role="alert" className="text-body-lg font-semibold text-pure-white">
+            {error}
+          </p>
+        )}
+      </fieldset>
     </form>
+  );
+}
+
+interface ProfileEditorProps {
+  profiles: ProfileDto[];
+  onSave: (
+    profileId: number,
+    name: string,
+    bpmMin: number | null,
+    bpmMax: number | null,
+    genreTags: string[],
+  ) => void;
+}
+
+// US7 scenario 1 / FR-031: the seeded profiles (horeca, bruiloft, prive,
+// thema) start with no genre tags and no BPM range by design (ADR 0008), so
+// without this editor a profile can never be given the filters Suggestions
+// are supposed to be driven by.
+function ProfileEditor({ profiles, onSave }: ProfileEditorProps) {
+  const [chosenId, setChosenId] = useState<number | null>(null);
+  const selectId = useId();
+
+  if (profiles.length === 0) {
+    return <p className="text-body-lg text-mist">Nog geen profielen.</p>;
+  }
+
+  const selected = profiles.find((profile) => profile.id === chosenId) ?? profiles[0];
+
+  return (
+    <div className="flex flex-col gap-8">
+      <label htmlFor={selectId} className="text-body-lg font-semibold">
+        Profiel bewerken
+      </label>
+      <select
+        id={selectId}
+        value={selected.id}
+        onChange={(event) => setChosenId(Number(event.target.value))}
+        className={INPUT_CLASSES}
+      >
+        {profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name}
+          </option>
+        ))}
+      </select>
+      <ProfileFieldsForm
+        key={selected.id}
+        legend={`Profiel ${selected.name}`}
+        nameLabel="Naam profiel"
+        submitLabel="Profiel opslaan"
+        initialName={selected.name}
+        initialBpmMin={selected.bpm_min}
+        initialBpmMax={selected.bpm_max}
+        initialGenreTags={selected.genre_tags}
+        onSubmit={(name, bpmMin, bpmMax, genreTags) =>
+          onSave(selected.id, name, bpmMin, bpmMax, genreTags)
+        }
+      />
+    </div>
   );
 }
 
@@ -181,7 +308,9 @@ export function BookingWorkspace() {
   const [nodes, setNodes] = useState<TreeNodeDto[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionDto[]>([]);
+  const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const structureProfileSelectId = useId();
   // Tree.tsx's move/nest/lift actions each fire two independent onMove
   // calls (a position swap, or a re-parent) in the same click. Each call
   // triggers its own PUT + refreshNodes; without sequencing, the two
@@ -226,10 +355,16 @@ export function BookingWorkspace() {
     setNodes(asApiResponse<TreeNodeDto[]>(data) ?? []);
   }
 
-  async function refreshSuggestions(structureId: number, nodeId: number) {
+  // `limit` is always sent: the endpoint treats its absence as "the whole
+  // Collection", which at 20k+ tracks is a multi-MB response and tens of
+  // thousands of DOM nodes for one click (phase 7 review finding). "Toon
+  // meer" raises the limit a page at a time.
+  async function refreshSuggestions(structureId: number, nodeId: number, limit: number) {
     const { data } = await apiClient.GET(
       "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
-      { params: { path: { structure_id: structureId, node_id: nodeId } } },
+      {
+        params: { path: { structure_id: structureId, node_id: nodeId }, query: { limit } },
+      },
     );
     setSuggestions(asApiResponse<SuggestionDto[]>(data) ?? []);
   }
@@ -238,19 +373,30 @@ export function BookingWorkspace() {
     setSelectedStructureId(id);
     setSelectedNodeId(null);
     setSuggestions([]);
+    setSuggestionLimit(SUGGESTION_PAGE_SIZE);
     setApplyMessage(null);
     await refreshNodes(id);
   }
 
   async function handleSelectNode(nodeId: number) {
     setSelectedNodeId(nodeId);
+    setSuggestionLimit(SUGGESTION_PAGE_SIZE);
     if (selectedStructureId !== null) {
-      await refreshSuggestions(selectedStructureId, nodeId);
+      await refreshSuggestions(selectedStructureId, nodeId, SUGGESTION_PAGE_SIZE);
     }
   }
 
-  async function handleCreateStructure(name: string) {
-    await apiClient.POST("/api/structures", { body: { name, booking_profile_id: null } });
+  async function handleShowMoreSuggestions() {
+    if (selectedStructureId === null || selectedNodeId === null) return;
+    const nextLimit = suggestionLimit + SUGGESTION_PAGE_SIZE;
+    setSuggestionLimit(nextLimit);
+    await refreshSuggestions(selectedStructureId, selectedNodeId, nextLimit);
+  }
+
+  async function handleCreateStructure(name: string, bookingProfileId: number | null) {
+    await apiClient.POST("/api/structures", {
+      body: { name, booking_profile_id: bookingProfileId },
+    });
     await refreshStructures();
   }
 
@@ -266,16 +412,56 @@ export function BookingWorkspace() {
     await refreshProfiles();
   }
 
+  // FR-031 "editable": without this the seeded profiles keep the empty genre
+  // tags and BPM range they are seeded with, and Suggestions can only ever
+  // run unfiltered (US7 scenario 1).
+  async function handleSaveProfile(
+    profileId: number,
+    name: string,
+    bpmMin: number | null,
+    bpmMax: number | null,
+    genreTags: string[],
+  ) {
+    await apiClient.PUT("/api/profiles/{profile_id}", {
+      params: { path: { profile_id: profileId } },
+      body: { name, bpm_min: bpmMin, bpm_max: bpmMax, genre_tags: genreTags },
+    });
+    await refreshProfiles();
+    // The profile drives this structure's Suggestions, so a saved filter
+    // must show up in the open list instead of waiting for a re-select.
+    if (selectedStructureId !== null && selectedNodeId !== null) {
+      await refreshSuggestions(selectedStructureId, selectedNodeId, suggestionLimit);
+    }
+  }
+
+  // FR-033/US7 scenario 3: Suggestions are filtered by the structure's
+  // Booking Profile, so the structure needs a way to point at one.
+  async function handleLinkProfile(bookingProfileId: number | null) {
+    const structure = structures?.find((s) => s.id === selectedStructureId);
+    if (selectedStructureId === null || !structure) return;
+    await apiClient.PUT("/api/structures/{structure_id}", {
+      params: { path: { structure_id: selectedStructureId } },
+      body: { name: structure.name, booking_profile_id: bookingProfileId },
+    });
+    await refreshStructures();
+    if (selectedNodeId !== null) {
+      await refreshSuggestions(selectedStructureId, selectedNodeId, suggestionLimit);
+    }
+  }
+
   async function handleCreateNode(parentId: number | null, kind: "folder" | "playlist") {
     if (selectedStructureId === null) return;
-    const siblingCount = nodes.filter((n) => n.parent_id === parentId).length;
     await apiClient.POST("/api/structures/{structure_id}/nodes", {
       params: { path: { structure_id: selectedStructureId } },
       body: {
         kind,
         name: kind === "folder" ? "Nieuwe map" : "Nieuwe playlist",
         parent_id: parentId,
-        position: siblingCount,
+        // max()+1, not the sibling count: a count reuses a position once a
+        // non-trailing sibling has been deleted (the collision class already
+        // fixed in the backend's add_track and in Tree.nextPositionAmong,
+        // which this shares).
+        position: nextPositionAmong(nodes, parentId),
         set_phase: null,
       },
     });
@@ -320,7 +506,7 @@ export function BookingWorkspace() {
       params: { path: { structure_id: selectedStructureId, node_id: selectedNodeId } },
       body: { rb_content_id: track.rb_content_id, origin: "suggestion" },
     });
-    await refreshSuggestions(selectedStructureId, selectedNodeId);
+    await refreshSuggestions(selectedStructureId, selectedNodeId, suggestionLimit);
   }
 
   async function handleDismiss(track: SuggestionDto) {
@@ -329,7 +515,7 @@ export function BookingWorkspace() {
       params: { path: { structure_id: selectedStructureId, node_id: selectedNodeId } },
       body: { rb_content_id: track.rb_content_id },
     });
-    await refreshSuggestions(selectedStructureId, selectedNodeId);
+    await refreshSuggestions(selectedStructureId, selectedNodeId, suggestionLimit);
   }
 
   async function handleApply() {
@@ -367,22 +553,59 @@ export function BookingWorkspace() {
             type="button"
             onClick={() => void handleSelectStructure(structure.id)}
             aria-pressed={selectedStructureId === structure.id}
-            className="min-h-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+            className={SECONDARY_BUTTON_CLASSES}
           >
             {structure.name}
           </button>
         ))}
       </div>
-      <StructureForm onCreate={(name) => void handleCreateStructure(name)} />
+      <StructureForm
+        profiles={profiles}
+        onCreate={(name, bookingProfileId) => void handleCreateStructure(name, bookingProfileId)}
+      />
 
-      <ProfileForm
-        onCreate={(name, bpmMin, bpmMax, genreTags) =>
+      <ProfileFieldsForm
+        legend="Nieuw profiel"
+        nameLabel="Naam nieuw profiel"
+        submitLabel="Profiel aanmaken"
+        resetAfterSubmit
+        onSubmit={(name, bpmMin, bpmMax, genreTags) =>
           void handleCreateProfile(name, bpmMin, bpmMax, genreTags)
+        }
+      />
+
+      <ProfileEditor
+        profiles={profiles}
+        onSave={(profileId, name, bpmMin, bpmMax, genreTags) =>
+          void handleSaveProfile(profileId, name, bpmMin, bpmMax, genreTags)
         }
       />
 
       {selectedStructureId !== null && (
         <>
+          <div className="flex flex-col gap-8">
+            <label htmlFor={structureProfileSelectId} className="text-body-lg font-semibold">
+              Profiel voor deze structuur
+            </label>
+            <select
+              id={structureProfileSelectId}
+              value={structures.find((s) => s.id === selectedStructureId)?.booking_profile_id ?? ""}
+              onChange={(event) =>
+                void handleLinkProfile(
+                  event.target.value === "" ? null : Number(event.target.value),
+                )
+              }
+              className={INPUT_CLASSES}
+            >
+              <option value="">Geen profiel</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <Tree
             nodes={nodes}
             onCreate={(parentId, kind) => void handleCreateNode(parentId, kind)}
@@ -416,20 +639,30 @@ export function BookingWorkspace() {
                       <button
                         type="button"
                         onClick={() => void handleAccept(track)}
-                        className="min-h-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+                        className={SECONDARY_BUTTON_CLASSES}
                       >
                         {`Accepteren: ${track.artist} – ${track.title}`}
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleDismiss(track)}
-                        className="min-h-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+                        className={SECONDARY_BUTTON_CLASSES}
                       >
                         {`Afwijzen: ${track.artist} – ${track.title}`}
                       </button>
                     </li>
                   ))}
                 </ul>
+              )}
+              {/* A full page came back, so there is probably another one. */}
+              {suggestions.length >= suggestionLimit && (
+                <button
+                  type="button"
+                  onClick={() => void handleShowMoreSuggestions()}
+                  className={SECONDARY_BUTTON_CLASSES}
+                >
+                  Toon meer suggesties
+                </button>
               )}
             </div>
           )}

@@ -69,17 +69,32 @@ def list_profiles(db: Session = Depends(get_db)):
     return [_profile_dict(db, p) for p in profiles]
 
 
-@router.post("/profiles")
-def create_profile(body: ProfileBody, db: Session = Depends(get_db)):
-    if db.query(BookingProfile).filter_by(name=body.name).first() is not None:
+def _reject_duplicate_name(
+    db: Session, name: str, slug: str, *, exclude_id: int | None = None
+) -> None:
+    """`name` and `slug` are both unique columns and `slug` is derived from
+    `name`, so either collision is one and the same user-visible problem: the
+    name is taken. Without this check the unique index raises IntegrityError,
+    i.e. a 500 where the contract promises a 422 field-naming error."""
+    query = db.query(BookingProfile.id).filter(
+        (BookingProfile.name == name) | (BookingProfile.slug == slug)
+    )
+    if exclude_id is not None:
+        query = query.filter(BookingProfile.id != exclude_id)
+    if query.first() is not None:
         raise HTTPException(
             status_code=422,
             detail={
                 "code": "duplicate_name",
-                "message": f"a profile named {body.name!r} already exists",
+                "message": f"a profile named {name!r} already exists",
                 "field": "name",
             },
         )
+
+
+@router.post("/profiles")
+def create_profile(body: ProfileBody, db: Session = Depends(get_db)):
+    _reject_duplicate_name(db, body.name, _slugify(body.name))
     profile = BookingProfile(
         name=body.name, slug=_slugify(body.name), bpm_min=body.bpm_min, bpm_max=body.bpm_max
     )
@@ -93,7 +108,12 @@ def create_profile(body: ProfileBody, db: Session = Depends(get_db)):
 @router.put("/profiles/{profile_id}")
 def update_profile(profile_id: int, body: ProfileBody, db: Session = Depends(get_db)):
     profile = _get_profile_or_404(db, profile_id)
+    slug = _slugify(body.name)
+    _reject_duplicate_name(db, body.name, slug, exclude_id=profile_id)
     profile.name = body.name
+    # The slug is server-derived from the name, so it follows a rename: a
+    # renamed profile whose slug still spells the old name is stale data.
+    profile.slug = slug
     profile.bpm_min = body.bpm_min
     profile.bpm_max = body.bpm_max
     _set_genre_tags(db, profile.id, body.genre_tags)

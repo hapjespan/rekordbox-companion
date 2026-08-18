@@ -1,6 +1,6 @@
 // T088: profile editor, suggestion list (accept/dismiss, already-in-
 // playlist flag), apply action and result state, naming-error inputs (WCAG).
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "../../../src/api/client";
@@ -206,6 +206,142 @@ describe("BookingWorkspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Toepassen" }));
 
     expect(await screen.findByText("Sluit Rekordbox af en probeer opnieuw.")).toBeInTheDocument();
+  });
+
+  it("creates a structure with the chosen profile instead of a hardcoded none", async () => {
+    // Regression (phase 7 review): create always sent
+    // booking_profile_id: null, so a structure could never be linked to a
+    // profile and Suggestions always ran unfiltered (US7 scenario 3).
+    vi.mocked(apiClient.POST).mockResolvedValue({ data: STRUCTURE, error: undefined } as never);
+    render(<BookingWorkspace />);
+    await screen.findByText("Bruiloft Jansen");
+
+    fireEvent.change(screen.getByLabelText("Naam nieuwe structuur"), {
+      target: { value: "Bruiloft De Vries" },
+    });
+    fireEvent.change(screen.getByLabelText("Profiel"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Structuur aanmaken" }));
+
+    await waitFor(() => {
+      expect(apiClient.POST).toHaveBeenCalledWith("/api/structures", {
+        body: { name: "Bruiloft De Vries", booking_profile_id: 1 },
+      });
+    });
+  });
+
+  it("saves an edited profile's genre tags and BPM range via PUT", async () => {
+    // Regression (phase 7 review): nothing in the UI called
+    // PUT /api/profiles/{id}, so the seeded (deliberately empty) profiles
+    // could never get the filters FR-031 calls editable.
+    vi.mocked(apiClient.PUT).mockResolvedValue({ data: PROFILE, error: undefined } as never);
+    render(<BookingWorkspace />);
+    await screen.findByText("Bruiloft Jansen");
+
+    const form = within(screen.getByRole("group", { name: "Profiel Bruiloft" }));
+    expect(form.getByLabelText("Naam profiel")).toHaveValue("Bruiloft");
+    fireEvent.change(form.getByLabelText("Genre tags, komma-gescheiden"), {
+      target: { value: "house, disco" },
+    });
+    fireEvent.change(form.getByLabelText("BPM min"), { target: { value: "118" } });
+    fireEvent.change(form.getByLabelText("BPM max"), { target: { value: "128" } });
+    fireEvent.click(form.getByRole("button", { name: "Profiel opslaan" }));
+
+    await waitFor(() => {
+      expect(apiClient.PUT).toHaveBeenCalledWith("/api/profiles/{profile_id}", {
+        params: { path: { profile_id: 1 } },
+        body: {
+          name: "Bruiloft",
+          bpm_min: 118,
+          bpm_max: 128,
+          genre_tags: ["house", "disco"],
+        },
+      });
+    });
+  });
+
+  it("links a profile to the selected structure via PUT", async () => {
+    vi.mocked(apiClient.PUT).mockResolvedValue({ data: STRUCTURE, error: undefined } as never);
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    fireEvent.change(await screen.findByLabelText("Profiel voor deze structuur"), {
+      target: { value: "1" },
+    });
+
+    await waitFor(() => {
+      expect(apiClient.PUT).toHaveBeenCalledWith("/api/structures/{structure_id}", {
+        params: { path: { structure_id: 1 } },
+        body: { name: "Bruiloft Jansen", booking_profile_id: 1 },
+      });
+    });
+  });
+
+  it("asks for a bounded page of suggestions, never the whole collection", async () => {
+    // Regression (phase 7 review): the limit the endpoint accepts was never
+    // sent, so selecting a node fetched every Collection Track and rendered
+    // a row with two buttons for each of them.
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+    fireEvent.click(await screen.findByRole("button", { name: "Selecteer Ontvangst" }));
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(apiClient.GET).toHaveBeenCalledWith(
+      "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
+      { params: { path: { structure_id: 1, node_id: 2 }, query: { limit: 50 } } },
+    );
+  });
+
+  it("raises the limit a page at a time via 'toon meer'", async () => {
+    const fullPage = Array.from({ length: 50 }, (_, i) => ({
+      ...SUGGESTION,
+      rb_content_id: String(i),
+      title: `Track ${i}`,
+    }));
+    mockGet({
+      "/api/structures": [STRUCTURE],
+      "/api/profiles": [PROFILE],
+      "/api/structures/{structure_id}/nodes": [PLAYLIST_NODE],
+      "/api/structures/{structure_id}/nodes/{node_id}/suggestions": fullPage,
+    });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+    fireEvent.click(await screen.findByRole("button", { name: "Selecteer Ontvangst" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Toon meer suggesties" }));
+
+    await waitFor(() => {
+      expect(apiClient.GET).toHaveBeenCalledWith(
+        "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
+        { params: { path: { structure_id: 1, node_id: 2 }, query: { limit: 100 } } },
+      );
+    });
+  });
+
+  it("gives a new node max(position)+1, not the sibling count", async () => {
+    // Regression (phase 7 review): a count reuses a position once a
+    // non-trailing sibling has been deleted -- the same collision class
+    // already fixed in the backend's add_track and Tree.nextPositionAmong.
+    const LATER_NODE = { ...PLAYLIST_NODE, id: 9, name: "Later", position: 5 };
+    mockGet({
+      "/api/structures": [STRUCTURE],
+      "/api/profiles": [PROFILE],
+      "/api/structures/{structure_id}/nodes": [PLAYLIST_NODE, LATER_NODE],
+    });
+    vi.mocked(apiClient.POST).mockResolvedValue({ data: {}, error: undefined } as never);
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+    await screen.findByRole("button", { name: "Selecteer Later" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Nieuwe map" }));
+
+    await waitFor(() => {
+      expect(apiClient.POST).toHaveBeenCalledWith(
+        "/api/structures/{structure_id}/nodes",
+        expect.objectContaining({
+          body: expect.objectContaining({ position: 6 }), // max(0, 5) + 1, not count() == 2
+        }),
+      );
+    });
   });
 
   it("sequences a two-part move so the two PUT requests never race", async () => {

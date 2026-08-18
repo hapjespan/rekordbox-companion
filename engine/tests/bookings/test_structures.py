@@ -392,6 +392,119 @@ def test_put_node_can_move_it_under_a_new_parent():
     assert response.json()["parent_id"] == new_parent["id"]
 
 
+def test_put_node_rejects_a_parent_from_another_structure():
+    """Regression (phase 7 review): update_node accepted any parent_id, so a
+    node could be re-parented into a different Structure entirely; the tree
+    only broke later, inside apply."""
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    other = client.post("/api/structures", json={"name": "B"}).json()
+    foreign_parent = client.post(
+        f"/api/structures/{other['id']}/nodes",
+        json={"kind": "folder", "name": "Foreign", "parent_id": None, "position": 0},
+    ).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+
+    response = client.put(
+        f"/api/structures/{structure['id']}/nodes/{node['id']}",
+        json={"name": "X", "parent_id": foreign_parent["id"], "position": 0},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "invalid_parent"
+    assert body["field"] == "parent_id"
+
+
+def test_put_node_rejects_an_unknown_parent():
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+
+    response = client.put(
+        f"/api/structures/{structure['id']}/nodes/{node['id']}",
+        json={"name": "X", "parent_id": 999_999, "position": 0},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_parent"
+
+
+def test_put_node_rejects_making_a_node_its_own_parent():
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+
+    response = client.put(
+        f"/api/structures/{structure['id']}/nodes/{node['id']}",
+        json={"name": "X", "parent_id": node["id"], "position": 0},
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "parent_cycle"
+    assert body["field"] == "parent_id"
+
+
+def test_put_node_rejects_moving_a_node_under_its_own_descendant():
+    """The cycle used to reach apply_structure, which raised a ValueError --
+    a 500 AFTER backup.create() had already run. Refused at edit time now."""
+    client, session_local = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    grandparent = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "Grandparent", "parent_id": None, "position": 0},
+    ).json()
+    child = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "Child", "parent_id": grandparent["id"], "position": 0},
+    ).json()
+    grandchild = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "Grandchild", "parent_id": child["id"], "position": 0},
+    ).json()
+
+    response = client.put(
+        f"/api/structures/{structure['id']}/nodes/{grandparent['id']}",
+        json={"name": "Grandparent", "parent_id": grandchild["id"], "position": 0},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "parent_cycle"
+    with session_local() as db:
+        assert db.get(StructureNode, grandparent["id"]).parent_id is None
+
+
+def test_put_node_can_still_move_a_node_to_the_root():
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    parent = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "Parent", "parent_id": None, "position": 0},
+    ).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": parent["id"], "position": 0},
+    ).json()
+
+    response = client.put(
+        f"/api/structures/{structure['id']}/nodes/{node['id']}",
+        json={"name": "X", "parent_id": None, "position": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["parent_id"] is None
+
+
 def test_dismissed_suggestions_never_return_via_the_api():
     """FR-034, tested through the real dismiss-then-suggest round trip."""
     client, _ = _client(tracks=[_track("1", "A", "Track", bpm=None, play_count=10)])

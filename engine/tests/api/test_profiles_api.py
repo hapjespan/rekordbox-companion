@@ -99,6 +99,48 @@ def test_put_updates_name_bpm_range_and_genre_tags():
     assert body["genre_tags"] == ["techno"]
 
 
+def test_put_rejects_renaming_onto_a_name_another_profile_already_has():
+    """Regression (phase 7 review): update skipped the duplicate-name check
+    create performs, so a rename onto a taken name hit the unique index and
+    surfaced as a 500 IntegrityError instead of the contract's 422."""
+    client, _ = _client()
+    client.post("/api/profiles", json={"name": "Zomerfeest"})
+    other = client.post("/api/profiles", json={"name": "Winterfeest"}).json()
+
+    response = client.put(f"/api/profiles/{other['id']}", json={"name": "Zomerfeest"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "duplicate_name"
+    assert body["field"] == "name"
+
+
+def test_put_allows_keeping_a_profiles_own_name():
+    """The duplicate check must not fire on the profile's own row -- saving a
+    BPM range without touching the name is the common case."""
+    client, _ = _client()
+    created = client.post("/api/profiles", json={"name": "Zomerfeest"}).json()
+
+    response = client.put(
+        f"/api/profiles/{created['id']}", json={"name": "Zomerfeest", "bpm_min": 120}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["bpm_min"] == 120
+
+
+def test_put_regenerates_the_slug_on_a_rename():
+    """Regression (phase 7 review): the slug is server-derived from the name,
+    so it must follow a rename rather than keep pointing at the old name."""
+    client, _ = _client()
+    created = client.post("/api/profiles", json={"name": "Zomerfeest"}).json()
+
+    response = client.put(f"/api/profiles/{created['id']}", json={"name": "Winter Feest"})
+
+    assert response.status_code == 200
+    assert response.json()["slug"] == "winter-feest"
+
+
 def test_put_returns_404_for_an_unknown_profile():
     client, _ = _client()
 

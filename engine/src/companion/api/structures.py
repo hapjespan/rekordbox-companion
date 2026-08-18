@@ -179,6 +179,49 @@ def create_node(structure_id: int, body: NodeBody, db: Session = Depends(get_db)
     return _node_dict(node)
 
 
+def _validate_new_parent(
+    db: Session, structure_id: int, node: StructureNode, parent_id: int | None
+) -> None:
+    """Refuse a re-parent that would corrupt the tree, at edit time.
+
+    Three ways it can: a parent from another Structure, the node itself, or
+    one of its own descendants. All three used to be accepted here and only
+    surfaced from `writer.apply_structure`'s cycle detection -- as a 500,
+    AFTER `backup.create()` had already run. A 422 before anything is stored
+    keeps the guarded write path from ever seeing an impossible tree.
+    """
+    if parent_id is None:
+        return
+    parent = db.get(StructureNode, parent_id)
+    if parent is None or parent.structure_id != structure_id:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_parent",
+                "message": f"no node {parent_id} in Structure {structure_id}",
+                "field": "parent_id",
+            },
+        )
+
+    # Walk up from the proposed parent: meeting the node itself means the
+    # node would become its own ancestor. `seen` only guards against a
+    # pre-existing cycle in stored data, so the walk can't loop forever.
+    seen: set[int] = set()
+    current: StructureNode | None = parent
+    while current is not None and current.id not in seen:
+        if current.id == node.id:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "parent_cycle",
+                    "message": "a node cannot be moved inside itself or one of its own children",
+                    "field": "parent_id",
+                },
+            )
+        seen.add(current.id)
+        current = db.get(StructureNode, current.parent_id) if current.parent_id else None
+
+
 class NodeUpdateBody(BaseModel):
     name: str
     parent_id: int | None = None
@@ -204,6 +247,7 @@ def update_node(
                 "field": "name",
             },
         )
+    _validate_new_parent(db, structure_id, node, body.parent_id)
     node.name = body.name
     node.parent_id = body.parent_id
     node.position = body.position

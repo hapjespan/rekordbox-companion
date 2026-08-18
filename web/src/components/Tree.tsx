@@ -44,11 +44,20 @@ function childrenOf(nodes: TreeNodeDto[], parentId: number): TreeNodeDto[] {
   return nodes.filter((n) => n.parent_id === parentId).sort((a, b) => a.position - b.position);
 }
 
+// One indent step per depth level, expressed as calc() over the delivered
+// --spacing-16 token: project rule 5 / FR-039 forbid a hardcoded pixel value
+// here, and a per-depth multiple can't be a static Tailwind utility class.
+function indentStyle(depth: number): React.CSSProperties {
+  return { paddingLeft: `calc(var(--spacing-16) * ${depth})` };
+}
+
 // max()+1, not count(): a count collides with an existing sibling once the
 // group isn't perfectly dense (e.g. a prior move already left a gap or a
 // duplicate) -- same bug class the backend's add_track fix (commit 6b4ee24)
-// addressed for structure_track positions.
-function nextPositionAmong(nodes: TreeNodeDto[], parentId: number | null): number {
+// addressed for structure_track positions. Exported so every caller that
+// needs a fresh sibling position (BookingWorkspace's create included) shares
+// this one implementation instead of re-deriving it from a count.
+export function nextPositionAmong(nodes: TreeNodeDto[], parentId: number | null): number {
   const siblings = nodes.filter((n) => n.parent_id === parentId);
   if (siblings.length === 0) return 0;
   return Math.max(...siblings.map((n) => n.position)) + 1;
@@ -172,7 +181,7 @@ function TreeItem({
       aria-selected={selectedId === node.id}
       aria-expanded={node.kind === "folder" ? true : undefined}
     >
-      <div className="flex flex-wrap items-center gap-8 py-4" style={{ paddingLeft: depth * 16 }}>
+      <div className="flex flex-wrap items-center gap-8 py-4" style={indentStyle(depth)}>
         {node.kind === "playlist" && onSelect ? (
           <button type="button" onClick={() => onSelect(node.id)} className={ACTION_BUTTON_CLASSES}>
             {`Selecteer ${node.name}`}
@@ -236,7 +245,7 @@ function TreeItem({
       </div>
 
       {renaming && (
-        <div style={{ paddingLeft: depth * 16 }}>
+        <div style={indentStyle(depth)}>
           <RenameForm node={node} onRename={onRename} onDone={() => setRenaming(false)} />
         </div>
       )}

@@ -183,6 +183,46 @@ def test_flags_already_in_playlist_rather_than_excluding_it():
     assert by_id["2"].already_in_playlist is False
 
 
+def test_genre_filter_survives_a_collection_larger_than_sqlites_variable_cap():
+    """Regression (phase 7 review): the genre filter used to bind one SQL
+    parameter per Collection entry, which raises `sqlite3.OperationalError:
+    too many SQL variables` above SQLite's 32.766-variable cap -- inside the
+    40.000-entry sizing envelope tests/test_collection_perf.py pins. The
+    filter must be driven by the (small, bounded) wanted tag list instead."""
+    entries = [
+        _entry(str(i), f"Artist {i}", "Track", bpm=None, play_count=i) for i in range(40_000)
+    ]
+    session_local = _fresh_db()
+    with session_local() as db:
+        _genre(db, "39999", "house")
+        _genre(db, "12345", "techno")
+        db.commit()
+
+        suggestions, _ = suggestions_for_node(
+            db, entries, node_id=1, genre_tags=["house"], bpm_min=None, bpm_max=None
+        )
+
+    assert [s.rb_content_id for s in suggestions] == ["39999"]
+
+
+def test_an_enriched_genre_for_a_track_outside_the_collection_is_ignored():
+    """The genre filter is driven by tags now, not by the collection's ids,
+    so a stale enriched_genre row for a track no longer in the Collection
+    must not leak into the results."""
+    entries = [_entry("1", "A", "In Collection", bpm=None, play_count=10)]
+    session_local = _fresh_db()
+    with session_local() as db:
+        _genre(db, "1", "house")
+        _genre(db, "gone", "house")
+        db.commit()
+
+        suggestions, _ = suggestions_for_node(
+            db, entries, node_id=1, genre_tags=["house"], bpm_min=None, bpm_max=None
+        )
+
+    assert [s.rb_content_id for s in suggestions] == ["1"]
+
+
 def test_respects_a_limit():
     entries = [_entry(str(i), f"Artist {i}", "Track", bpm=None, play_count=i) for i in range(5)]
     session_local = _fresh_db()

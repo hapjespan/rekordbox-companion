@@ -8,10 +8,9 @@ contribution here is this ranked candidate list, never a full Structure --
 the DJ designs the tree by hand.
 """
 
-from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from companion.db.models import EnrichedGenre, StructureTrack, SuggestionDismissal
@@ -64,15 +63,25 @@ def suggestions_for_node(
     }
 
     wanted_tags = {tag.lower() for tag in genre_tags}
-    genres_by_track: dict[str, set[str]] = defaultdict(set)
+    tagged_ids: set[str] = set()
     if wanted_tags:
-        rows = db.execute(
-            select(EnrichedGenre.rb_content_id, EnrichedGenre.genre).where(
-                EnrichedGenre.rb_content_id.in_([e.rb_content_id for e in entries])
-            )
-        ).all()
-        for rb_content_id, genre in rows:
-            genres_by_track[rb_content_id].add(genre.lower())
+        # Bind one parameter per WANTED TAG, never one per Collection entry:
+        # filtering on `rb_content_id IN (every entry)` binds ~40.000
+        # parameters at the project's own sizing envelope
+        # (tests/test_collection_perf.py) and hits SQLite's hard
+        # 32.766-variable cap with `too many SQL variables`. The tag list is
+        # small and bounded, and the intersection with the Collection happens
+        # in memory below, against the index this function already holds --
+        # so a stale row for a track no longer in the Collection can't leak
+        # in either.
+        tagged_ids = {
+            row
+            for row in db.execute(
+                select(EnrichedGenre.rb_content_id).where(
+                    func.lower(EnrichedGenre.genre).in_(sorted(wanted_tags))
+                )
+            ).scalars()
+        }
 
     bpm_filter_active = bpm_min is not None or bpm_max is not None
     excluded_missing_bpm = 0
@@ -80,7 +89,7 @@ def suggestions_for_node(
     for entry in entries:
         if entry.rb_content_id in dismissed_ids:
             continue
-        if wanted_tags and not (genres_by_track.get(entry.rb_content_id, set()) & wanted_tags):
+        if wanted_tags and entry.rb_content_id not in tagged_ids:
             continue
         if bpm_filter_active:
             if entry.bpm is None:
