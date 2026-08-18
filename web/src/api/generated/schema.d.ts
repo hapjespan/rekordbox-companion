@@ -253,6 +253,34 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/sync/sessions/{session_id}/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Apply Sync Session
+     * @description FR-015..FR-019: guard -> backup -> write -> readback -> write_log ->
+     *     ApplyResult (contracts/api.md), emitting `apply_done` on `/api/events`.
+     *
+     *     Two distinct failure shapes, per T096/scenario 7: a pre-write refusal
+     *     (guard or backup_failed) is a 409, since nothing was touched yet. A
+     *     write whose own readback fails is a 200 -- the write and its backup are
+     *     real, only verification didn't confirm it, so the session stays `ready`
+     *     (never `applied`) and the DJ is told which backup to restore via
+     *     `backup_path` in the response, not via an error code.
+     */
+    post: operations["apply_sync_session_api_sync_sessions__session_id__apply_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/events": {
     parameters: {
       query?: never;
@@ -295,6 +323,11 @@ export interface components {
     AcceptTrackBody: {
       /** Rb Content Id */
       rb_content_id?: string | null;
+    };
+    /** ApplyBody */
+    ApplyBody: {
+      /** Playlist Name */
+      playlist_name?: string | null;
     };
     /** CreateSyncSessionBody */
     CreateSyncSessionBody: {
@@ -691,6 +724,41 @@ export interface operations {
       cookie?: never;
     };
     requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  apply_sync_session_api_sync_sessions__session_id__apply_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        session_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ApplyBody"];
+      };
+    };
     responses: {
       /** @description Successful Response */
       200: {

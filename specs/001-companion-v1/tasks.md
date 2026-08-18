@@ -438,7 +438,7 @@ apply adds only new tracks, refusals fire when guard conditions fail
       `engine/src/companion/api/sync.py`: guard → backup → write → readback →
       `write_log` row → `ApplyResult`, emitting the `apply_done` SSE event on
       `/api/events` on completion (contracts/api.md, R4)
-- [ ] T051 [P] [US3] Build `web/src/features/spotify-sync/ApplyAction.tsx`:
+- [x] T051 [P] [US3] Build `web/src/features/spotify-sync/ApplyAction.tsx`:
       confirmation dialog, result state, refusal/failure messages naming the
       blocking condition and the fix, keyboard-operable (WCAG)
 - [ ] T052 [US3] Extend `web/tests/e2e/sync-review-apply.spec.ts` (T033) to
