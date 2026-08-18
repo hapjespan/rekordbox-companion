@@ -16,9 +16,25 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
-  // EnrichmentPanel (T077) and BookingWorkspace (T088) are mounted
-  // unconditionally on every page load; this spec isn't about either, so
-  // both start empty here.
+  // The shell's top bar reads the Rekordbox version from health and its
+  // Collectie-scan card reads the collection total; neither is what this spec
+  // is about, so both answer with a fixture. EnrichmentPanel (T077) and
+  // BookingWorkspace (T088) are equally beside the point here.
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        status: "ok",
+        rekordbox_version: "7.2.17",
+        version_pin_ok: true,
+        db_path: "/fixtures/master.db",
+        rekordbox_running: false,
+        ffmpeg_ok: true,
+      },
+    }),
+  );
+  await page.route("**/api/collection?*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
   await page.route("**/api/enrichment/status", (route) =>
     route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
   );
@@ -102,19 +118,23 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
 
   await page.goto("/");
 
-  // The queue is independent of the sync flow (GET /api/missing has no
-  // session id), so it already shows the seeded Missing Track on load --
-  // proving the "a completed sync with Missing Tracks shows the queue"
-  // scenario doesn't require this specific page to drive the sync first.
-  await expect(page.getByText("Nobody At All – Nothing Similar")).toBeVisible();
-  await expect(page.getByText("Status: Open")).toBeVisible();
+  const nav = page.getByRole("navigation");
 
-  // Also drive the actual sync, per the task's named flow.
+  // Drive the actual sync first, per the task's named flow. It lives on the
+  // shell's default view (Match-overzicht), which is where the app opens.
   await page
     .getByLabel("Spotify-afspeellijst URL")
     .fill("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
   await page.getByRole("button", { name: "Synchroniseren" }).click();
   await expect(page.getByText("Ontbreekt: 1")).toBeVisible();
+
+  // The queue is independent of the sync flow (GET /api/missing has no
+  // session id), so it shows the seeded Missing Track as soon as its view is
+  // opened -- proving the "a completed sync with Missing Tracks shows the
+  // queue" scenario doesn't depend on the sync above having run.
+  await nav.getByRole("button", { name: /Koop-wachtrij/ }).click();
+  await expect(page.getByText("Nobody At All – Nothing Similar")).toBeVisible();
+  await expect(page.getByText("Status: Open")).toBeVisible();
 
   const copyButton = page.getByRole("button", { name: "Kopieer link" });
   await copyButton.click();

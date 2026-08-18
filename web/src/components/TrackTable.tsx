@@ -45,6 +45,13 @@ function errorMessageFor(apiError: unknown): string {
 
 interface TrackTableProps {
   onPlay?: (track: CollectionTrackDto) => void;
+  // The shell's top-bar search seeds this table's query (HANDOFF.md, "Top
+  // bar"); the token makes searching the same term twice re-seed the field.
+  seedQuery?: string;
+  seedToken?: number;
+  // Bumped by the sidebar's Collectie-scan card once a rebuild completes, so
+  // the table shows the freshly indexed collection.
+  reloadToken?: number;
 }
 
 // T064 (FR-024, WCAG): a searchable, sortable table over GET /api/collection.
@@ -61,8 +68,13 @@ interface TrackTableProps {
 // Paginates via the API's own limit/offset rather than rendering all 30k+
 // rows at once (dense-layout AA contrast is a token/CSS concern, not a
 // reason to virtualize for this proof-of-value cut, plan.md).
-export function TrackTable({ onPlay }: TrackTableProps) {
-  const [query, setQuery] = useState("");
+export function TrackTable({
+  onPlay,
+  seedQuery = "",
+  seedToken = 0,
+  reloadToken = 0,
+}: TrackTableProps) {
+  const [query, setQuery] = useState(seedQuery);
   const [sort, setSort] = useState<SortField>("artist");
   const [descending, setDescending] = useState(false);
   const [page, setPage] = useState(0);
@@ -70,19 +82,19 @@ export function TrackTable({ onPlay }: TrackTableProps) {
   const [tracks, setTracks] = useState<CollectionTrackDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
-  // The collection index is an in-memory cache rebuilt from master.db on
-  // demand (ADR 0012), and nothing demanded it: on every app start the table
-  // was empty with no way to fill it from the UI, which also left matching,
-  // enrichment coverage and suggestions empty (phase 7 review). This is that
-  // demand, and the counter re-runs the load once the rebuild returns.
-  const [reindexing, setReindexing] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
   const rowButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const searchInputId = useId();
 
   useEffect(() => {
     setActiveRowIndex(0);
   }, [tracks]);
+
+  // A search submitted in the shell's top bar lands here.
+  useEffect(() => {
+    if (seedToken === 0) return;
+    setQuery(seedQuery);
+    setPage(0);
+  }, [seedQuery, seedToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,24 +137,6 @@ export function TrackTable({ onPlay }: TrackTableProps) {
     };
   }, [query, sort, descending, page, reloadToken]);
 
-  async function handleReindex() {
-    setReindexing(true);
-    try {
-      const { error: apiError } = await apiClient.POST("/api/collection/reindex", {});
-      if (apiError) {
-        setError(errorMessageFor(apiError));
-        return;
-      }
-      setError(null);
-      setPage(0);
-      setReloadToken((token) => token + 1);
-    } catch {
-      setError(errorMessageFor(undefined));
-    } finally {
-      setReindexing(false);
-    }
-  }
-
   function handleSort(field: SortField) {
     if (field === sort) {
       setDescending((current) => !current);
@@ -171,17 +165,9 @@ export function TrackTable({ onPlay }: TrackTableProps) {
 
   return (
     <div className="flex flex-col gap-16">
-      <div className="flex items-center justify-between gap-16">
-        <p className="text-heading font-bold">Collectie</p>
-        <button
-          type="button"
-          onClick={() => void handleReindex()}
-          disabled={reindexing}
-          className="min-h-24 rounded-full bg-pure-white px-16 py-8 text-body-lg font-bold text-void-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green disabled:bg-iron disabled:text-mist"
-        >
-          {reindexing ? "Verversen..." : "Collectie verversen"}
-        </button>
-      </div>
+      {/* The title is the Collection view's own <h1> now, and the rebuild
+          control is the sidebar's Collectie-scan card (the delivered design
+          puts it there); this panel is the table itself. */}
       <div className="flex flex-col gap-8">
         <label htmlFor={searchInputId} className="text-body-lg font-semibold text-pure-white">
           Zoeken in collectie
@@ -260,12 +246,12 @@ export function TrackTable({ onPlay }: TrackTableProps) {
         </p>
       )}
       {/* An empty index and an empty search result need different copy: the
-          first is fixed by verversen, the second by a different search term. */}
+          first is fixed by a scan, the second by a different search term. */}
       {!error && tracks.length === 0 && (
         <p className="text-body-lg text-mist">
           {query
             ? "Geen nummers gevonden."
-            : "De collectie is nog niet ingelezen. Kies Collectie verversen om hem uit Rekordbox te lezen."}
+            : "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin om hem uit Rekordbox te lezen."}
         </p>
       )}
 

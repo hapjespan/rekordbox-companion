@@ -6,12 +6,15 @@ import type { ApiError, SyncSession } from "./types";
 
 interface PlaylistUrlFormProps {
   onSessionCreated: (session: SyncSession) => void;
+  // The shell's "Sync" pill switches to the Match-overzicht view and focuses
+  // this field (HANDOFF.md, "Top bar").
+  inputRef?: React.Ref<HTMLInputElement>;
 }
 
 // T031: URL input starting a Sync Session, with field-naming validation
 // errors for invalid/private/unreachable playlists (WCAG: an error names
 // the field and the fix, spec.md's naming-input acceptance criterion).
-export function PlaylistUrlForm({ onSessionCreated }: PlaylistUrlFormProps) {
+export function PlaylistUrlForm({ onSessionCreated, inputRef }: PlaylistUrlFormProps) {
   const [playlistUrl, setPlaylistUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -44,6 +47,7 @@ export function PlaylistUrlForm({ onSessionCreated }: PlaylistUrlFormProps) {
       </label>
       <input
         id={inputId}
+        ref={inputRef}
         type="text"
         inputMode="url"
         autoComplete="off"

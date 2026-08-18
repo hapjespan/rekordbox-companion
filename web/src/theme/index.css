@@ -1,6 +1,29 @@
 @import "tailwindcss";
 @import "../../design-input/theme.css";
 
+/* The prototype's own global block (prototype-crate-bridge.dc.html's
+   <style>): a black canvas behind the shell, and the scrollbars styled as
+   delivered. Values come from tokens, never literals (project rule 5). */
+body {
+  background: var(--color-void-black);
+  color: var(--color-pure-white);
+  font-family: var(--font-spotifymixui);
+}
+
+::-webkit-scrollbar {
+  width: var(--spacing-10);
+  height: var(--spacing-10);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-iron);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Inter, self-hosted (@fontsource/inter), registered under the design
    system's own token names (project rule 5): the proprietary
    SpotifyMixUI/SpotifyMixUITitle fonts never ship, and nothing here

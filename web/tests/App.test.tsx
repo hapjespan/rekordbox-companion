@@ -1,14 +1,21 @@
 // Phase 7 review: US2 and US5 both shipped as fully built, fully unit-tested
 // components that nothing ever imported, so neither story existed for the DJ.
-// Component tests cannot catch that by construction -- they mount the component
-// themselves. This file asserts the one thing they cannot: that every user
-// story is reachable from the page the app actually serves.
+// Component tests cannot catch that by construction -- they mount the
+// component themselves. This file asserts the one thing they cannot: that
+// every user story is reachable from the page the app actually serves.
 //
-// Deliberately shallow. It checks presence, not behaviour: each story's own
-// suite owns its behaviour, and duplicating that here would make this file a
-// second place to update on every UI change, which is how a guard like this
-// stops being maintained.
-import { render, screen, waitFor } from "@testing-library/react";
+// The shell (App.tsx, from web/design-input/HANDOFF.md) put a view switcher
+// between page load and the panels, so "reachable" now means "reachable from
+// the sidebar nav" -- which is the same guarantee, one click deeper. The
+// second block below covers the shell itself: the five nav items, their
+// aria-current state, the top bar's live connection data and the sidebar's
+// collection-scan control.
+//
+// Deliberately shallow on the stories themselves. It checks presence, not
+// behaviour: each story's own suite owns its behaviour, and duplicating that
+// here would make this file a second place to update on every UI change,
+// which is how a guard like this stops being maintained.
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "../src/api/client";
@@ -18,12 +25,24 @@ vi.mock("../src/api/client", () => ({
   apiClient: { GET: vi.fn(), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
 }));
 
+const HEALTH = {
+  status: "ok",
+  rekordbox_version: "7.2.17",
+  version_pin_ok: true,
+  db_path: "/fixtures/master.db",
+  rekordbox_running: false,
+  ffmpeg_ok: true,
+};
+
 // Every panel fetches on mount. One empty-but-valid answer per shape keeps the
 // page in its loaded state without any panel throwing.
-function mockEmptyBackend() {
+function mockEmptyBackend(spotify: unknown = { connected: false }) {
   vi.mocked(apiClient.GET).mockImplementation((path: string) => {
+    if (path.includes("/health")) {
+      return Promise.resolve({ data: HEALTH, error: undefined }) as never;
+    }
     if (path.includes("/auth/spotify/status")) {
-      return Promise.resolve({ data: { connected: false }, error: undefined }) as never;
+      return Promise.resolve({ data: spotify, error: undefined }) as never;
     }
     if (path.includes("/enrichment/status")) {
       return Promise.resolve({
@@ -47,6 +66,10 @@ class SilentEventSource {
   close() {}
 }
 
+function navItem(label: string) {
+  return within(screen.getByRole("navigation")).getByRole("button", { name: new RegExp(label) });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("EventSource", SilentEventSource);
@@ -54,33 +77,128 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("puts every user story on the page", async () => {
+  it("reaches every user story from the sidebar nav", async () => {
     render(<App />);
 
-    // US1 sync, US4 missing, US6 enrichment, US7 bookings and US5 collection
-    // are all unconditional; US2 review and US3 apply are session-scoped, so
-    // they only appear once a session exists and their own suites cover them.
-    // Queried by text, not by heading role: the section titles are styled
-    // paragraphs rather than real headings today (recorded in the phase 7
-    // report), so a heading query would be asserting a fix that has not landed.
+    // US1 sync (the default view) and US2 review / US3 apply live in
+    // Match-overzicht; US2 and US3 are session-scoped, so they only appear
+    // once a session exists and their own suites cover them.
     expect(screen.getByLabelText("Spotify-afspeellijst URL")).toBeInTheDocument();
+
+    // US4 missing tracks.
+    fireEvent.click(navItem("Koop-wachtrij"));
     await waitFor(() => {
-      expect(screen.getByText("Ontbrekende nummers")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Ontbrekende nummers" })).toBeInTheDocument();
     });
-    expect(screen.getByText("Genre-verrijking")).toBeInTheDocument();
-    expect(screen.getByText("Boekingstructuren")).toBeInTheDocument();
-    expect(screen.getByRole("table")).toBeInTheDocument();
-  });
 
-  it("mounts the collection browser and its player, which US5 needs to exist at all", async () => {
-    render(<App />);
+    // US7 booking structures.
+    fireEvent.click(navItem("Playlist builder"));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Boekingstructuren" })).toBeInTheDocument();
+    });
 
-    // The search field and the table are TrackTable; the player only renders
-    // its controls once a track is selected, so its landmark is what is
-    // assertable here without driving playback.
+    // US5 the collection browser and its player.
+    fireEvent.click(navItem("Collectie"));
     await waitFor(() => {
       expect(screen.getByRole("table")).toBeInTheDocument();
     });
-    expect(screen.getByLabelText(/zoek/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Zoeken in collectie")).toBeInTheDocument();
+
+    // US6 genre enrichment.
+    fireEvent.click(navItem("Genre-verrijking"));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Genre-verrijking" })).toBeInTheDocument();
+    });
+  });
+});
+
+describe("shell", () => {
+  it("puts the five workspace views in a nav landmark", () => {
+    render(<App />);
+
+    const nav = screen.getByRole("navigation");
+    // A nav item's text is its label plus, where a real number exists, a
+    // trailing counter; the order of the five is what this pins.
+    const labels = within(nav)
+      .getAllByRole("button")
+      .map((button) => button.textContent?.replace(/\d+$/, ""));
+
+    expect(labels).toEqual([
+      "Match-overzicht",
+      "Koop-wachtrij",
+      "Playlist builder",
+      "Collectie",
+      "Genre-verrijking",
+    ]);
+  });
+
+  it("marks the current view with aria-current, and moves it when switching", () => {
+    render(<App />);
+
+    expect(navItem("Match-overzicht")).toHaveAttribute("aria-current", "page");
+    expect(navItem("Collectie")).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(navItem("Collectie"));
+
+    expect(navItem("Collectie")).toHaveAttribute("aria-current", "page");
+    expect(navItem("Match-overzicht")).not.toHaveAttribute("aria-current");
+  });
+
+  it("shows the Rekordbox version health reports and the Spotify display name", async () => {
+    mockEmptyBackend({ connected: true, display_name: "djmarijn", product: "premium" });
+
+    render(<App />);
+
+    // The pinned 7.2.17 is not hardcoded in the UI: this is whatever
+    // GET /api/health answered.
+    await waitFor(() => {
+      expect(screen.getByText("Rekordbox 7.2.17 verbonden")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Spotify · djmarijn")).toBeInTheDocument();
+  });
+
+  it("rebuilds the collection index from the sidebar's scan card", async () => {
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: { indexed_count: 2, took_ms: 5 },
+      error: undefined,
+    } as never);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Opnieuw scannen" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(apiClient.POST)).toHaveBeenCalledWith("/api/collection/reindex", {});
+    });
+  });
+
+  it("searching in the top bar opens the collection view with that query", async () => {
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Zoek in collectie of playlist"), {
+      target: { value: "daft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zoeken" }));
+
+    expect(navItem("Collectie")).toHaveAttribute("aria-current", "page");
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenCalledWith(
+        "/api/collection",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: expect.objectContaining({ query: "daft" }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("the Sync pill returns to Match-overzicht and focuses the playlist URL field", () => {
+    render(<App />);
+    fireEvent.click(navItem("Genre-verrijking"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+
+    expect(navItem("Match-overzicht")).toHaveAttribute("aria-current", "page");
+    expect(document.activeElement).toBe(screen.getByLabelText("Spotify-afspeellijst URL"));
   });
 });

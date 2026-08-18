@@ -13,7 +13,8 @@ interface QueueCompleteProps {
 export function QueueComplete({ totals }: QueueCompleteProps) {
   return (
     <div role="status" className="flex flex-col gap-16 text-body-lg text-pure-white">
-      <p className="text-heading font-bold">Review afgerond</p>
+      {/* B9: a real heading, one level under the view's own group heading. */}
+      <h3 className="text-body-lg font-bold">Review afgerond</h3>
       <p className="text-mist">Alle gematchte nummers in deze synchronisatie zijn beoordeeld.</p>
       <ul className="flex flex-wrap gap-16" aria-label="Eindtotalen">
         {TRACK_STATUS_ORDER.map((status) => (

@@ -127,8 +127,9 @@ export function ReviewView({ session, onResolved }: ReviewViewProps) {
 
   return (
     <div className="flex flex-col gap-16">
-      <h2 className="text-heading font-bold">Controleren</h2>
-
+      {/* The section heading is the Match-overzicht view's own group heading
+          ("Twijfelgevallen — jouw beslissing", the delivered design's wording
+          for this queue), so this panel no longer repeats it. */}
       {showComplete ? (
         <QueueComplete totals={session.totals} />
       ) : items.length === 0 ? (

@@ -223,8 +223,8 @@ export function EnrichmentPanel() {
   return (
     <div className="flex flex-col gap-16">
       <div className="flex items-center justify-between gap-16">
+        {/* The panel title is the Genre-verrijking view's own <h1> now. */}
         <div>
-          <p className="text-heading font-bold">Genre-verrijking</p>
           <p className="text-body-lg text-mist">{statusParts.join(", ")}</p>
         </div>
         <div className="flex items-center gap-16">

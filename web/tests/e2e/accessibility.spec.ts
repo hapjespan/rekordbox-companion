@@ -1,15 +1,26 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-// T091: accessibility sweep across all seven stories (WCAG 2.2 AA). Every
-// component this app mounts unconditionally (SpotifyConnection,
-// PlaylistUrlForm, MissingQueue, EnrichmentPanel, BookingWorkspace) is on
-// the page in its default state already; the two extra scans below add the
-// states that only render after user action (a match report; a populated
-// Suggestions list), so together these three scans cover the visible
-// surface of every story without needing a router this app doesn't have
-// (App.tsx's own documented one-page assembly).
+// T091: accessibility sweep across all seven stories (WCAG 2.2 AA).
+//
+// The shell (web/design-input/HANDOFF.md) gave every story its own view
+// behind the sidebar's WORKSPACE nav, so the sweep now walks the five views
+// instead of scanning one long page: same coverage, one click deeper. The
+// second test below adds the states that only render after user action (a
+// match report, ready to apply), which no amount of navigating reaches.
 async function mockCommonEndpoints(page: import("@playwright/test").Page) {
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        status: "ok",
+        rekordbox_version: "7.2.17",
+        version_pin_ok: true,
+        db_path: "/fixtures/master.db",
+        rekordbox_running: false,
+        ffmpeg_ok: true,
+      },
+    }),
+  );
   await page.route("**/api/auth/spotify/status", (route) =>
     route.fulfill({ json: { connected: true, display_name: "DJ Test", product: "premium" } }),
   );
@@ -22,9 +33,29 @@ async function mockCommonEndpoints(page: import("@playwright/test").Page) {
   );
   await page.route("**/api/structures", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/profiles", (route) => route.fulfill({ json: [] }));
+  // The shell's sidebar card and the collection table both read this one.
+  await page.route("**/api/collection?*", (route) =>
+    route.fulfill({
+      json: {
+        total: 1,
+        items: [
+          {
+            rb_content_id: "rb1",
+            artist: "Daft Punk",
+            title: "One More Time",
+            duration_ms: 210_000,
+            bpm: 123,
+            play_count: 5,
+            genres: [],
+            format: "mp3",
+          },
+        ],
+      },
+    }),
+  );
 }
 
-test("the default page state has no automatically detectable accessibility violations", async ({
+test("every workspace view has no automatically detectable accessibility violations", async ({
   page,
 }) => {
   await mockCommonEndpoints(page);
@@ -32,9 +63,27 @@ test("the default page state has no automatically detectable accessibility viola
   await page.goto("/");
   await page.waitForSelector("text=Rekordbox Companion");
 
-  const results = await new AxeBuilder({ page }).analyze();
+  // The default view (Match-overzicht: US1 sync, and the shell itself --
+  // top bar, nav, collection-scan card) plus the four the nav reaches.
+  const views = [
+    "Match-overzicht",
+    "Koop-wachtrij",
+    "Playlist builder",
+    "Collectie",
+    "Genre-verrijking",
+  ];
 
-  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
+  for (const view of views) {
+    const item = page.getByRole("navigation").getByRole("button", { name: new RegExp(view) });
+    await item.click();
+    await expect(item).toHaveAttribute("aria-current", "page");
+
+    const results = await new AxeBuilder({ page }).analyze();
+
+    expect(results.violations, `${view}: ${JSON.stringify(results.violations, null, 2)}`).toEqual(
+      [],
+    );
+  }
 });
 
 test("the match report and apply flow has no automatically detectable accessibility violations", async ({
@@ -84,7 +133,7 @@ test("the match report and apply flow has no automatically detectable accessibil
   await page.goto("/");
   await page.getByLabel("Spotify-afspeellijst URL").fill("https://open.spotify.com/playlist/abc");
   await page.getByRole("button", { name: "Synchroniseren" }).click();
-  await page.waitForSelector("text=Daft Punk");
+  await page.waitForSelector("text=Gematcht: 1");
 
   const results = await new AxeBuilder({ page }).analyze();
 

@@ -21,9 +21,24 @@ test("pasting a playlist URL renders the match report", async ({ page }) => {
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
-  // MissingQueue (T107), EnrichmentPanel (T077) and BookingWorkspace (T088)
-  // are mounted unconditionally on every page load; this spec isn't about
-  // any of them, so they all start empty here.
+  // The shell's top bar reads the Rekordbox version from health, and its
+  // sidebar counter and Collectie-scan card read the missing queue and the
+  // collection; this spec isn't about any of them, so they answer empty.
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        status: "ok",
+        rekordbox_version: "7.2.17",
+        version_pin_ok: true,
+        db_path: "/fixtures/master.db",
+        rekordbox_running: false,
+        ffmpeg_ok: true,
+      },
+    }),
+  );
+  await page.route("**/api/collection?*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
   await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/enrichment/status", (route) =>
     route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
@@ -104,8 +119,13 @@ test("pasting a playlist URL renders the match report", async ({ page }) => {
   // consumed (spec.md US1 acceptance scenario 1's "connected Spotify
   // account" precondition renders correctly), even though the sync flow
   // below would run identically without it.
-  await expect(page.getByText("Verbonden als")).toBeVisible();
-  await expect(page.getByText("DJ Test")).toBeVisible();
+  // Scoped to the main pane: the shell's top bar shows the same display name
+  // ("Spotify · DJ Test"), which it reads from this very status call, so an
+  // unscoped text query would now match two places. Both are asserted.
+  const main = page.getByRole("main");
+  await expect(main.getByText("Verbonden als")).toBeVisible();
+  await expect(main.getByText("DJ Test")).toBeVisible();
+  await expect(page.getByRole("banner").getByText("Spotify · DJ Test")).toBeVisible();
 
   await page
     .getByLabel("Spotify-afspeellijst URL")
@@ -126,9 +146,24 @@ test("applying a synced session confirms, writes, and shows the backup result", 
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
-  // MissingQueue (T107), EnrichmentPanel (T077) and BookingWorkspace (T088)
-  // are mounted unconditionally on every page load; this spec isn't about
-  // any of them, so they all start empty here.
+  // The shell's top bar reads the Rekordbox version from health, and its
+  // sidebar counter and Collectie-scan card read the missing queue and the
+  // collection; this spec isn't about any of them, so they answer empty.
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        status: "ok",
+        rekordbox_version: "7.2.17",
+        version_pin_ok: true,
+        db_path: "/fixtures/master.db",
+        rekordbox_running: false,
+        ffmpeg_ok: true,
+      },
+    }),
+  );
+  await page.route("**/api/collection?*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
   await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/enrichment/status", (route) =>
     route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),

@@ -544,8 +544,7 @@ export function BookingWorkspace() {
 
   return (
     <div className="flex flex-col gap-16">
-      <p className="text-heading font-bold">Boekingstructuren</p>
-
+      {/* The panel title is the Playlist builder view's own <h1> now. */}
       <div className="flex flex-wrap gap-8" role="group" aria-label="Structuren">
         {structures.map((structure) => (
           <button
@@ -620,7 +619,8 @@ export function BookingWorkspace() {
 
           {selectedNodeId !== null && (
             <div className="flex flex-col gap-8">
-              <p className="text-body-lg font-semibold text-pure-white">Suggesties</p>
+              {/* B9: a real heading, not a styled paragraph. */}
+              <h2 className="text-body-lg font-bold text-pure-white">Suggesties</h2>
               {suggestions.length === 0 ? (
                 <p className="text-body-lg text-mist">Geen suggesties.</p>
               ) : (

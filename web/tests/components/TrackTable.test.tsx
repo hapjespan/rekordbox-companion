@@ -241,7 +241,11 @@ describe("TrackTable", () => {
 describe("collection index refresh", () => {
   // Phase 7 review: the index is an in-memory cache rebuilt on demand
   // (ADR 0012) and nothing in the UI ever demanded it, so a freshly started
-  // app showed an empty collection with no way to fill it.
+  // app showed an empty collection with no way to fill it. The rebuild
+  // control itself now lives in the shell's sidebar (the delivered design's
+  // "Collectie-scan" card, tests/components/CollectionScanCard.test.tsx);
+  // what stays this table's job is telling the DJ where to find it, and
+  // reloading once a rebuild has happened.
   it("tells the DJ how to fill an empty collection instead of calling it no results", async () => {
     mockCollection(0, []);
 
@@ -266,36 +270,58 @@ describe("collection index refresh", () => {
     });
   });
 
-  it("rebuilds the index and reloads the table", async () => {
+  it("points at the sidebar's scan card, the app's one rebuild control", async () => {
     mockCollection(0, []);
-    vi.mocked(apiClient.POST).mockResolvedValue({ data: {}, error: undefined } as never);
 
     render(<TrackTable />);
+
+    expect(await screen.findByText(/Opnieuw scannen/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /verversen/i })).not.toBeInTheDocument();
+  });
+
+  it("reloads once the sidebar's scan card reports a completed rebuild", async () => {
+    mockCollection(0, []);
+    const { rerender } = render(<TrackTable reloadToken={0} />);
     await waitFor(() => {
       expect(screen.getByText(/nog niet ingelezen/i)).toBeInTheDocument();
     });
 
     mockCollection(TRACKS.length, TRACKS);
-    fireEvent.click(screen.getByRole("button", { name: "Collectie verversen" }));
+    rerender(<TrackTable reloadToken={1} />);
 
     await waitFor(() => {
       expect(screen.getByText("Rolling in the Deep")).toBeInTheDocument();
     });
-    expect(vi.mocked(apiClient.POST)).toHaveBeenCalledWith("/api/collection/reindex", {});
+  });
+});
+
+describe("top-bar search seeding", () => {
+  // The shell's top-bar search navigates to this view and seeds the query
+  // (web/design-input/HANDOFF.md, "Top bar"), both on the mount that the
+  // navigation causes and again for a later search while already here.
+  it("starts from the seeded query", async () => {
+    render(<TrackTable seedQuery="daft" seedToken={1} />);
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/collection",
+        expect.objectContaining({
+          params: expect.objectContaining({ query: expect.objectContaining({ query: "daft" }) }),
+        }),
+      ),
+    );
+    expect(screen.getByLabelText("Zoeken in collectie")).toHaveValue("daft");
   });
 
-  it("reports a failed rebuild instead of leaving the table silently empty", async () => {
-    mockCollection(0, []);
-    vi.mocked(apiClient.POST).mockResolvedValue({
-      data: undefined,
-      error: { code: "rekordbox_not_found", message: "geen Rekordbox" },
-    } as never);
-
-    render(<TrackTable />);
-    fireEvent.click(screen.getByRole("button", { name: "Collectie verversen" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
+  it("re-seeds on a later search, even for the same term", async () => {
+    const { rerender } = render(<TrackTable seedQuery="daft" seedToken={1} />);
+    await screen.findByText("Adele");
+    fireEvent.change(screen.getByLabelText("Zoeken in collectie"), {
+      target: { value: "iets anders" },
     });
+
+    rerender(<TrackTable seedQuery="daft" seedToken={2} />);
+
+    expect(screen.getByLabelText("Zoeken in collectie")).toHaveValue("daft");
   });
 });

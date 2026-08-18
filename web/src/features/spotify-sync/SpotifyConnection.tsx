@@ -1,15 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
 import { asApiResponse } from "./types";
 import type { SpotifyConnectionStatus } from "./types";
 
+interface SpotifyConnectionProps {
+  // The shell's top bar shows the Spotify display name too (HANDOFF.md,
+  // "Top bar"). This panel already owns the status fetch, so it reports what
+  // it learns upward rather than making the top bar fetch the same endpoint
+  // a second time.
+  onStatusChange?: (status: SpotifyConnectionStatus | null) => void;
+}
+
 // T102: connection status, connect action, disconnect action -- the AVG
 // deletion path (FR-001, pii-inventory.md).
-export function SpotifyConnection() {
+export function SpotifyConnection({ onStatusChange }: SpotifyConnectionProps = {}) {
   const [status, setStatus] = useState<SpotifyConnectionStatus | null>(null);
   const [failed, setFailed] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  // Held in a ref, not read straight from props: the status fetch must run
+  // once on mount, and a caller passing an inline callback would otherwise
+  // re-trigger it on every render of its own.
+  const statusListener = useRef(onStatusChange);
+
+  useEffect(() => {
+    statusListener.current = onStatusChange;
+  }, [onStatusChange]);
 
   useEffect(() => {
     void refreshStatus();
@@ -27,12 +43,16 @@ export function SpotifyConnection() {
       const { data, error } = await apiClient.GET("/api/auth/spotify/status");
       if (error || data === undefined) {
         setFailed(true);
+        statusListener.current?.(null);
         return;
       }
       setFailed(false);
-      setStatus(asApiResponse<SpotifyConnectionStatus>(data));
+      const fetched = asApiResponse<SpotifyConnectionStatus>(data);
+      setStatus(fetched);
+      statusListener.current?.(fetched);
     } catch {
       setFailed(true);
+      statusListener.current?.(null);
     }
   }
 

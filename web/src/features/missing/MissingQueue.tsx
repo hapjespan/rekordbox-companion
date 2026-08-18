@@ -257,8 +257,9 @@ export function MissingQueue() {
 
   return (
     <div className="flex flex-col gap-16">
-      <div className="flex items-center justify-between gap-16">
-        <p className="text-heading font-bold">Ontbrekende nummers</p>
+      {/* The panel title is the Koop-wachtrij view's own <h1> now, so this
+          row carries only its action. */}
+      <div className="flex items-center justify-end gap-16">
         <button
           type="button"
           onClick={() => void handleRefreshLinks()}
