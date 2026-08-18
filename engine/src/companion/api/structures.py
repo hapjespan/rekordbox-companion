@@ -146,6 +146,23 @@ class NodeBody(BaseModel):
     set_phase: str | None = None
 
 
+@router.get("/structures/{structure_id}/nodes")
+def list_nodes(structure_id: int, db: Session = Depends(get_db)):
+    # Not in contracts/api.md's table explicitly, but required for any
+    # client to render/edit a tree at all -- the same "fetch one resource
+    # with its children" shape as GET /api/sync/sessions/{id}, just as its
+    # own endpoint rather than nested in GET /api/structures/{id} (T087/T088
+    # build finding).
+    _get_structure_or_404(db, structure_id)
+    nodes = (
+        db.query(StructureNode)
+        .filter_by(structure_id=structure_id)
+        .order_by(StructureNode.position)
+        .all()
+    )
+    return [_node_dict(n) for n in nodes]
+
+
 @router.post("/structures/{structure_id}/nodes")
 def create_node(structure_id: int, body: NodeBody, db: Session = Depends(get_db)):
     _get_structure_or_404(db, structure_id)

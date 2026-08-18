@@ -93,6 +93,33 @@ def test_delete_removes_the_structure():
     assert client.get("/api/structures").json() == []
 
 
+def test_get_nodes_lists_them_ordered_by_position():
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "A"}).json()
+    client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "Second", "parent_id": None, "position": 1},
+    )
+    client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "folder", "name": "First", "parent_id": None, "position": 0},
+    )
+
+    response = client.get(f"/api/structures/{structure['id']}/nodes")
+
+    assert response.status_code == 200
+    assert [n["name"] for n in response.json()] == ["First", "Second"]
+
+
+def test_get_nodes_returns_404_for_an_unknown_structure():
+    client, _ = _client()
+
+    response = client.get("/api/structures/999/nodes")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "structure_not_found"
+
+
 def test_post_node_creates_a_folder_or_playlist():
     client, _ = _client()
     structure = client.post("/api/structures", json={"name": "A"}).json()
