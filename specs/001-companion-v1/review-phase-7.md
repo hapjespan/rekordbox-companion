@@ -195,7 +195,7 @@ deviations:
 
 | Deviation | Owner | Date |
 |---|---|---|
-| The axe sweep covers the default page state and the match-report and apply flow, not the review-queue or booking-tree editing states, which are the densest interactive UI. Blocking finding 3 was the reason the review states were unreachable at all; now that they are wired, the sweep should be extended to them. Tracked as backlog item B6. | Martien | 2026-09-01 |
+| Closed during the shell revision below: the axe sweep now loops all five workspace views rather than scanning one long page, so the review queue and the booking tree are covered. What remains open is the interaction depth inside those views, since axe scans a rendered state and does not drive the keyboard. Backlog item B6 narrows to that. | Martien | 2026-09-01 |
 | The manual half of the accessibility pass, a keyboard-only walkthrough and physical measurement of 24x24 targets, is specified but has no recorded execution. It needs the owner at the keyboard and cannot be delegated to CI. Tracked as backlog item B7. | Martien | 2026-09-01 |
 | In the review queue the active candidate was distinguished by colour and shade alone. Assistive technology was served correctly by `aria-selected`/`aria-activedescendant`, but the sighted focus position needed a non-colour cue (WCAG 1.4.1). Fixed in this phase; retest belongs to the extended sweep above. | Martien | 2026-09-01 |
 
@@ -292,6 +292,116 @@ SC-009 cannot be judged; only 34 tracks carry a BPM, so profile BPM filtering is
 thin; and the Golden Set is still four stubs, so SC-002 and SC-003 stay
 unproven. All three need the owner's real library, which is what T089 and T094
 are for.
+
+## Revision: the shell design, reviewed after the phase reopened
+
+Phase 7 had been marked complete when the owner delivered a high-fidelity
+prototype of an application shell and asked for it before approving the gate. A
+re-layout of every screen invalidates two of this report's claims, the two-axis
+review of the frontend tasks and the WCAG conformance statement, so the phase was
+reopened rather than the report left to go stale, the design landed as phase 6
+work, and this section is the review of that change. It covers commits `39d363d`
+(design references and ADR 0020) through `28f476b` (the shell).
+
+### What changed
+
+The SPA is now the prototype's shell: a 300px sidebar and a 64px top bar in a
+full-height grid, a scrolling main pane with a 1180px content column, and the
+prototype's hero, stat-card, card and table styling, all from the delivered
+tokens. Five workspace views rather than the prototype's three, because its three
+omit US3's guarded apply, US5's collection browser and player, and US6's genre
+enrichment, all of which are built: Match-overzicht carries US1 to US3, and
+Koop-wachtrij, Playlist builder, Collectie and Genre-verrijking carry the rest.
+
+Every value on screen is real. The top bar reports the Rekordbox version
+`GET /api/health` returns rather than the pinned constant, and the Spotify
+account actually connected; the sidebar counters come from the session and the
+missing queue; the Collectie-scan card reports the real track count and drives
+`POST /api/collection/reindex`, which is where the rebuild control now lives,
+moved out of the table so there is exactly one.
+
+### Two axes
+
+Correctness against the design holds. The shell's stated dimensions, surfaces,
+paddings, nav states and card styling follow HANDOFF.md. Two deviations are
+deliberate and recorded in code, both in favour of accessibility the project
+already claims: `--color-fog` fails AA for the small text the prototype puts it
+on, so that text renders one step up in `--color-mist`, and the pipe divider is
+drawn as a rule rather than a `|` glyph at `#333333` for the same reason. No
+unrecorded deviation was found.
+
+Correctness against the app holds. Nothing renders a musical key, energy value,
+label, price, store grouping, format, quality, checkout, watch-folder or
+XML-export affordance: a search across `web/src` for all of those returns only
+comments naming the gap. That matters because the prototype specifies every one
+of them and none exists in the data model or the scope, so the alternative was a
+design that looked finished over an app that was not.
+
+Design holds, with one structural improvement taken while the structure was
+open: backlog item B9 is closed. Each view has a real heading outline instead of
+styled paragraphs, so a screen reader finally gets an outline to navigate by.
+
+Rule 5 is clean, checked mechanically rather than by eye: `web/src` contains no
+hex colour, no arbitrary pixel value in a class name and no inline style
+attribute. The one hex in the tree sits inside the comment explaining the divider
+deviation. The type scale gained 10, 12, 13 and 15 pixels plus four tracking
+values and a set of shell dimensions, per ADR 0020, and one colour, the
+handoff's white-pill hover shade. Rule 6 holds: the only English UI strings are
+the design's own section label "WORKSPACE" and the view name "Playlist builder".
+
+### WCAG 2.2 AA, restated for the new shell
+
+The claim is renewed rather than carried over, because the surface it describes
+is new.
+
+Contrast was computed, not assumed, for every foreground and surface pair the
+shell uses. The shell renders text in exactly five colours, and the worst case of
+any pair in use is 6.94:1, against a 4.5:1 requirement for small text: `mist` on
+`smoke`. `bone` bottoms out at 8.43:1, `spotify-green` at 7.58:1, `pure-white` at
+14.55:1, and `void-black` on the white and green pills at 10.94:1 or better.
+Neither `fog` (4.16:1 at best on these surfaces) nor `steel` (2.44:1) is used for
+text anywhere, which is what the recorded deviation above bought.
+
+Target size: nav items compute to roughly 37px tall at full sidebar width, the
+scan pill is 30px, the primary pill 32px, and the search submit is exactly 24x24,
+which meets the minimum rather than exceeding it.
+
+State is never conveyed by colour alone. The connection dot is `aria-hidden` and
+the state it signals is spelled out in the text beside it, so "verbonden",
+"niet gevonden" and "status onbekend" are readable rather than inferred from
+green versus grey. The logo circle is decorative and hidden from assistive
+technology; the wordmark carries the name. The green buy-queue counter is a
+number, and the number is the information.
+
+The view switcher is a `<nav>` of real buttons in a list, and the current view
+carries `aria-current="page"`, verified to move when switching. The axe sweep now
+loops all five views and is clean on each.
+
+### Test evidence for this revision
+
+`web/tests/App.test.tsx` is the guard that every story stays reachable, and it
+was checked adversarially rather than trusted: removing one view from the
+navigation table fails four of its tests, including the one that pins the order
+of all five. The changed TrackTable and end-to-end specs kept their assertions
+and gained the navigation the shell requires; the one pre-existing test whose
+name promised a search it never performed now performs it.
+
+Full state after the revision: 458 pytest, 175 vitest, 5 Playwright including two
+axe sweeps, `pnpm build`, `tsc --noEmit`, ESLint and Prettier all clean, and CI
+green on the branch.
+
+### One limit on this revision, stated plainly
+
+The independent validation pass for this change was dispatched to the
+`gate-review` agent and died on a usage limit before returning. Routing rule 5
+forbids answering a limit pause with a downgrade, so it was not re-run on a
+smaller model. The two-axis review above therefore ran on the phase 7 model,
+which is where the phase file assigns it, and builder and reviewer stay separate
+because the shell was built by a different model. What is missing relative to the
+eight original group reviews is the second, adversarial pair of eyes, and the
+mechanical checks above exist to compensate for exactly that: contrast computed,
+rule 5 grepped, the reachability guard broken on purpose to prove it bites. Worth
+re-running when the window clears if the owner wants the belt and braces.
 
 ## Open items the owner must close
 

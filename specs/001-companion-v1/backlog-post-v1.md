@@ -1,7 +1,7 @@
 # Backlog carried out of the phase 7 review
 
 Findings from the phase 7 two-axis review that were recorded rather than fixed in
-that phase, each with the reason it was not fixed. The twelve blocking findings
+that phase, each with the reason it was not fixed. The thirteen blocking findings
 were fixed inside phase 7 and are listed in `review-phase-7.md`; nothing here is
 a defect the owner can currently reach and be harmed by.
 
@@ -53,13 +53,14 @@ runs the app and are not rotated files. Either implement rotating file logging o
 amend the plan. Recorded as the one deviation under the A09 verdict in
 `review-phase-7.md`.
 
-## B6 — Extend the accessibility sweep to the densest interactive states
+## B6 — Drive the keyboard through the densest interactive states
 
-`web/tests/e2e/accessibility.spec.ts` covers the default page state and the
-match-report and apply flow, but not the review queue or the booking-tree editing
-states. Those were unreachable while the US2 review UI was unwired (phase 7
-blocking finding 3); now that it is mounted, the sweep should include them.
-Owner: Martien, 2026-09-01.
+Narrowed by the shell revision: `web/tests/e2e/accessibility.spec.ts` now loops
+all five workspace views, so the review queue and the booking tree are scanned.
+What remains is depth rather than coverage. axe scans a rendered state; it does
+not tab through a roving-tabindex table, resolve a review item by keyboard, or
+re-parent a node in the tree, and those are the interactions where a focus trap
+or a lost focus position would actually show up. Owner: Martien, 2026-09-01.
 
 ## B7 — Run the manual half of the accessibility pass
 
@@ -76,22 +77,21 @@ such table". Left as a deliberate choice for now, because a migration side effec
 at import time is worse design than a documented setup step; revisit if the Mac
 install turns out to bypass `make setup`.
 
-## B9 — Give the page a real heading structure
+## B9 — Give the page a real heading structure — CLOSED
 
-Every section title in the SPA is a styled `<p>` rather than an `<h2>`, so a
-screen reader gets no heading outline to navigate the page by: with all seven
-stories on one scrolling page, that outline is the main way a non-sighted user
-would move between them. axe does not flag it and no phase 2 acceptance criterion
-names it explicitly, which is why it passed the sweep, but it works against the
-same keyboard-and-screen-reader goal those criteria exist for. Fixing it means
-touching the three feature panels and their tests, so it was left out of phase 7
-rather than bundled into unrelated fixes.
+Closed by the shell revision, which was the cheap moment to do it: each view now
+has a real heading outline instead of styled paragraphs, and the panel titles that
+merely repeated their view's heading were removed rather than nested.
 
-## B10 — Reconsider the single-page layout once every story has a screen
+## B10 — Reconsider the single-page layout once every story has a screen — CLOSED
 
-`App.tsx` deliberately has no router and no navigation, which was right while
-stories were landing one at a time. Now that all seven are mounted, the result is
-one long scrolling column with the collection browser and the player below the
-booking workspace, and the visual hierarchy that a DJ would navigate by is
-missing. This is a product decision rather than a defect, and it belongs with the
-owner after they have used it once.
+Overtaken by the owner's shell design, which answers exactly this: five workspace
+views behind a sidebar, one screen at a time, instead of one scrolling column.
+
+## B11 — Consider a router, now that there are five views
+
+The shell holds the current view in component state, so the view is not in the
+URL: it cannot be linked, bookmarked, or restored by a reload, and the browser's
+back button does nothing. That is defensible for a single-operator local tool and
+the delivered prototype does the same, but it is the kind of thing that gets
+noticed on the tenth reload rather than the first.
