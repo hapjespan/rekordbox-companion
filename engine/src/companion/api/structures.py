@@ -1,11 +1,12 @@
-"""Structure/node tree CRUD, Suggestions, tracks and dismissals
-(contracts/api.md "Profiles and structures", FR-032/FR-033/FR-034).
+"""Structure/node tree CRUD, Suggestions, tracks, dismissals and Apply
+(contracts/api.md "Profiles and structures", FR-032/FR-033/FR-034/FR-035/FR-018).
 
-Apply (`POST /api/structures/{id}/apply`, T086) is deliberately not in this
-module's first cut -- it reuses the guarded write path (`rb/writer.py` +
-`rb/guard.py` + `rb/backup.py`) and lands as its own task/commit given the
-security-sensitive nature of anything that writes to `master.db` (project
-rule 2).
+Apply (`POST /api/structures/{id}/apply`, T086, `[complexity: high]`) reuses
+the guarded write path from US3 (`rb/writer.py` + `rb/guard.py` +
+`rb/backup.py`): the same guard -> backup -> write -> write_log ->
+`apply_done` sequence `api/sync.py`'s own apply endpoint uses, calling
+`writer.apply_structure` (a whole folder/playlist tree, not a single flat
+playlist) instead of `writer.apply_playlist`.
 """
 
 from datetime import UTC, datetime
@@ -15,7 +16,9 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from companion.api import events
 from companion.bookings.models import suggestions_for_node
+from companion.config import BACKUP_DIR
 from companion.db.models import (
     BookingProfile,
     BookingProfileGenreTag,
@@ -23,8 +26,10 @@ from companion.db.models import (
     StructureNode,
     StructureTrack,
     SuggestionDismissal,
+    WriteLog,
 )
 from companion.db.session import get_db
+from companion.rb import backup, guard, reader, writer
 
 router = APIRouter()
 
@@ -303,3 +308,150 @@ def dismiss_suggestion(
         db.add(SuggestionDismissal(node_id=node_id, rb_content_id=body.rb_content_id))
         db.commit()
     return {"dismissed": True}
+
+
+def _node_specs_for_structure(db: Session, structure_id: int) -> list[writer.NodeSpec]:
+    """Build the flat `NodeSpec` list `writer.apply_structure` resolves into a
+    tree: one spec per `structure_node`, its `StructureTrack.rb_content_id`
+    rows (playlist nodes only) ordered by `position`. `apply_structure` does
+    its own topological ordering, so the query order here is irrelevant."""
+    nodes = db.query(StructureNode).filter_by(structure_id=structure_id).all()
+    specs = []
+    for node in nodes:
+        if node.kind == "playlist":
+            content_ids = [
+                row[0]
+                for row in db.query(StructureTrack.rb_content_id)
+                .filter_by(node_id=node.id)
+                .order_by(StructureTrack.position)
+                .all()
+            ]
+        else:
+            content_ids = []
+        specs.append(
+            writer.NodeSpec(
+                node_id=node.id,
+                kind=node.kind,
+                name=node.name,
+                parent_node_id=node.parent_id,
+                rb_ref=node.rb_ref,
+                rb_content_ids=content_ids,
+            )
+        )
+    return specs
+
+
+def _node_result_dict(result: writer.NodeWriteResult) -> dict:
+    return {
+        "node_id": result.node_id,
+        "rb_ref": result.rb_ref,
+        "created": result.created,
+        "tracks_added": result.tracks_added,
+        "tracks_already_present": result.tracks_already_present,
+        "readback_ok": result.readback_ok,
+    }
+
+
+@router.post("/structures/{structure_id}/apply")
+def apply_structure(structure_id: int, db: Session = Depends(get_db)):
+    """FR-035/FR-018: guard -> backup -> write -> readback -> write_log ->
+    per-node ApplyResult (contracts/api.md), emitting `apply_done` on
+    `/api/events`. The exact same guarded write path as
+    `sync.apply_sync_session`, calling `writer.apply_structure` for a whole
+    folder/playlist tree instead of `writer.apply_playlist` for one playlist.
+
+    A pre-write refusal (guard or backup_failed) is a 409, nothing touched. A
+    write whose readback fails is a 200 -- the write and its backup are real,
+    only verification didn't confirm every node; `StructureNode.rb_ref` and
+    `structure.last_applied_at` are updated only when EVERY node verified, so a
+    partially-verified apply never falsely reads as fully owned by Rekordbox.
+    """
+    _get_structure_or_404(db, structure_id)
+
+    # guard.check() refuses cleanly (version_mismatch) when Rekordbox isn't
+    # installed or its db file can't be found, so passing detection.db_path
+    # straight through -- even when None -- is safe (same as sync apply).
+    detection = reader.detect_rekordbox()
+    guard_result = guard.check(detection.db_path)
+    if not guard_result.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": guard_result.code, "message": guard_result.message},
+        )
+
+    backup_result = backup.create(detection.db_path, BACKUP_DIR)
+    if not backup_result.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "backup_failed",
+                "message": f"Backup could not be verified: {backup_result.error}",
+            },
+        )
+
+    node_specs = _node_specs_for_structure(db, structure_id)
+
+    try:
+        node_results = writer.apply_structure(detection.db_path, node_specs)
+    except Exception as exc:
+        # A genuine write failure must still leave an audit trail: the backup
+        # already exists, so there needs to be a durable record of where to
+        # restore from even though the write never confirmed (same pattern as
+        # sync.apply_sync_session).
+        db.add(
+            WriteLog(
+                kind="structure_apply",
+                subject_id=structure_id,
+                backup_path=str(backup_result.path),
+                readback_ok=False,
+                detail={"error": str(exc)},
+                created_at=_utcnow(),
+            )
+        )
+        db.commit()
+        raise
+
+    overall_readback_ok = all(result.readback_ok for result in node_results)
+
+    db.add(
+        WriteLog(
+            kind="structure_apply",
+            subject_id=structure_id,
+            backup_path=str(backup_result.path),
+            readback_ok=overall_readback_ok,
+            detail={"nodes": [_node_result_dict(result) for result in node_results]},
+            created_at=_utcnow(),
+        )
+    )
+
+    # Persist every node's real Rekordbox id, so a re-apply reuses it (add-only,
+    # FR-018) and the rename-lock in update_node kicks in. Done per-node
+    # regardless of overall readback: the id is real the moment writer created
+    # it, and re-running against a stale None would create a duplicate.
+    nodes_by_id = {
+        node.id: node for node in db.query(StructureNode).filter_by(structure_id=structure_id).all()
+    }
+    for result in node_results:
+        node = nodes_by_id.get(result.node_id)
+        if node is not None:
+            node.rb_ref = result.rb_ref
+
+    if overall_readback_ok:
+        structure = db.get(Structure, structure_id)
+        structure.last_applied_at = _utcnow()
+    db.commit()
+
+    events.publish(
+        "apply_done",
+        {
+            "structure_id": structure_id,
+            "readback_ok": overall_readback_ok,
+            "nodes": [_node_result_dict(result) for result in node_results],
+        },
+    )
+
+    return {
+        "nodes": [_node_result_dict(result) for result in node_results],
+        "backup_path": str(backup_result.path),
+        "readback_ok": overall_readback_ok,
+    }

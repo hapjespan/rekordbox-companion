@@ -176,3 +176,28 @@ def test_a_playlist_two_levels_deep_resolves_its_grandparent_folder(db_copy: Pat
     playlist = reopened.get_playlist(ID=by_node[3].rb_ref)
     assert str(playlist.ParentID) == str(by_node[2].rb_ref)
     reopened.close()
+
+
+def test_a_dangling_parent_node_id_raises_instead_of_writing_anything(db_copy: Path):
+    """A node whose declared parent isn't in the same batch (cyclic or
+    dangling parent_node_id) can only come from a caller bug -- the API
+    layer always passes the whole tree -- so it's raised, not silently
+    dropped or looped forever."""
+    (content_id,) = _content_ids(db_copy, 1)
+    nodes = [
+        NodeSpec(
+            node_id=1,
+            kind="playlist",
+            name="Orphan",
+            parent_node_id=999,  # not in this batch
+            rb_ref=None,
+            rb_content_ids=[content_id],
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="cyclic or dangling"):
+        writer.apply_structure(db_copy, nodes)
+
+    reopened = Rekordbox6Database(path=str(db_copy))
+    assert reopened.get_playlist(Name="Orphan").count() == 0
+    reopened.close()
