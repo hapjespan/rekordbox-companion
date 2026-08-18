@@ -492,7 +492,7 @@ statuses persist, an acquired track leaves the queue on re-sync (spec.md).
       `missing_track` for the same `playlist_link`+`spotify_track_id` was
       `ignored`, and if so spawn `ignored` again instead of resetting to
       `open`.
-- [ ] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
+- [x] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
       Link + copy action, status controls, manual override input with
       field-naming errors (WCAG)
 - [ ] T107 [US4] Playwright smoke e2e in `web/tests/e2e/missing-link.spec.ts`

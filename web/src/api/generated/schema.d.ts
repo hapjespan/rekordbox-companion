@@ -244,7 +244,10 @@ export interface paths {
      * Reject Track
      * @description FR-012: reject means "wrong match" -- the Spotify Track becomes a
      *     Missing Track (a real row, never silently dropped), persisted
-     *     immediately (FR-014).
+     *     immediately (FR-014). Reuses the same sticky-ignore lookup as the
+     *     automatic missing-classification path (T058, US4 scenario 3): a track
+     *     the DJ already ignored must not resurface as open just because it was
+     *     rejected under a different session (review finding).
      */
     post: operations["reject_track_api_sync_sessions__session_id__tracks__track_id__reject_post"];
     delete?: never;
@@ -275,6 +278,86 @@ export interface paths {
      *     `backup_path` in the response, not via an error code.
      */
     post: operations["apply_sync_session_api_sync_sessions__session_id__apply_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/missing": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Missing */
+    get: operations["list_missing_api_missing_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/missing/{missing_id}/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Set Missing Status
+     * @description FR-021: open/acquired/ignored, persistently.
+     */
+    post: operations["set_missing_status_api_missing__missing_id__status_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/missing/{missing_id}/link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Set Missing Link
+     * @description FR-022: a manual override, keeping the automatic pick alongside it.
+     */
+    post: operations["set_missing_link_api_missing__missing_id__link_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/missing/refresh-links": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Refresh Links
+     * @description Re-runs the iTunes lookup for every OPEN row (SC-004).
+     *
+     *     `acquired`/`ignored` rows are left alone: a resolved or dismissed
+     *     Missing Track has no remaining use for a fresher auto-pick.
+     */
+    post: operations["refresh_links_api_missing_refresh_links_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -338,6 +421,16 @@ export interface components {
     HTTPValidationError: {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
+    };
+    /** MissingLinkBody */
+    MissingLinkBody: {
+      /** Itunes Url */
+      itunes_url?: string | null;
+    };
+    /** MissingStatusBody */
+    MissingStatusBody: {
+      /** Status */
+      status?: string | null;
     };
     /** ValidationError */
     ValidationError: {
@@ -776,6 +869,127 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_missing_api_missing_get: {
+    parameters: {
+      query?: {
+        status?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  set_missing_status_api_missing__missing_id__status_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        missing_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MissingStatusBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  set_missing_link_api_missing__missing_id__link_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        missing_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MissingLinkBody"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  refresh_links_api_missing_refresh_links_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
         };
       };
     };
