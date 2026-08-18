@@ -11,6 +11,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from companion.db.session import Base, create_session_factory, get_db
 from companion.main import create_app
 from companion.rb.reader import CollectionTrack
 
@@ -36,7 +37,22 @@ def _synthetic_tracks(count: int) -> list[CollectionTrack]:
 
 
 def _client_with_index() -> TestClient:
+    # An empty in-memory database with the schema applied, same pattern as
+    # tests/api/test_collection.py: the endpoint joins `enriched_genre`, so a
+    # client built on the ambient dev database only works where that database
+    # already exists and is migrated (it did locally, not in CI).
+    engine, session_local = create_session_factory("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    def override_get_db():
+        db = session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
     app = create_app()
+    app.dependency_overrides[get_db] = override_get_db
     app.state.collection_index.rebuild(_synthetic_tracks(TRACK_COUNT))
     return TestClient(app)
 
