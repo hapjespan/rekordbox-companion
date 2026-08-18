@@ -1,6 +1,20 @@
 {
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": false
+    "superpowers@claude-plugins-official": false,
+    "laravel-boost@claude-plugins-official": false
+  },
+  "skillOverrides": {
+    "swift-codable": "off",
+    "swiftui-expert-skill": "off",
+    "xcode-project-setup": "off",
+    "next": "off",
+    "nextjs-developer": "off",
+    "nextjs-cache-architecture": "off",
+    "next-cache-components-adoption": "off",
+    "next-cache-components-optimizer": "off",
+    "next-dev-loop": "off",
+    "next-partial-prefetching-adoption": "off",
+    "clerk-nextjs-patterns": "off"
   },
   "permissions": {
     "deny": [

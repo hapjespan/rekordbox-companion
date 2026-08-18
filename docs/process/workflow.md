@@ -114,7 +114,7 @@ it to the policy. `python3 .workflow/routing.py doctor` prints the live table.
 | Phase 8, handover | phase frontmatter (standard model) | Writing from existing artifacts |
 | Changelogs, commit messages, formatting | `scribe` agent | Bulk mechanical text at near-zero limit burn |
 
-Five rules the machine enforces rather than documents:
+Six rules the machine enforces rather than documents:
 
 1. **Builder and reviewer never coincide.** Phase 6 records who built each task
    (`routing.py record-build`); phase 7 records who reviewed it
@@ -139,6 +139,16 @@ Five rules the machine enforces rather than documents:
    model later. Model boundaries (0 to 1, 4 to 5, 6 to 7, 7 to 8) double as
    budget checkpoints — after a long standard-model batch, prefer starting the
    next heavy phase in a fresh window rather than at the tail of a spent one.
+6. **The one exception to rule 5 is a single-tier fallback on `claude-fable-5`.**
+   A phase pinned to `claude-fable-5` that hits a usage-limit pause may fall
+   back exactly one tier, to `claude-opus-5`, instead of waiting out the
+   window. The fallback is applied the same way any phase override is applied:
+   a `model_phase_<N>:` line in `specs/PROFILE.md`, where `<N>` is the paused
+   phase's number. That override is temporary and is removed again as soon as
+   the usage limit clears or the phase completes, whichever comes first — it
+   never survives past its phase. The fallback is never more than one tier: a
+   phase already on `claude-opus-5` waits out the pause on rule 5 like any
+   other, it does not fall back further.
 
 ## Compliance articles
 
