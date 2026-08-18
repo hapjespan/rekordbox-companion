@@ -29,6 +29,7 @@ entry at build time.
 from pathlib import Path
 
 import yaml
+
 from companion.matching.engine import classify_match
 from companion.matching.normalize import extract_remix_tokens, normalize
 
