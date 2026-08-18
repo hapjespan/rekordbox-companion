@@ -16,39 +16,7 @@ booking-type playlist structures. Full brief and decision log: `specs/kickoff.md
 - Database: PostgreSQL database "rekordbox-companion" on host "postgres" (central container on dev-net). Redis on host "redis". Credentials in .env (never commit).
 - Global conventions and the knowledge base workflow are defined in ~/.claude/CLAUDE.md and apply here.
 
-## Process — Agent Workflow Graph
-
-Role: Senior Lead Dev plus PM/PO. Not a pair of hands that types what it is told.
-
-Core principles: Think First, Specify Second, Code Last. Autonomy is front-loaded,
-so uncertainty that surfaces while implementing means the specification was
-insufficient: stop, grill, update the artifact, resume. Never resolve it in code.
-
-The process lives in `docs/process/`. Start with `workflow.md` for the phase graph,
-the binding deduplication table, the gate modes and the four compliance articles
-(AVG/GDPR, NIS2, WCAG 2.2 AA, OWASP), then follow the phase file for the phase you
-are in. `/start-project` initialises all of it.
-
-A phase ends **only** by running `python3 .workflow/complete-phase.py <N>`. Nothing
-else ends a phase. The Stop hook then decides whether the next phase starts by
-itself or waits for a human gate, according to the gate mode in
-`specs/PROFILE.md`. A human approves a gate with
-`python3 .workflow/approve-gate.py <N>`.
-
-Every phase runs on the model pinned in its phase file's frontmatter; the hooks
-stall a phase that would start or continue on the wrong model, and a usage-limit
-pause is resumed on the same model, never a lighter one. The routing table, the
-hard rules (builder never reviews own task, escalation only via the
-`[complexity: high]` flag in tasks.md, gate reviews always on the `gate-review`
-agent) live in `docs/process/workflow.md` under "Model routing".
-
-Disabled by the deduplication policy, never invoke: `/to-spec`, `/to-tickets`,
-Pocock `/implement`, `/triage`, `/wayfinder`. `/speckit-clarify` is a fallback only,
-for when grilling was explicitly skipped. Superpowers is switched off in this
-project, in `.claude/settings.json`, because its skills mandate a competing order of
-work; the graph wins here.
-
-## Stack
+## Tech stack
 
 One-off stack, not the standard nextjs/laravel scaffold (see `specs/kickoff.md`
 section 5 for the full table):
@@ -65,17 +33,51 @@ section 5 for the full table):
   against a fixture copy of `master.db`; anything needing the real install
   (SQLCipher key, `/api/health` version match) is verified on the Mac.
 
-## Skills
+## Coding conventions
 
-- `frontend-design`: UI work in phases with visual output, applied within the
-  delivered token set in `web/design-input/` (which remains binding).
-- No installed skill covers FastAPI, pyrekordbox or the matching pipeline; the
-  nextjs-* skills do not apply here. Do not force one.
+- Code, comments, commit messages, branch names and documentation in English;
+  UI copy in Dutch.
+- Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`).
+- Lint with ruff in `engine/` and ESLint + Prettier in `web/`; a change is not
+  done until both pass.
+- Test-driven discipline: write the failing test first. Golden matching
+  fixtures are append-only — extend them, never weaken one to make a change pass.
+- Small, verifiable steps; run the relevant tests or a build check before
+  declaring work done.
+- Never commit secrets; `.env` stays out of git, keep `env.example` current.
 
-## Commands
+## Build commands
 
-<!-- Makefile targets (make dev / make test / make build / make run) arrive with
-     the phase 0 scaffold per specs/kickoff.md section 14. Fill in then. -->
+Real `Makefile` targets, verified against `engine/pyproject.toml` and
+`web/package.json`:
+
+- `make setup` — `uv sync` in `engine/`, `pnpm install` in `web/`, installs the
+  repo's pre-commit hook.
+- `make dev` — runs both dev servers together via `scripts/dev.sh`.
+- `make test` — `pytest` in `engine/`, `pnpm test` (vitest) in `web/`.
+- `make build` — `pnpm build` in `web/`.
+- `make run` — starts uvicorn (`companion.main:app`) on 127.0.0.1:8787.
+
+## Implementation confidence threshold
+
+Implement only at >= 95 percent confidence in the specification and approach;
+below that stop, ask the question, and record the answer in the spec or an ADR
+before writing code.
+
+## Index
+
+Pointers, not copies — read the linked file for the actual content:
+
+- `specs/` — the kickoff brief and decision log (`kickoff.md`) and the project
+  profile (`PROFILE.md`: gate mode, risk class, deploy target). Read before
+  any spec-level question.
+- `docs/adr/` — architecture decision records; see `docs/adr/README.md` for the
+  filename format and what belongs in one.
+- `docs/process/workflow.md` — the Agent Workflow Graph: the nine-phase graph,
+  gate modes, model routing, the compliance articles. Read this before starting
+  or resuming any phase.
+- `.workflow/state.json` — the live phase-machine state (current phase, gates
+  approved so far). Read to see where the project actually stands right now.
 
 ## Project-specific rules
 
