@@ -787,6 +787,33 @@ the one documented exception to story independence in this feature.
       end to end once owner inputs (fixture `master.db` + key,
       `SPOTIFY_CLIENT_ID`, audio samples) land — blocked on the owner, not on
       this decomposition (grilling D10)
+
+      **Status (2026-08-18), left unchecked -- genuinely partial**: the
+      owner-supplied fixture `master.db` and `SPOTIFY_CLIENT_ID` landed
+      during phase 6 build (both now present); a live Spotify session was
+      also connected during this session. Against that real data, phase 6's
+      own test suite already exercises most of quickstart.md's 7 scenarios
+      with real evidence, not mocks: US3's apply/backup/readback
+      (`test_writer_integration.py`), US6's enrichment run/resume/manual-
+      override/byte-unchanged (`test_runner.py`'s `db_copy` fixture), and
+      US7's structure/suggestions/apply (`test_structure_apply.py`) all run
+      against the real fixture file, not a fake. US5's collection-perf
+      (`test_collection_perf.py`, 40k synthetic entries, since the fixture
+      itself is only ~119 tracks) and player-stream tests (real ffmpeg
+      transcode) are real too.
+      Genuinely still owed, and still owner-only: (a) mp3/m4a/ALAC *sample
+      files* for a from-scratch transcode-fixture walkthrough (the existing
+      transcode tests use real ffmpeg but not owner-supplied samples
+      specifically); (b) SC-001's 100-track-playlist timing against a real
+      Spotify playlist (needs the owner's own playlist URL); (c) US2's
+      Spotify Web Playback SDK local-vs-original comparison (needs a human
+      with Premium in a real browser, per R2's own spike scope); (d) BPM/
+      track-length conversion verification against tracks with *known*
+      ground truth (the fixture's own demo tracks have no independently-
+      known BPM to check `rb/reader.py`'s conversion against -- this needs
+      the owner's domain knowledge, not just the file). Left unchecked
+      rather than falsely marked done: real end-to-end scenario 2's human
+      playback comparison and scenario 1's real-playlist timing haven't run.
 - [x] T090 [P] ASVS-mapped security pass in
       `engine/tests/security/test_asvs_boundaries.py`: outbound HTTP
       allowlist enforcement (`api.spotify.com`, `itunes.apple.com`,
@@ -820,11 +847,23 @@ the one documented exception to story independence in this feature.
 - [x] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
       features (collection browse, playback) stay usable while a Sync
       Session or enrichment run is in progress (FR-040, edge case)
-- [ ] T093 [P] Update `docs/architecture.md` with any seam deltas discovered
+- [x] T093 [P] Update `docs/architecture.md` with any seam deltas discovered
       during build, keeping it in sync with plan.md's seam list
 - [ ] T094 Verify `engine/tests/fixtures/matching_golden.yaml` holds ≥50
       cases with ≥10 hard cases and passes at 100% (SC-003) — execution
       depends on the owner-supplied real cases; this task records the gate
+
+      **Gate recorded (2026-08-18), left unchecked -- does not pass**:
+      `matching_golden.yaml` currently holds exactly 4 cases, all
+      `stub_example: true` (illustrative, not real match data), 1 of them
+      `hard_case: true`. SC-003 needs ≥50 cases with ≥10 hard ones. The gate
+      is 4/50 cases and 1/10 hard cases -- 8% and 10% of the requirement
+      respectively. `pytest -k golden` passes 100% today only because every
+      case currently in the file is a stub the pipeline was built to satisfy;
+      that is not the same claim as SC-003, which is specifically about real
+      match cases the DJ's own library and playlists produce. Owner-supplied
+      real cases (grilling D10) are still owed before this can be re-checked
+      for real.
 - [x] T095 [P] Run the Playwright suite
       (`web/tests/e2e/sync-review-apply.spec.ts`,
       `web/tests/e2e/missing-link.spec.ts` from T107) as the CI-facing
@@ -850,6 +889,12 @@ the one documented exception to story independence in this feature.
       with the app; a manual sign-off, not a code deliverable — log the
       outcome in `docs/CONTEXT.md`. Gate-review finding: SC-009 had no
       recorded validation step.
+
+      **Status (2026-08-18), left unchecked**: added a "Validation log"
+      section to `docs/CONTEXT.md` for this sign-off to land in, so it has
+      a real place to go once it exists -- there is nothing to record yet.
+      This is not a code-completable task at all: it requires the owner to
+      have actually prepared a real booking with the finished app first.
 
 ---
 
