@@ -122,6 +122,8 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboardText).toBe("https://music.apple.com/nl/album/nothing-similar/1");
 
-  await page.getByRole("button", { name: "Genegeerd" }).click();
+  // Scoped to the row: the status filter group added in the phase 7 review has
+  // a "Genegeerd" button of its own, so the bare role query is ambiguous now.
+  await page.getByTestId("missing-track-row").getByRole("button", { name: "Genegeerd" }).click();
   await expect(page.getByText("Geen openstaande ontbrekende nummers.")).toBeVisible();
 });

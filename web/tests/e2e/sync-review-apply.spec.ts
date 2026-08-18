@@ -206,6 +206,9 @@ test("applying a synced session confirms, writes, and shows the backup result", 
   await expect(page.getByLabel("Playlistnaam")).toHaveValue("Booking 2026");
   await page.getByRole("button", { name: "Bevestig toepassen" }).click();
 
-  await expect(page.getByText(/Toegepast: 1 nieuw, 0 al aanwezig/)).toBeVisible();
+  // The mock answers `created: true`, and since the phase 7 review the success
+  // message distinguishes a created or recreated playlist from an updated one
+  // (FR-019, US3 scenario 5), instead of reading identically for both.
+  await expect(page.getByText(/Playlist aangemaakt: 1 nummer\(s\) toegevoegd/)).toBeVisible();
   await expect(page.getByText(/master-20260817T120000000000Z\.db\.zip/)).toBeVisible();
 });
