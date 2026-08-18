@@ -39,11 +39,12 @@ def stream_track(rb_content_id: str, request: Request) -> Response:
             },
         ) from exc
     except FileMissingError as exc:
-        # 410 Gone (distinct status AND code from track_not_found) so the
-        # player can report "file missing on disk" specifically, per spec.md
-        # US5 scenario 5, rather than treating it as an unknown track.
+        # 404, per contracts/api.md: distinguished from track_not_found by
+        # `code`, not status -- the id resolves, but nothing is servable at
+        # it, so the player can still report "file missing on disk"
+        # specifically (spec.md US5 scenario 5) without a non-standard status.
         raise HTTPException(
-            status_code=410,
+            status_code=404,
             detail={
                 "code": "file_missing",
                 "message": f"audio file for track {rb_content_id!r} is not on disk",

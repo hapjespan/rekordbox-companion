@@ -315,16 +315,16 @@ only documented keys; both audio sources playable per item (spec.md).
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] Vitest for Review Queue keyboard handling in
+- [x] T035 [P] [US2] Vitest for Review Queue keyboard handling in
       `web/tests/features/review/ReviewQueue.test.tsx`: arrows navigate, A
       accepts, R rejects, space previews (FR-011)
-- [ ] T036 [P] [US2] API contract tests in
+- [x] T036 [P] [US2] API contract tests in
       `engine/tests/api/test_sync_review.py`: reject spawns a Missing Track
       (FR-012), accept/reject persist immediately (FR-014)
 
 ### Implementation for User Story 2
 
-- [ ] T037 [US2] Implement
+- [x] T037 [US2] Implement
       `POST /api/sync/sessions/{id}/tracks/{tid}/accept` and
       `.../reject` in `engine/src/companion/api/sync.py`, persisting the
       resolution immediately (FR-014). Build finding: reject must spawn a
@@ -333,7 +333,7 @@ only documented keys; both audio sources playable per item (spec.md).
       was originally modelled in T056 (US4), scheduled well after this task.
       `missing_track` model + Alembic migration move here, ahead of T056,
       the same playlist_link-ahead-of-T049 pattern from T027.
-- [ ] T038 [US2] Implement `engine/src/companion/audio/stream.py`:
+- [x] T038 [US2] Implement `engine/src/companion/audio/stream.py`:
       `GET /api/player/stream/{rb_content_id}` with HTTP Range support for
       local candidate preview, path resolved only from `rb_content_id`
       (ASVS V6/V12) [complexity: high] — security boundary: the stream path

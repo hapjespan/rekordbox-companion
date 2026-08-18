@@ -67,6 +67,16 @@ def test_unknown_id_returns_404_track_not_found():
 
 def test_traversal_shaped_id_is_treated_as_unknown_id_never_a_path(tmp_path):
     # A secret file that exists on disk but is NOT registered in the index.
+    #
+    # Review finding (T038): ids containing a literal or %2F-encoded slash
+    # never even reach this router -- Starlette's own path-param matching
+    # excludes "/" from a single {rb_content_id} segment, so those two cases
+    # only prove FastAPI's routing, not this codebase's lookup logic. The
+    # slash-free case (the absolute path with encoded spaces, `quote`d as a
+    # whole) DOES reach `resolve_local_file` over real HTTP; the direct unit
+    # test below (`test_resolve_rejects_unknown_id_with_typed_exception`)
+    # additionally proves the equality-only lookup for a slash-containing
+    # traversal string at the function level, where routing can't interfere.
     secret = tmp_path / "secret.txt"
     secret.write_text("TOP SECRET")
     allowed = _native_file(tmp_path)
@@ -97,22 +107,22 @@ def test_resolve_rejects_unknown_id_with_typed_exception():
 # --- Two distinct failure modes: unknown id vs file missing on disk ---------
 
 
-def test_id_known_but_location_none_returns_410_file_missing():
+def test_id_known_but_location_none_returns_404_file_missing():
     client = _app_with_tracks(_track("7", None))
 
     response = client.get("/api/player/stream/7")
 
-    assert response.status_code == 410
+    assert response.status_code == 404
     assert response.json()["code"] == "file_missing"
 
 
-def test_id_known_but_file_gone_from_disk_returns_410_file_missing(tmp_path):
+def test_id_known_but_file_gone_from_disk_returns_404_file_missing(tmp_path):
     gone = str(tmp_path / "was-here.mp3")  # never created
     client = _app_with_tracks(_track("7", gone))
 
     response = client.get("/api/player/stream/7")
 
-    assert response.status_code == 410
+    assert response.status_code == 404
     assert response.json()["code"] == "file_missing"
 
 
