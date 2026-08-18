@@ -14,8 +14,8 @@ statement, the reconciled PII inventory, and validation against the scope note i
 | Criterion | Status |
 |---|---|
 | Phase 6 complete | Yes, `.workflow/state.json` records phase 6 |
-| Every task merged into `release` | **Deviation**: phase 6 landed on `phase-6-implementation` and is under review as PR #165 into `release`. Reviewing the branch rather than the merged `release` reviews the same content the release PR contains, which is what the phase file asks for; the merge is deliberately held until this report's blocking findings are closed. |
-| Test suite green | Yes: 429 pytest, 111 vitest, `pnpm build` clean, CI green on `c8de14a` including the Playwright suite |
+| Every task merged into `release` | **Deviation**: phase 6 landed on `phase-6-implementation` and is under review as PR #165 into `release`. Reviewing the branch rather than the merged `release` reviews the same content the release PR contains, which is what the phase file asks for; the merge was deliberately held until this report's blocking findings were closed, which they now are. |
+| Test suite green | Yes. At review start: 429 pytest, 111 vitest, CI green on `c8de14a` including the Playwright suite. After this phase's fixes: 458 pytest, 156 vitest, `pnpm build` clean, lint and typecheck clean. |
 | Spec, constraints, PII inventory, scope note available | Yes |
 | Session runs the routed model | Yes, phase 7 is pinned to `claude-fable-5` and the review ran there |
 
@@ -56,22 +56,23 @@ byte-for-byte: an enrichment run leaves `master.db` unchanged.
 
 ### Blocking findings
 
-Eleven findings were classified blocking. All eleven were fixed in this phase;
-the fixes are recorded in the commits listed in the status column.
+Eleven findings were classified blocking. All eleven were fixed in this phase,
+each with a test that fails against the pre-fix code; the status column names
+the commit.
 
 | # | Area | Finding | Status |
 |---|---|---|---|
-| 1 | Bootstrap | Nothing ever runs `alembic upgrade head`: `make setup` only installs, `make run` and `scripts/dev.sh` start uvicorn directly, and `create_app()` applies no migrations. A fresh install on the DJ's Mac fails with "no such table" on the first database-touching request. | Fixed |
-| 2 | US1 matching | The remix/edit veto fired below the 75 bar as well, so a remix-marked Spotify track absent from the Collection came back `review` with meaningless candidates and could never become a Missing Track or enter the purchase flow. Resolved as a spec-reading question in ADR 0019: the veto only demotes. | Fixed |
-| 3 | US2 frontend | The entire US2 review UI was unwired: nothing in `web/src` imported `ReviewQueue`, `DualPlayback`, `QueueComplete` or `KeymapOverlay`, so the keyboard review flow and the on-screen key map were unreachable in the running app. | Fixed |
-| 4 | US2 frontend | `DualPlayback` fetched the Spotify player token once and cached it forever, ignoring `expires_in` (which is the remaining lifetime, as little as ~61s) and registering no `authentication_error` handler, so embedded playback died silently mid-review. | Fixed |
-| 5 | US3 write path | The duplicate-track contract test could not fail: the fake writer itself implemented the dedup it claimed to verify, and no test anywhere called `apply_playlist` with a duplicated list. A safety-area invariant was unpinned. | Fixed |
-| 6 | US4 missing | `refresh-links` fired one unthrottled live iTunes request per open row with no per-row error handling, so a queue past the free-tier rate limit 500s mid-loop and rolls back even the links already fetched, against ADR 0011. | Fixed |
-| 7 | US6 enrichment | The MusicBrainz 1 req/s limit was enforced only within a single `genres_for` call, not between tracks, giving ~1.8 req/s sustained: 503s and then an IP block on the multi-hour run this feature exists for. | Fixed |
-| 8 | US6 enrichment | Concurrent enrichment runs were unguarded. The start button's disabled state was local component state only, so a reload, a second tab, or a run started before page load all present an enabled button; two runs then race on the same SQLite file and can duplicate `enriched_genre` rows. | Fixed |
-| 9 | US7 bookings | Booking profiles could not be edited and a structure could not be linked to one anywhere in the UI, so the seeded profiles stayed empty and suggestions always ran unfiltered: FR-031's "editable" and US7 scenarios 1 and 3 were dead ends despite a working backend. | Fixed |
-| 10 | US7 bookings | The suggestions fetch passed no `limit`, so selecting a node fetched the whole collection and rendered a list item with two buttons per track: a multi-MB response and tens of thousands of DOM nodes per click at the target scale. | Fixed |
-| 11 | US7 bookings | The suggestions query bound one SQL parameter per collection entry, roughly 20k per request and a hard `too many SQL variables` failure above SQLite's 32,766 cap, inside the project's own 40k sizing envelope. | Fixed |
+| 1 | Bootstrap | Nothing ever runs `alembic upgrade head`: `make setup` only installs, `make run` and `scripts/dev.sh` start uvicorn directly, and `create_app()` applies no migrations. A fresh install on the DJ's Mac fails with "no such table" on the first database-touching request. | Fixed, `d43244a` |
+| 2 | US1 matching | The remix/edit veto fired below the 75 bar as well, so a remix-marked Spotify track absent from the Collection came back `review` with meaningless candidates and could never become a Missing Track or enter the purchase flow. Resolved as a spec-reading question in ADR 0019: the veto only demotes. | Fixed, `2eb21ba` |
+| 3 | US2 frontend | The entire US2 review UI was unwired: nothing in `web/src` imported `ReviewQueue`, `DualPlayback`, `QueueComplete` or `KeymapOverlay`, so the keyboard review flow and the on-screen key map were unreachable in the running app. | Fixed, `c468b67` |
+| 4 | US2 frontend | `DualPlayback` fetched the Spotify player token once and cached it forever, ignoring `expires_in` (which is the remaining lifetime, as little as ~61s) and registering no `authentication_error` handler, so embedded playback died silently mid-review. | Fixed, `c468b67` |
+| 5 | US3 write path | The duplicate-track contract test could not fail: the fake writer itself implemented the dedup it claimed to verify, and no test anywhere called `apply_playlist` with a duplicated list. A safety-area invariant was unpinned. | Fixed, `2487ee6` |
+| 6 | US4 missing | `refresh-links` fired one unthrottled live iTunes request per open row with no per-row error handling, so a queue past the free-tier rate limit 500s mid-loop and rolls back even the links already fetched, against ADR 0011. | Fixed, `526393f` |
+| 7 | US6 enrichment | The MusicBrainz 1 req/s limit was enforced only within a single `genres_for` call, not between tracks, giving ~1.8 req/s sustained: 503s and then an IP block on the multi-hour run this feature exists for. | Fixed, `f478b52` |
+| 8 | US6 enrichment | Concurrent enrichment runs were unguarded. The start button's disabled state was local component state only, so a reload, a second tab, or a run started before page load all present an enabled button; two runs then race on the same SQLite file and can duplicate `enriched_genre` rows. | Fixed, `f478b52` |
+| 9 | US7 bookings | Booking profiles could not be edited and a structure could not be linked to one anywhere in the UI, so the seeded profiles stayed empty and suggestions always ran unfiltered: FR-031's "editable" and US7 scenarios 1 and 3 were dead ends despite a working backend. | Fixed, `fe95fa7` |
+| 10 | US7 bookings | The suggestions fetch passed no `limit`, so selecting a node fetched the whole collection and rendered a list item with two buttons per track: a multi-MB response and tens of thousands of DOM nodes per click at the target scale. | Fixed, `fe95fa7` |
+| 11 | US7 bookings | The suggestions query bound one SQL parameter per collection entry, roughly 20k per request and a hard `too many SQL variables` failure above SQLite's 32,766 cap, inside the project's own 40k sizing envelope. | Fixed, `fe95fa7` |
 
 ### Advisory findings
 
