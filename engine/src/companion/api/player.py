@@ -28,7 +28,7 @@ router = APIRouter()
 def stream_track(rb_content_id: str, request: Request) -> Response:
     index = request.app.state.collection_index
     try:
-        return build_stream_response(index, rb_content_id, request.headers.get("range"))
+        return build_stream_response(index, rb_content_id, request.headers.get("range"), request)
     except TrackNotFoundError as exc:
         raise HTTPException(
             status_code=404,

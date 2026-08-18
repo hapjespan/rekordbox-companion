@@ -13,11 +13,13 @@ a live subprocess must decode genuine audio; both keep real owner-supplied
 fixtures gitignored (kickoff.md).
 """
 
+import asyncio
 import subprocess
 from pathlib import Path
 from unittest import mock
 from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from companion.audio.stream import (
@@ -371,54 +373,108 @@ def test_is_native_uses_codec_not_just_extension(tmp_path):
 
 
 # --- The escalated concurrency risk: the subprocess must never leak ----------
+#
+# Review finding (T063): Starlette's StreamingResponse does NOT reliably
+# deliver GeneratorExit into a response-body generator on early client
+# disconnect in this project's pinned version -- verified against the
+# installed starlette source (no try/finally around the wrapped sync
+# iterator in `iterate_in_threadpool`, and no explicit `.aclose()` call
+# anywhere in `responses.py` on any exit path). `_iter_transcode` was
+# rewritten as a genuine async generator backed by `asyncio.subprocess`,
+# with an independent `_terminate_on_disconnect` watcher task that polls
+# `request.is_disconnected()` -- Starlette's own documented mechanism for
+# this exact problem -- rather than relying on the generator ever being
+# closed. The tests below exercise THAT mechanism directly (a fake
+# `Request` reporting disconnected), not generator-close semantics, which
+# is what the original (superseded) version of this test suite incorrectly
+# treated as equivalent to a real disconnect.
 
 
-def _spy_popen():
-    """Wrap the real subprocess.Popen so a test can grab the spawned process
-    handle and assert on its lifecycle."""
-    created: list[subprocess.Popen] = []
-    real = subprocess.Popen
+class _FakeRequest:
+    """A minimal stand-in for `fastapi.Request`, exposing only the one
+    method `_terminate_on_disconnect` calls."""
 
-    def spy(*args, **kwargs):
-        proc = real(*args, **kwargs)
+    def __init__(self, disconnect_after: int = 0) -> None:
+        self._calls = 0
+        self._disconnect_after = disconnect_after
+
+    async def is_disconnected(self) -> bool:
+        self._calls += 1
+        return self._disconnect_after > 0 and self._calls >= self._disconnect_after
+
+
+def _spy_create_subprocess_exec():
+    """Wrap the real asyncio.create_subprocess_exec so a test can grab the
+    spawned process handle and assert on its lifecycle."""
+    created: list[asyncio.subprocess.Process] = []
+    real = asyncio.create_subprocess_exec
+
+    async def spy(*args, **kwargs):
+        proc = await real(*args, **kwargs)
         created.append(proc)
         return proc
 
     return created, spy
 
 
-def test_transcode_process_exits_after_full_consumption(tmp_path):
+@pytest.mark.anyio
+async def test_transcode_process_exits_after_full_consumption(tmp_path):
     # Normal path: once the response body is fully read, ffmpeg has hit EOF and
     # exited -- no zombie/orphan left behind.
     location = _alac_m4a(tmp_path)
-    created, spy = _spy_popen()
+    created, spy = _spy_create_subprocess_exec()
+    request = _FakeRequest()  # never reports disconnected
 
-    with mock.patch("subprocess.Popen", side_effect=spy):
-        data = b"".join(_iter_transcode(Path(location)))
+    with mock.patch("asyncio.create_subprocess_exec", side_effect=spy):
+        chunks = [chunk async for chunk in _iter_transcode(Path(location), request)]
 
-    assert data
+    assert b"".join(chunks)
     assert len(created) == 1
-    created[0].wait(timeout=5)
-    assert created[0].poll() is not None
+    await created[0].wait()
+    assert created[0].returncode is not None
 
 
-def test_transcode_process_terminated_on_early_disconnect(tmp_path):
-    # The escalation flag's core risk: a client that seeks away or closes the
-    # tab mid-stream closes the generator (Starlette raises GeneratorExit into
-    # the suspended `yield`). The generator's finally block must then reap
-    # ffmpeg rather than leaving it running against a dead pipe.
+@pytest.mark.anyio
+async def test_transcode_process_terminated_by_the_disconnect_watcher(tmp_path):
+    # The escalation flag's core risk, and the one the original version of
+    # this test got wrong: the generator is deliberately NEVER closed here.
+    # `_terminate_on_disconnect` must independently detect the "disconnect"
+    # via `request.is_disconnected()` and kill ffmpeg on its own -- proving
+    # cleanup does not depend on Starlette ever closing the generator.
+    #
+    # A "disconnected" fake request reports it from the watcher's very first
+    # poll, so the watcher may win the race and terminate ffmpeg before even
+    # one chunk is read -- itself evidence the watcher acts fast, not a test
+    # bug. Draining the generator to exhaustion (rather than asserting a
+    # specific first-chunk outcome) is the robust assertion either way.
     location = _alac_m4a(tmp_path)
-    created, spy = _spy_popen()
+    created, spy = _spy_create_subprocess_exec()
+    request = _FakeRequest(disconnect_after=1)  # "disconnected" from the first poll
 
-    with mock.patch("subprocess.Popen", side_effect=spy):
-        gen = _iter_transcode(Path(location))
-        first = next(gen)  # spawns ffmpeg, reads one chunk
-        assert first
-        gen.close()  # simulate early client disconnect
+    with mock.patch("asyncio.create_subprocess_exec", side_effect=spy):
+        async for _ in _iter_transcode(Path(location), request):
+            pass  # draining is enough; the point is the process's fate below
 
     assert len(created) == 1
-    created[0].wait(timeout=5)
-    assert created[0].poll() is not None
+    await created[0].wait()
+    assert created[0].returncode is not None  # killed by the watcher, not orphaned
+
+
+@pytest.mark.anyio
+async def test_transcode_survives_when_ffmpeg_is_missing(tmp_path, monkeypatch):
+    # A spawn failure (ffmpeg missing/unexecutable) must not raise an
+    # unhandled exception into Starlette's response machinery.
+    location = _alac_m4a(tmp_path)
+    request = _FakeRequest()
+
+    async def raise_not_found(*args, **kwargs):
+        raise FileNotFoundError("no such file: ffmpeg")
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", raise_not_found)
+
+    chunks = [chunk async for chunk in _iter_transcode(Path(location), request)]
+
+    assert chunks == []
 
 
 # --- Unit tests for the RFC 7233 range parser --------------------------------

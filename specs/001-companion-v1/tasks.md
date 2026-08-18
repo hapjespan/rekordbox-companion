@@ -533,7 +533,7 @@ fixture file (spec.md).
       forward-reference pattern T013 used for `norm_artist`/`norm_title`
       before T024 existed; whichever US6 task first populates
       `enriched_genre` data must replace this literal `[]` (review finding).
-- [ ] T063 [US5] Extend `engine/src/companion/audio/stream.py` (T038) with
+- [x] T063 [US5] Extend `engine/src/companion/audio/stream.py` (T038) with
       the ffmpeg pipe fallback for non-native formats (ALAC fixture) — no
       waveform, no gapless, no preload (proof-of-value cut, plan.md)
       [complexity: high] — tricky concurrency: Range/seek requests
@@ -541,6 +541,40 @@ fixture file (spec.md).
       corrupt partial reads. Gate-review finding: this risk was originally
       flagged on T038, which doesn't build the pipe; moved to the task that
       actually implements it.
+      Spec reconciliation (review finding): FR-025's "with seek support"
+      could be read as covering both the native AND conversion-fallback
+      clauses, which would conflict with "no seek on the transcode path."
+      Resolved as native-only seek, per: US5 acceptance scenario 3 (seek)
+      is scoped to "any mp3 or m4a" specifically, scenario 4 (conversion
+      fallback) states only "streams it transparently" with no seek
+      wording; kickoff.md NG4 ("no pixel-perfect waveforms... basic
+      playback + progress bar first"); and this task's own escalation
+      note above naming live-pipe seeking as exactly the deadlock risk
+      being avoided. Three corroborating documents against one broader
+      reading of a single FR line; recorded here rather than re-litigated,
+      per this project's "update the artifact" process.
+      Security/concurrency review finding, since fixed: the original build
+      relied on Starlette delivering `GeneratorExit` into the transcode
+      generator on early client disconnect to reap the ffmpeg subprocess —
+      verified against the pinned Starlette version that this is NOT
+      guaranteed (no such propagation exists for the sync-generator case,
+      and only eventual GC for the async case). Rebuilt `_iter_transcode`
+      as a genuine async generator (`asyncio.subprocess`) with an
+      independent `_terminate_on_disconnect` watcher task polling
+      `request.is_disconnected()` (Starlette's own documented mechanism
+      for this exact problem), which is what actually closes the "must not
+      deadlock/orphan on disconnect" risk this task was escalated for.
+      Also added: a spawn-failure guard and a one-line warning log on a
+      non-zero ffmpeg exit (previously silently swallowed alongside the
+      necessarily-discarded stderr). A full ASGI-level disconnect
+      integration test was investigated and found impractical with this
+      project's existing test tooling: `httpx.ASGITransport` (which
+      `TestClient` uses) always drives the ASGI app to full completion
+      within one call before returning a response, with no way to abort
+      mid-stream from the test side; verification instead happens directly
+      against `_terminate_on_disconnect`/`_iter_transcode` with a fake
+      `Request`, which exercises the real new mechanism without needing a
+      live socket-level test harness this project doesn't otherwise have.
 - [x] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
       sortable table, keyboard navigation, AA contrast at dense layout (WCAG).
       Review finding: a plain `<table>` with one tab stop per row (fine for

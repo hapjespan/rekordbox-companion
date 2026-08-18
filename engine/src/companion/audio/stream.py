@@ -36,19 +36,19 @@ gapless, no preload), the transcode stream is a plain, non-seekable 200: a
 `Range` header on a non-native request is ignored, never handed to ffmpeg.
 """
 
+import asyncio
 import subprocess
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from fastapi import Request
 from starlette.responses import StreamingResponse
 
+from companion.logging import get_logger
 from companion.rb.index import CollectionIndex
 
-# Browser-native container extensions (kickoff.md section 3). `.m4a` is listed
-# but is only *conditionally* native: an ALAC-coded `.m4a` is not browser
-# playable, so `_is_native` sniffs the codec rather than trusting the extension.
-NATIVE_EXTENSIONS = {".mp3", ".m4a"}
+_logger = get_logger(__name__)
 
 # `.m4a` audio codecs that browsers can decode natively. AAC only; ALAC (and any
 # other codec ever muxed into an .m4a) routes to the transcode pipe.
@@ -246,37 +246,66 @@ def _iter_file(path: Path, start: int, length: int) -> Iterator[bytes]:
             yield chunk
 
 
-def _iter_transcode(path: Path) -> Iterator[bytes]:
+async def _terminate_on_disconnect(request: Request, process: asyncio.subprocess.Process) -> None:
+    """Kill `process` as soon as the client disconnects.
+
+    Review finding (T063): Starlette's `StreamingResponse` (this project's
+    pinned version) does NOT reliably deliver `GeneratorExit` into a
+    response-body generator on early client disconnect -- for a SYNC
+    generator wrapped via `iterate_in_threadpool`, there is no `finally`
+    around the wrapped iterator at all, and even for an async generator the
+    only guarantee is eventual reference-counted garbage collection, not a
+    bounded time. `request.is_disconnected()` (Starlette's own documented
+    mechanism for exactly this problem) is polled independently here instead
+    of relying on the generator ever being closed -- this is what actually
+    closes the "must not deadlock/orphan the subprocess on early disconnect"
+    risk this task was escalated for, not the generator's own `finally`
+    (which remains as defence in depth for the normal-completion path).
+    """
+    poll_interval_s = 0.5
+    while process.returncode is None:
+        if await request.is_disconnected():
+            process.terminate()
+            return
+        await asyncio.sleep(poll_interval_s)
+
+
+async def _iter_transcode(path: Path, request: Request) -> AsyncIterator[bytes]:
     """Stream `path` transcoded to MP3 on the fly, chunk by chunk.
 
     The escalated [complexity: high] risk lives here: a live subprocess pipe
     read from a response-body generator. The guards, each load-bearing:
 
+    * A genuine `asyncio` subprocess (not `subprocess.Popen`): reads are real
+      `await`s that cooperate with the event loop, which is what lets
+      `_terminate_on_disconnect` run concurrently alongside this generator
+      via the same running loop, and is what makes this an `AsyncIterable`
+      Starlette drives directly (no threadpool wrapping, see
+      `build_stream_response`).
     * `stderr=DEVNULL`: ffmpeg writes progress/diagnostics to stderr
       continuously. Piping stderr without draining it would let its OS buffer
-      fill and deadlock the whole subprocess (the classic `Popen` two-pipe
-      pitfall). We do not need those diagnostics for the proof-of-value cut
-      (plan.md: rarer failures get logs + a generic toast, not bespoke UX), so
-      we discard them outright rather than draining a second pipe on a thread.
-      A transcode failure surfaces as a short/empty body and a non-zero exit,
-      not a hang.
+      fill and deadlock the whole subprocess (the classic two-pipe pitfall).
+      We do not need those diagnostics for the proof-of-value cut (plan.md:
+      rarer failures get logs + a generic toast, not bespoke UX) beyond the
+      one-line warning below, so we discard them outright rather than
+      draining a second pipe.
     * Fixed-size `read(_CHUNK_SIZE)`, never a bare `.read()`: reading "the whole
       thing" would buffer the entire transcode in memory, defeating the whole
       point of a streaming fallback (and re-introducing the very problem this
       task exists to avoid).
-    * `finally` reaps the process: on normal exhaustion ffmpeg has already hit
-      EOF and exited. On early client disconnect Starlette closes this
-      generator, raising `GeneratorExit` into the suspended `yield`; the
-      `finally` still runs and terminates ffmpeg so it cannot linger as an
-      orphan writing into a dead pipe. `.terminate()` first, then `.kill()` if
-      it ignores the signal, always followed by `.wait()` so no zombie remains.
+    * The disconnect watcher (`_terminate_on_disconnect`) is the primary
+      cleanup path; this generator's own `finally` is a second, independent
+      guard for the normal-completion case and for the (rarer) case where
+      the generator itself does get closed. `.terminate()` first, then
+      `.kill()` if it ignores the signal, always followed by `.wait()` so no
+      zombie remains.
 
     No `Range`/seek handling: this is intentionally a non-seekable full stream
     (US5 scenario 4; plan.md proof-of-value cut). The caller never passes a byte
     range in.
     """
-    process = subprocess.Popen(  # noqa: S603 -- argv list, no shell; trusted path
-        [
+    try:
+        process = await asyncio.create_subprocess_exec(
             _FFMPEG,
             "-loglevel",
             "error",
@@ -286,33 +315,47 @@ def _iter_transcode(path: Path) -> Iterator[bytes]:
             "-f",
             _TRANSCODE_FORMAT,
             "-",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError:
+        # ffmpeg missing/unexecutable: `/api/health`'s ffmpeg_ok check is the
+        # primary guard against this, but a clear log line beats a bare
+        # traceback surfacing as a truncated response if it happens anyway.
+        _logger.warning("could not spawn ffmpeg for transcode")
+        return
+    watcher = asyncio.ensure_future(_terminate_on_disconnect(request, process))
     try:
         assert process.stdout is not None  # PIPE was requested
         while True:
-            chunk = process.stdout.read(_CHUNK_SIZE)
+            chunk = await process.stdout.read(_CHUNK_SIZE)
             if not chunk:
                 break
             yield chunk
     finally:
-        if process.stdout is not None:
-            process.stdout.close()
-        if process.poll() is None:
+        watcher.cancel()
+        if process.returncode is None:
             process.terminate()
             try:
-                process.wait(timeout=_TERMINATE_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
+                await asyncio.wait_for(process.wait(), timeout=_TERMINATE_TIMEOUT_S)
+            except TimeoutError:
                 process.kill()
-                process.wait()
+                await process.wait()
         else:
-            process.wait()
+            await process.wait()
+        if process.returncode not in (0, None, -15, -9):
+            # -15/-9: SIGTERM/SIGKILL from our own cleanup above, not a real
+            # transcode failure -- only a genuine nonzero ffmpeg exit is
+            # worth a log line (review finding: this was previously
+            # completely unobservable, stderr having been discarded).
+            _logger.warning(
+                "transcode process exited non-zero",
+                extra={"transcode": {"returncode": process.returncode}},
+            )
 
 
 def build_stream_response(
-    index: CollectionIndex, rb_content_id: str, range_header: str | None
+    index: CollectionIndex, rb_content_id: str, range_header: str | None, request: Request
 ) -> StreamingResponse:
     """Resolve the id and build the streaming response.
 
@@ -322,11 +365,17 @@ def build_stream_response(
     plain, non-seekable 200 (`range_header` is ignored on this path, US5
     scenario 4). Raises the typed domain exceptions above; `api/player.py` maps
     those to the `{code, message}` HTTP error envelope.
+
+    `request` is only used by the transcode path, to detect an early client
+    disconnect and kill the ffmpeg subprocess (see `_terminate_on_disconnect`)
+    -- passed through unconditionally rather than threaded in only on that
+    branch, so the signature doesn't have to change again if a future format
+    needs it too.
     """
     path = resolve_local_file(index, rb_content_id)
     if not _is_native(path):
         return StreamingResponse(
-            _iter_transcode(path),
+            _iter_transcode(path, request),
             status_code=200,
             media_type=_TRANSCODE_CONTENT_TYPE,
         )
