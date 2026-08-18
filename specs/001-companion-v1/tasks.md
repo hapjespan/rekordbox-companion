@@ -702,7 +702,7 @@ the one documented exception to story independence in this feature.
 
 ### Tests for User Story 7
 
-- [ ] T078 [P] [US7] Test in `engine/tests/bookings/test_suggestions.py`:
+- [x] T078 [P] [US7] Test in `engine/tests/bookings/test_suggestions.py`:
       suggestions honour a profile's genre tags and BPM filters, rank by Play
       Count descending, exclude tracks with missing BPM from BPM filters
       while reporting the excluded count (edge case)
@@ -725,11 +725,22 @@ the one documented exception to story independence in this feature.
 - [ ] T082 [P] [US7] Implement `GET/POST /api/profiles`,
       `PUT/DELETE /api/profiles/{id}` in `engine/src/companion/api/profiles.py`
       (FR-031)
-- [ ] T083 [US7] Implement `engine/src/companion/bookings/models.py`:
+- [x] T083 [US7] Implement `engine/src/companion/bookings/models.py`:
       suggestions query — filter index (T013) by profile genre tags against
       `enriched_genre` and BPM, rank by play count, subtract
       `structure_track` and `suggestion_dismissal` rows (FR-033, replaces the
       old generator per ADR 0008)
+
+      **Reconciliation**: this task's own wording ("subtract structure_track
+      ... rows") and contracts/api.md's endpoint contract ("flags
+      already_in_playlist") describe different behaviour for tracks already
+      in the target playlist. Followed contracts/api.md, the more specific,
+      testable interface a client depends on: a track already in the
+      playlist is still returned, flagged `already_in_playlist`, not
+      excluded -- the DJ can see what's already there. Only
+      `suggestion_dismissal` rows (FR-034: "dismissed Suggestions never
+      return") are a hard exclude. `data-model.md`'s "subtract" reads as
+      loose wording for "compare against", not a second exclusion rule.
 - [ ] T084 [US7] Implement `GET/POST /api/structures`,
       `PUT/DELETE /api/structures/{id}`,
       `POST/PUT/DELETE /api/structures/{id}/nodes` in
