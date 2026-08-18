@@ -368,7 +368,7 @@ playlist, a backup exists per write, readback confirms content, a second
 apply adds only new tracks, refusals fire when guard conditions fail
 (spec.md).
 
-- [ ] T042 [US3] R3 spike in `engine/tests/spikes/rb_write_smoke.py`:
+- [x] T042 [US3] R3 spike in `engine/tests/spikes/rb_write_smoke.py`:
       pyrekordbox write smoke test against fixture `master.db` — create
       playlist, create folder, add tracks, readback, verify the database
       still opens cleanly [complexity: high] — security boundary: gates

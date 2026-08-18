@@ -44,6 +44,7 @@ build-backend = "uv_build"
 # re-checked on every CI run (not a one-off). Extending python_files keeps the
 # two pytest defaults and adds the *_smoke.py pattern; nothing else matches it.
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py", "*_smoke.py"]
 
 [tool.ruff]

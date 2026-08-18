@@ -133,7 +133,10 @@ def test_rb_write_smoke_survives_close_and_reopen(db_copy: Path) -> None:
     assert playlist.is_playlist  # Attribute == 0
     assert playlist.ParentID == folder.ID
 
-    # Add the first real Collection track (a genuine DjmdContent row).
+    # Add the first real Collection track (a genuine DjmdContent row). One
+    # track is enough to prove add_to_playlist's mechanism; it does not
+    # exercise multi-track ordering/track_no sequencing, which the real
+    # writer (T048) will need to cover on its own (review finding).
     content = db.get_content().first()
     assert content is not None
     song = db.add_to_playlist(playlist, content)
