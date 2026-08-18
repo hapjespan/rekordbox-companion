@@ -228,7 +228,14 @@ def _parse_range_header(
     except ValueError:
         return ("full", None)
 
-    if start > end or start >= file_size:
+    if start > end:
+        # RFC 7233 SS2.1: last-byte-pos < first-byte-pos is an INVALID
+        # byte-range-spec, which a recipient MUST ignore -- not the same as a
+        # syntactically valid range that is merely out of bounds (that case,
+        # `start >= file_size` below, is genuinely 416). Ignoring falls back
+        # to a full 200, same as any other unparseable header.
+        return ("full", None)
+    if start >= file_size:
         return ("unsatisfiable", None)
     end = min(end, file_size - 1)
     return ("partial", (start, end))

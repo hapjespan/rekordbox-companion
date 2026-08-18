@@ -510,3 +510,21 @@ def test_parse_range_multiple_ranges_ignored():
 
 def test_parse_range_garbage_ignored():
     assert _parse_range_header("bytes=abc-def", 1000) == ("full", None)
+
+
+def test_parse_range_start_after_end_is_an_invalid_spec_not_416():
+    # Review finding: RFC 7233 SS2.1 makes last-byte-pos < first-byte-pos an
+    # INVALID byte-range-spec (must be ignored, serve 200 full), distinct
+    # from a syntactically valid range that is merely out of bounds (that
+    # case is the genuine 416 covered by test_parse_range_unsatisfiable_beyond_end).
+    assert _parse_range_header("bytes=5-3", 1000) == ("full", None)
+
+
+def test_start_after_end_range_header_serves_full_200_over_http(tmp_path):
+    location = _native_file(tmp_path, size=1000)
+    client = _app_with_tracks(_track("1", location))
+
+    response = client.get("/api/player/stream/1", headers={"Range": "bytes=5-3"})
+
+    assert response.status_code == 200
+    assert len(response.content) == 1000

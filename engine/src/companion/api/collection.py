@@ -6,7 +6,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,19 +18,35 @@ from companion.rb.reader import open_database, read_collection_snapshot, read_pl
 
 router = APIRouter()
 
+# Review finding: an unbounded `limit` lets a page of ~40k rows reach
+# `_genres_by_track`'s `IN` clause, past SQLite's default bound-variable limit
+# (SQLITE_MAX_VARIABLE_NUMBER, historically 999) -- an unhandled 500, not a
+# documented error. This cap is well above any real page size the UI ever
+# requests (TrackTable's PAGE_SIZE is 50) but far below that limit.
+_MAX_LIMIT = 200
+
 
 def get_database():
     """FastAPI dependency wrapping `open_database` so tests can override it
     with a fake database (rather than needing a real master.db) and so its
     FileNotFoundError becomes the documented error shape (contracts/api.md
-    conventions: `{code, message, field?}`), not an unhandled 500."""
+    conventions: `{code, message, field?}`), not an unhandled 500.
+
+    A `yield` dependency (not a plain `return`): `Rekordbox6Database` opens a
+    SQLCipher connection that must be closed at the end of the request, or
+    every reindex/playlists call leaks one (review finding).
+    """
     try:
-        return open_database()
+        db = open_database()
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=503,
             detail={"code": "rekordbox_not_found", "message": str(exc)},
         ) from exc
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @router.post("/collection/reindex")
@@ -113,8 +129,8 @@ def get_collection(
     request: Request,
     query: str | None = None,
     sort: str = "artist",
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     entries = request.app.state.collection_index.entries

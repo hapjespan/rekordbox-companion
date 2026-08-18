@@ -191,4 +191,44 @@ describe("TrackTable", () => {
 
     expect(await screen.findByText("Geen nummers gevonden.")).toBeInTheDocument();
   });
+
+  it("reports a documented API error distinctly from an empty result, not as 'Geen nummers gevonden.'", async () => {
+    vi.mocked(apiClient.GET).mockResolvedValue({
+      data: undefined,
+      error: { code: "rekordbox_not_found", message: "master.db not found" },
+    } as never);
+    render(<TrackTable />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Rekordbox is niet gevonden. Start Rekordbox en herlaad de pagina.",
+    );
+    expect(screen.queryByText("Geen nummers gevonden.")).not.toBeInTheDocument();
+  });
+
+  it("reports a network failure with its own Dutch message, not a silent empty table", async () => {
+    vi.mocked(apiClient.GET).mockRejectedValue(new Error("network down"));
+    render(<TrackTable />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Kon de collectie niet laden. Probeer het opnieuw.");
+    expect(screen.queryByText("Geen nummers gevonden.")).not.toBeInTheDocument();
+  });
+
+  it("recovers from a prior error once a later request succeeds", async () => {
+    vi.mocked(apiClient.GET).mockResolvedValueOnce({
+      data: undefined,
+      error: { code: "rekordbox_not_found", message: "master.db not found" },
+    } as never);
+    render(<TrackTable />);
+    await screen.findByRole("alert");
+
+    mockCollection(2, TRACKS);
+    fireEvent.change(screen.getByLabelText("Zoeken in collectie"), {
+      target: { value: "daft" },
+    });
+
+    await screen.findByText("Adele");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

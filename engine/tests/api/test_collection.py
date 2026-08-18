@@ -352,3 +352,65 @@ def test_collection_format_is_none_when_the_track_has_no_location():
     response = client.get("/api/collection", params={"query": "rolling"})
 
     assert response.json()["items"][0]["format"] is None
+
+
+# --- limit/offset bounds (review finding) ------------------------------------
+#
+# Unbounded values let `entries[offset:offset+limit]` produce a silently wrong
+# page (negative offset) or, at scale, hand `_genres_by_track` an IN clause
+# with tens of thousands of parameters -- past SQLite's default bound-variable
+# limit, an unhandled 500. Both are now rejected as 422s by FastAPI's own
+# `Query` validation, before the handler body ever runs.
+
+
+def test_collection_rejects_a_negative_offset():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"offset": -5})
+
+    assert response.status_code == 422
+
+
+def test_collection_rejects_a_zero_or_negative_limit():
+    client = _seeded_client()
+
+    assert client.get("/api/collection", params={"limit": 0}).status_code == 422
+    assert client.get("/api/collection", params={"limit": -1}).status_code == 422
+
+
+def test_collection_rejects_a_limit_above_the_cap():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"limit": 100_000})
+
+    assert response.status_code == 422
+
+
+def test_collection_accepts_the_max_allowed_limit():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"limit": 200})
+
+    assert response.status_code == 200
+
+
+# --- get_database closes its SQLCipher connection (review finding) ----------
+
+
+def test_get_database_closes_the_connection_after_the_request(monkeypatch):
+    from companion.api import collection as collection_module
+
+    closed = []
+
+    class _TrackingFakeDatabase:
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(collection_module, "open_database", lambda: _TrackingFakeDatabase())
+    monkeypatch.setattr(collection_module, "read_playlist_tree", lambda db: [])
+    client = TestClient(create_app())
+
+    response = client.get("/api/playlists")
+
+    assert response.status_code == 200
+    assert closed == [True]

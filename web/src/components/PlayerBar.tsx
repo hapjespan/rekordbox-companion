@@ -17,6 +17,16 @@ function formatTime(seconds: number): string {
   return `${minutes}:${remaining.toString().padStart(2, "0")}`;
 }
 
+// Review finding: the ffmpeg transcode fallback (US5 scenario 4) streams
+// chunked with no Content-Length, so the browser reports `duration` as
+// `Infinity` -- not 0. Treating only 0 as "not seekable" left the slider
+// enabled with an invalid `max="Infinity"` and an aria-valuetext claiming
+// "0:00 van 0:00" on exactly that non-seekable path. A non-finite duration
+// (Infinity, or NaN before metadata loads) is the actual "can't seek" signal.
+function isSeekable(duration: number): boolean {
+  return Number.isFinite(duration) && duration > 0;
+}
+
 // T065 (FR-025/FR-026, WCAG; proof-of-value cut: progress + seek only, no
 // waveform, per plan.md). Playing/paused state is exposed both visually
 // (button label, aria-pressed) and to assistive tech via a live status
@@ -42,7 +52,18 @@ export function PlayerBar({ track }: PlayerBarProps) {
   async function handlePlaybackError() {
     if (!track) return;
     try {
-      const response = await fetch(`/api/player/stream/${track.rb_content_id}`);
+      // Review finding: this diagnostic fetch must not itself become a
+      // second full download. A `Range: bytes=0-0` keeps the native path's
+      // response to a single byte (still a real 206, still lets a
+      // `file_missing`/`track_not_found` error return its usual {code,
+      // message} JSON envelope -- that path resolves the id and raises
+      // before any range/byte handling ever runs). On the transcode path
+      // the backend ignores Range and always answers a plain 200, so
+      // `response.body` is cancelled below rather than left to keep
+      // piping a live ffmpeg process into a body nobody reads.
+      const response = await fetch(`/api/player/stream/${track.rb_content_id}`, {
+        headers: { Range: "bytes=0-0" },
+      });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { code?: string } | null;
         setError(
@@ -52,6 +73,7 @@ export function PlayerBar({ track }: PlayerBarProps) {
         );
         return;
       }
+      void response.body?.cancel();
       setError("Dit nummer kan niet worden afgespeeld.");
     } catch {
       setError("Dit nummer kan niet worden afgespeeld.");
@@ -115,16 +137,22 @@ export function PlayerBar({ track }: PlayerBarProps) {
         id={seekId}
         type="range"
         min={0}
-        max={duration || 0}
+        max={isSeekable(duration) ? duration : 0}
         step={1}
         value={currentTime}
         onChange={handleSeek}
-        disabled={error !== null || duration === 0}
-        aria-valuetext={`${formatTime(currentTime)} van ${formatTime(duration)}`}
+        disabled={error !== null || !isSeekable(duration)}
+        aria-valuetext={
+          isSeekable(duration)
+            ? `${formatTime(currentTime)} van ${formatTime(duration)}`
+            : "Positie onbekend"
+        }
         className="min-h-24 flex-1 accent-spotify-green focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
       />
       <p className="text-body-lg text-mist">
-        {formatTime(currentTime)} / {formatTime(duration)}
+        {isSeekable(duration)
+          ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+          : "Positie onbekend"}
       </p>
 
       <p role="status" className="sr-only">

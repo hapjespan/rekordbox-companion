@@ -25,6 +25,24 @@ const COLUMNS: { field: SortField; label: string }[] = [
 
 const PAGE_SIZE = 50;
 
+// Review finding (FR-026's silent-failure ban, already applied to the
+// player): an API error shaped `{code, message}` (contracts/api.md) must
+// not collapse into the same "total=0, tracks=[]" the table also gets for a
+// genuinely empty result -- those are different states and need different
+// Dutch copy, not one generic-looking empty table either way.
+interface ApiErrorBody {
+  code?: string;
+  message?: string;
+}
+
+function errorMessageFor(apiError: unknown): string {
+  const body = apiError as ApiErrorBody | undefined;
+  if (body?.code === "rekordbox_not_found") {
+    return "Rekordbox is niet gevonden. Start Rekordbox en herlaad de pagina.";
+  }
+  return "Kon de collectie niet laden. Probeer het opnieuw.";
+}
+
 interface TrackTableProps {
   onPlay?: (track: CollectionTrackDto) => void;
 }
@@ -50,6 +68,7 @@ export function TrackTable({ onPlay }: TrackTableProps) {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [tracks, setTracks] = useState<CollectionTrackDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
   const rowButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const searchInputId = useId();
@@ -62,7 +81,7 @@ export function TrackTable({ onPlay }: TrackTableProps) {
     let cancelled = false;
     async function load() {
       try {
-        const { data } = await apiClient.GET("/api/collection", {
+        const { data, error: apiError } = await apiClient.GET("/api/collection", {
           params: {
             query: {
               query: query || undefined,
@@ -73,13 +92,21 @@ export function TrackTable({ onPlay }: TrackTableProps) {
           },
         });
         if (cancelled) return;
+        if (apiError) {
+          setError(errorMessageFor(apiError));
+          setTotal(0);
+          setTracks([]);
+          return;
+        }
         const body = asApiResponse<{ total: number; items: CollectionTrackDto[] } | undefined>(
           data,
         );
+        setError(null);
         setTotal(body?.total ?? 0);
         setTracks(body?.items ?? []);
       } catch {
         if (!cancelled) {
+          setError(errorMessageFor(undefined));
           setTotal(0);
           setTracks([]);
         }
@@ -191,7 +218,14 @@ export function TrackTable({ onPlay }: TrackTableProps) {
         </table>
       </div>
 
-      {tracks.length === 0 && <p className="text-body-lg text-mist">Geen nummers gevonden.</p>}
+      {error && (
+        <p role="alert" className="text-body-lg font-semibold text-pure-white">
+          {error}
+        </p>
+      )}
+      {!error && tracks.length === 0 && (
+        <p className="text-body-lg text-mist">Geen nummers gevonden.</p>
+      )}
 
       <div className="flex items-center gap-16">
         <button
