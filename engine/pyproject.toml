@@ -38,6 +38,14 @@ dev = [
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
+# T042 (R3 spike): research spikes live in tests/spikes/ under a *_smoke.py
+# name rather than test_*.py, so they read as characterization spikes, not unit
+# tests. They must still be collected by `pytest tests/` so their evidence is
+# re-checked on every CI run (not a one-off). Extending python_files keeps the
+# two pytest defaults and adds the *_smoke.py pattern; nothing else matches it.
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "*_smoke.py"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
