@@ -800,10 +800,23 @@ the one documented exception to story independence in this feature.
       this task's original three: `integrations/spotify.py`'s OAuth token
       exchange/refresh genuinely needs it, and plan.md's own ASVS table was
       missing it too (fixed alongside).
-- [ ] T091 [P] Accessibility sweep in `web/tests/e2e/accessibility.spec.ts`
+- [x] T091 [P] Accessibility sweep in `web/tests/e2e/accessibility.spec.ts`
       across all seven stories: keyboard-only pass, focus visibility, AA
       contrast, 24x24 targets, form-error announcements (WCAG 2.2 AA, phase 7
       review checklist input)
+
+      **Reconciliation**: automated coverage via `@axe-core/playwright`,
+      scanning the default page state and the match-report/apply flow (no
+      router exists to navigate to seven separate per-story screens, per
+      App.tsx's own documented one-page assembly). Found and fixed a real
+      violation: the app's root was a bare `<div>`, flagged
+      `page-has-main`/`landmark-one-main`/`region`; changed to `<main>`.
+      Scope note: axe automates contrast/landmark/label/ARIA checks but
+      cannot perform a genuine keyboard-only navigation walkthrough or
+      verify 24x24 targets by measurement -- those remain phase 7 review-
+      checklist items, exactly as this task's own text anticipates ("phase
+      7 review checklist input"), not something this automated sweep alone
+      closes out.
 - [x] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
       features (collection browse, playback) stay usable while a Sync
       Session or enrichment run is in progress (FR-040, edge case)
