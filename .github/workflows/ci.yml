@@ -56,7 +56,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11 (the packageManager pin) requires Node >= 22.13, and the
+          # dev container runs 24; anything lower crashes setup-node's cache
+          # probe on `node:sqlite`.
+          node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
