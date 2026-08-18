@@ -25,6 +25,17 @@ function mockPlayerToken(result: { data?: unknown; error?: unknown }) {
   vi.mocked(apiClient.GET).mockResolvedValue(result as never);
 }
 
+// The backend's `expires_in` is the REMAINING lifetime minus a 60s skew
+// (engine/src/companion/integrations/spotify.py), so the token handed out at
+// mount can be seconds from expiry while later calls return a fresh one.
+// This helper makes those two differ, which is exactly what a component that
+// caches the first token can never notice (review finding).
+function mockRotatingPlayerToken(first: string, rest: string) {
+  vi.mocked(apiClient.GET)
+    .mockResolvedValueOnce({ data: { access_token: first, expires_in: 61 } } as never)
+    .mockResolvedValue({ data: { access_token: rest, expires_in: 3600 } } as never);
+}
+
 class FakeSpotifyPlayer {
   static instances: FakeSpotifyPlayer[] = [];
   listeners: Record<string, ((payload: unknown) => void)[]> = {};
@@ -103,7 +114,9 @@ describe("DualPlayback", () => {
 
     let capturedToken = "";
     player.options.getOAuthToken((token) => (capturedToken = token));
-    expect(capturedToken).toBe("tok-123");
+    // Asynchronous by design: the callback re-fetches the token instead of
+    // replaying a cached one.
+    await waitFor(() => expect(capturedToken).toBe("tok-123"));
 
     const spotifyButton = screen.getByRole("button", { name: "Speel origineel af" });
     expect(spotifyButton).toBeDisabled();
@@ -121,6 +134,95 @@ describe("DualPlayback", () => {
         }),
       ),
     );
+  });
+
+  it("re-fetches the player token on every SDK callback instead of replaying the mount-time one", async () => {
+    mockRotatingPlayerToken("tok-expiring", "tok-fresh");
+    renderDualPlayback();
+
+    await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+    const player = FakeSpotifyPlayer.instances[0];
+
+    let capturedToken = "";
+    player.options.getOAuthToken((token) => (capturedToken = token));
+
+    await waitFor(() => expect(capturedToken).toBe("tok-fresh"));
+  });
+
+  it("sends the play request with a freshly fetched token, not the mount-time one", async () => {
+    mockRotatingPlayerToken("tok-expiring", "tok-fresh");
+    renderDualPlayback();
+
+    await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+    FakeSpotifyPlayer.instances[0].emit("ready", { device_id: "device-1" });
+    const spotifyButton = await screen.findByRole("button", { name: "Speel origineel af" });
+    await waitFor(() => expect(spotifyButton).not.toBeDisabled());
+
+    fireEvent.click(spotifyButton);
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "https://api.spotify.com/v1/me/player/play?device_id=device-1",
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer tok-fresh" }),
+        }),
+      ),
+    );
+  });
+
+  it("falls back to a deep link when the SDK reports an authentication error (expired token)", async () => {
+    mockPlayerToken({
+      data: { access_token: "tok-123", expires_in: 61 },
+      error: undefined,
+    });
+    renderDualPlayback();
+
+    await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+    FakeSpotifyPlayer.instances[0].emit("authentication_error", { message: "token expired" });
+
+    expect(
+      await screen.findByRole("link", { name: "Open origineel in Spotify" }),
+    ).toBeInTheDocument();
+  });
+
+  it("previews the local candidate when the review queue reports a space press", async () => {
+    mockPlayerToken({ data: undefined, error: { code: "pending" } });
+    const { rerender } = render(
+      <DualPlayback
+        spotifyTrackId="sp-track-1"
+        spotifyArtist="Daft Punk"
+        spotifyTitle="One More Time"
+        candidate={CANDIDATE}
+        previewRequestId={0}
+      />,
+    );
+
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+
+    rerender(
+      <DualPlayback
+        spotifyTrackId="sp-track-1"
+        spotifyArtist="Daft Punk"
+        spotifyTitle="One More Time"
+        candidate={CANDIDATE}
+        previewRequestId={1}
+      />,
+    );
+
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1));
+
+    // A second press toggles the same side off again.
+    rerender(
+      <DualPlayback
+        spotifyTrackId="sp-track-1"
+        spotifyArtist="Daft Punk"
+        spotifyTitle="One More Time"
+        candidate={CANDIDATE}
+        previewRequestId={2}
+      />,
+    );
+
+    await waitFor(() => expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1));
   });
 
   it("falls back to a spotify:track: deep link when the player token cannot be fetched", async () => {

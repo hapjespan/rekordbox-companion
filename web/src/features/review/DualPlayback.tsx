@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
 import { asApiResponse } from "../spotify-sync/types";
@@ -15,6 +15,11 @@ interface DualPlaybackProps {
   spotifyArtist: string;
   spotifyTitle: string;
   candidate: DualPlaybackCandidate | null;
+  // Bumped by the parent every time the DJ presses space in the review
+  // queue (FR-011's "space previews"): the queue owns the keyboard, so a
+  // preview request arrives as a changing prop instead of an imperative
+  // handle. Undefined/0 means "no preview requested yet".
+  previewRequestId?: number;
 }
 
 interface PlayerToken {
@@ -33,7 +38,8 @@ interface SpotifyPlayerInstance {
   disconnect: () => void;
   pause: () => Promise<void>;
   addListener: (
-    event: "ready" | "not_ready" | "account_error" | "initialization_error",
+    event:
+      "ready" | "not_ready" | "account_error" | "authentication_error" | "initialization_error",
     callback: (payload: SpotifyPlayerReadyPayload | { message: string }) => void,
   ) => void;
 }
@@ -89,10 +95,10 @@ export function DualPlayback({
   spotifyArtist,
   spotifyTitle,
   candidate,
+  previewRequestId,
 }: DualPlaybackProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playerRef = useRef<SpotifyPlayerInstance | null>(null);
-  const tokenRef = useRef<string | null>(null);
 
   const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -107,6 +113,32 @@ export function DualPlayback({
     setSpotifyUnavailable(null);
   }, [spotifyTrackId, candidate?.rbContentId]);
 
+  // Never cache the player token. The backend hands out the REMAINING
+  // lifetime of the upstream access token minus a 60s skew
+  // (engine/src/companion/integrations/spotify.py, _EXPIRY_SKEW), so a token
+  // fetched at mount can be ~61 seconds from useless -- far shorter than a
+  // review session. Every consumer (the SDK's own getOAuthToken callback,
+  // which the SDK also calls on each renewal, and the Web API play request)
+  // therefore fetches a fresh one, and a failure degrades exactly like the
+  // documented fallbacks: local preview plus a `spotify:track:` deep link
+  // (review finding).
+  const requestPlayerToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data, error } = await apiClient.GET("/api/auth/spotify/player-token");
+      if (error) {
+        setSpotifyUnavailable(asApiResponse<ApiError>(error));
+        return null;
+      }
+      return asApiResponse<PlayerToken>(data).access_token;
+    } catch {
+      setSpotifyUnavailable({
+        code: "spotify_playback_unavailable",
+        message: "Spotify-afspelen kon niet worden gestart.",
+      });
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!spotifyTrackId) return;
     let cancelled = false;
@@ -118,21 +150,26 @@ export function DualPlayback({
 
     async function connect() {
       try {
-        const { data, error } = await apiClient.GET("/api/auth/spotify/player-token");
-        if (cancelled) return;
-        if (error) {
-          fail(asApiResponse<ApiError>(error));
-          return;
-        }
-        const token = asApiResponse<PlayerToken>(data);
-        tokenRef.current = token.access_token;
+        // Fetched up front purely to establish that a usable Spotify session
+        // exists at all: without one there is nothing to connect and the
+        // component degrades to the deep link right away.
+        const token = await requestPlayerToken();
+        if (cancelled || token === null) return;
 
         const sdk = await loadSpotifySdk();
         if (cancelled) return;
 
         const player = new sdk.Player({
           name: "Rekordbox Companion",
-          getOAuthToken: (callback) => callback(tokenRef.current ?? ""),
+          getOAuthToken: (callback) => {
+            // No token means the session is gone; `requestPlayerToken` has
+            // already switched this component to the deep-link fallback, so
+            // the callback is simply never invoked rather than handing the
+            // SDK an empty string to choke on.
+            void requestPlayerToken().then((fresh) => {
+              if (fresh !== null) callback(fresh);
+            });
+          },
         });
         player.addListener("ready", (payload) => {
           if (cancelled) return;
@@ -146,6 +183,16 @@ export function DualPlayback({
           fail({
             code: "spotify_account_error",
             message: "Spotify Premium is vereist voor afspelen in de app.",
+          });
+        });
+        // The SDK raises this when the token it was handed is rejected --
+        // the expiry case the review flow used to die silently on. Same
+        // degradation as account_error: the DJ keeps local preview and gets
+        // the deep link, and the message names the fix.
+        player.addListener("authentication_error", () => {
+          fail({
+            code: "spotify_authentication_error",
+            message: "De Spotify-sessie is verlopen. Verbind opnieuw met Spotify.",
           });
         });
         player.addListener("initialization_error", () => {
@@ -175,7 +222,7 @@ export function DualPlayback({
       playerRef.current?.disconnect();
       playerRef.current = null;
     };
-  }, [spotifyTrackId]);
+  }, [spotifyTrackId, requestPlayerToken]);
 
   async function pauseLocal() {
     audioRef.current?.pause();
@@ -191,14 +238,18 @@ export function DualPlayback({
   }
 
   async function playSpotify() {
-    if (!deviceId || !tokenRef.current || !spotifyTrackId) return;
+    if (!deviceId || !spotifyTrackId) return;
+    // A fresh token per request, for the same expiry reason as above: this
+    // PUT can happen many minutes into a review session.
+    const token = await requestPlayerToken();
+    if (token === null) return;
     try {
       const response = await fetch(
         `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${tokenRef.current}`,
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ uris: [`spotify:track:${spotifyTrackId}`] }),
@@ -232,6 +283,17 @@ export function DualPlayback({
     if (source === "local") await playLocal();
     else await playSpotify();
   }
+
+  // Space in the review queue previews the LOCAL candidate (FR-011/US2
+  // scenario 4) and toggles it off again on a second press -- the same
+  // single-source-at-a-time path the buttons take.
+  useEffect(() => {
+    if (!previewRequestId) return;
+    void toggle("local");
+    // `toggle` is re-created on every render; depending on it would restart
+    // playback on each render instead of on each new space press.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewRequestId]);
 
   return (
     <div className="flex flex-col gap-12" aria-label="Beide kanten beluisteren">

@@ -3,8 +3,15 @@ import { useEffect, useRef, useState } from "react";
 interface ReviewCandidate {
   rb_content_id: string;
   score: number;
-  artist: string;
-  title: string;
+  // Optional on purpose: the backend's `SyncTrack.candidates` rows carry
+  // `{rb_content_id, score, reason}` only (contracts/api.md, engine
+  // matching/engine.py), and there is no per-id Collection lookup endpoint
+  // to resolve a name from, so a caller wired to the real API can only
+  // identify a candidate by its Rekordbox id. Callers that DO know the
+  // names (tests, and any future richer candidate payload) keep passing
+  // them and get the readable label.
+  artist?: string;
+  title?: string;
 }
 
 interface ReviewItem {
@@ -22,10 +29,23 @@ interface ReviewQueueProps {
   onAccept: (syncTrackId: number, rbContentId: string) => void;
   onReject: (syncTrackId: number) => void;
   onPreview: (target: PreviewTarget) => void;
+  // Lets a parent mirror the keyboard selection (ReviewView feeds it to
+  // DualPlayback) without taking ownership of it: the queue holds the
+  // focus and the selection, the parent only observes. Must be a stable
+  // callback (useCallback) -- it is an effect dependency here.
+  onActiveChange?: (syncTrackId: number | null, rbContentId: string | null) => void;
 }
 
 function candidateDomId(item: ReviewItem, candidate: ReviewCandidate): string {
   return `review-candidate-${item.sync_track_id}-${candidate.rb_content_id}`;
+}
+
+// Falls back to the Rekordbox id when the candidate carries no artist/title
+// (see ReviewCandidate): identifying a candidate by the id the DJ can look
+// up in Rekordbox beats rendering an empty dash.
+function candidateLabel(candidate: ReviewCandidate): string {
+  if (candidate.artist && candidate.title) return `${candidate.artist} – ${candidate.title}`;
+  return `Rekordbox-id ${candidate.rb_content_id}`;
 }
 
 // T039: keyboard wiring for FR-011 (arrows navigate, A accepts, R rejects,
@@ -34,17 +54,42 @@ function candidateDomId(item: ReviewItem, candidate: ReviewCandidate): string {
 // out of the list, which is what "focus never lost" (spec.md US2) means in
 // practice; aria-activedescendant names the active candidate for assistive
 // tech (WAI-ARIA APG listbox pattern, ReviewQueue.test.tsx/T035 finding).
-export function ReviewQueue({ items, onAccept, onReject, onPreview }: ReviewQueueProps) {
+export function ReviewQueue({
+  items,
+  onAccept,
+  onReject,
+  onPreview,
+  onActiveChange,
+}: ReviewQueueProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeItemIndex, setActiveItemIndex] = useState(0);
-  const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
+  // The candidate selection is stored together with the item it belongs to
+  // and only read back while that same item still occupies the active
+  // position. That resets the selection to the first candidate in the very
+  // same render in which a DIFFERENT item takes over the position -- which
+  // is what happens when the parent removes the item A/R just resolved.
+  // Doing it in render rather than in an effect leaves no interim render in
+  // which a rapid follow-up A would accept a non-first candidate of the
+  // next item (review finding).
+  const [candidateSelection, setCandidateSelection] = useState<{
+    itemId: number | null;
+    index: number;
+  }>({ itemId: null, index: 0 });
 
   const clampedItemIndex = items.length === 0 ? 0 : Math.min(activeItemIndex, items.length - 1);
   const activeItem = items[clampedItemIndex] as ReviewItem | undefined;
+  const activeItemId = activeItem?.sync_track_id ?? null;
+  const selectedCandidateIndex =
+    candidateSelection.itemId === activeItemId ? candidateSelection.index : 0;
   const clampedCandidateIndex = activeItem
-    ? Math.min(activeCandidateIndex, activeItem.candidates.length - 1)
+    ? Math.min(selectedCandidateIndex, activeItem.candidates.length - 1)
     : 0;
   const activeCandidate = activeItem?.candidates[clampedCandidateIndex];
+  const activeRbContentId = activeCandidate?.rb_content_id ?? null;
+
+  useEffect(() => {
+    onActiveChange?.(activeItemId, activeRbContentId);
+  }, [activeItemId, activeRbContentId, onActiveChange]);
 
   // React's `autoFocus` prop relies on the browser's native autofocus
   // behaviour, which only fires for nodes present at initial page parse --
@@ -64,23 +109,30 @@ export function ReviewQueue({ items, onAccept, onReject, onPreview }: ReviewQueu
     if (!activeItem) return;
 
     switch (event.key) {
+      // ArrowUp/ArrowDown need no explicit candidate reset: landing on
+      // another item already yields candidate 0, because the stored
+      // selection belongs to the item it was made on.
       case "ArrowDown":
         event.preventDefault();
         setActiveItemIndex((i) => Math.min(i + 1, items.length - 1));
-        setActiveCandidateIndex(0);
         break;
       case "ArrowUp":
         event.preventDefault();
         setActiveItemIndex((i) => Math.max(i - 1, 0));
-        setActiveCandidateIndex(0);
         break;
       case "ArrowRight":
         event.preventDefault();
-        setActiveCandidateIndex((i) => Math.min(i + 1, activeItem.candidates.length - 1));
+        setCandidateSelection({
+          itemId: activeItem.sync_track_id,
+          index: Math.min(clampedCandidateIndex + 1, activeItem.candidates.length - 1),
+        });
         break;
       case "ArrowLeft":
         event.preventDefault();
-        setActiveCandidateIndex((i) => Math.max(i - 1, 0));
+        setCandidateSelection({
+          itemId: activeItem.sync_track_id,
+          index: Math.max(clampedCandidateIndex - 1, 0),
+        });
         break;
       case "a":
       case "A":
@@ -143,9 +195,13 @@ export function ReviewQueue({ items, onAccept, onReject, onPreview }: ReviewQueu
                     data-testid="review-queue-candidate"
                     role="option"
                     aria-selected={isActiveCandidate}
-                    className={isActiveCandidate ? "text-spotify-green" : undefined}
+                    // Never colour alone (US2's WCAG criteria): the selected
+                    // candidate is also bold and underlined.
+                    className={
+                      isActiveCandidate ? "font-bold text-spotify-green underline" : undefined
+                    }
                   >
-                    {candidate.artist} – {candidate.title} · score {candidate.score}
+                    {candidateLabel(candidate)} · score {candidate.score}
                   </li>
                 );
               })}

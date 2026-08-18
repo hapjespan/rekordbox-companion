@@ -191,6 +191,89 @@ describe("ReviewQueue", () => {
     expect(document.activeElement).toBe(queue());
   });
 
+  it("resets the candidate selection when another item takes over the active position", () => {
+    // The bug this pins (review finding): the candidate index survived the
+    // parent removing the resolved item, so the NEXT item arrived with a
+    // non-first candidate pre-selected and a rapid follow-up A accepted the
+    // wrong candidate. Both items here have two candidates, so a surviving
+    // index would not be clamped away.
+    const secondItem = {
+      sync_track_id: 9,
+      spotify_artist: "Second Artist",
+      spotify_title: "Second Song",
+      candidates: [
+        { rb_content_id: "rb-x1", score: 84, artist: "Second Artist", title: "Second Song" },
+        { rb_content_id: "rb-x2", score: 62, artist: "Second Artist", title: "Second Song (Dub)" },
+      ],
+    };
+    const onAccept = vi.fn();
+    const { rerender } = render(
+      <ReviewQueue
+        items={[ITEMS[0], secondItem]}
+        onAccept={onAccept}
+        onReject={vi.fn()}
+        onPreview={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(queue(), { key: "ArrowRight" }); // 2nd candidate of item 1
+    expect(activeCandidateId()).toBe("review-candidate-1-rb-b");
+
+    // Item 1 resolved and removed by the parent; item 9 now sits at the
+    // active position.
+    rerender(
+      <ReviewQueue
+        items={[secondItem]}
+        onAccept={onAccept}
+        onReject={vi.fn()}
+        onPreview={vi.fn()}
+      />,
+    );
+
+    expect(activeCandidateId()).toBe("review-candidate-9-rb-x1");
+
+    fireEvent.keyDown(queue(), { key: "a" });
+    expect(onAccept).toHaveBeenCalledWith(9, "rb-x1");
+  });
+
+  it("reports the active item and candidate to the parent so playback can follow the selection", () => {
+    const onActiveChange = vi.fn();
+    render(
+      <ReviewQueue
+        items={ITEMS}
+        onAccept={vi.fn()}
+        onReject={vi.fn()}
+        onPreview={vi.fn()}
+        onActiveChange={onActiveChange}
+      />,
+    );
+
+    expect(onActiveChange).toHaveBeenLastCalledWith(1, "rb-a");
+
+    fireEvent.keyDown(queue(), { key: "ArrowRight" });
+    expect(onActiveChange).toHaveBeenLastCalledWith(1, "rb-b");
+
+    fireEvent.keyDown(queue(), { key: "ArrowDown" });
+    expect(onActiveChange).toHaveBeenLastCalledWith(2, "rb-c");
+  });
+
+  it("identifies a candidate by its Rekordbox id when the API gives no artist/title", () => {
+    // The real GET /api/sync/sessions/{id} candidate rows carry
+    // {rb_content_id, score, reason} only (contracts/api.md).
+    renderQueue({
+      items: [
+        {
+          sync_track_id: 4,
+          spotify_artist: "Daft Punk",
+          spotify_title: "One More Time",
+          candidates: [{ rb_content_id: "rb-z", score: 81 }],
+        },
+      ],
+    });
+
+    expect(screen.getByText(/Rekordbox-id rb-z · score 81/)).toBeInTheDocument();
+  });
+
   it("renders no queue items when the list is empty", () => {
     // The completion state itself is QueueComplete.tsx's job (T041, a
     // separate component) -- the parent composing them decides which to
