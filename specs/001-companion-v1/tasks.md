@@ -787,11 +787,19 @@ the one documented exception to story independence in this feature.
       end to end once owner inputs (fixture `master.db` + key,
       `SPOTIFY_CLIENT_ID`, audio samples) land — blocked on the owner, not on
       this decomposition (grilling D10)
-- [ ] T090 [P] ASVS-mapped security pass in
+- [x] T090 [P] ASVS-mapped security pass in
       `engine/tests/security/test_asvs_boundaries.py`: outbound HTTP
       allowlist enforcement (`api.spotify.com`, `itunes.apple.com`,
       `musicbrainz.org` only; ASVS V10/V14 SSRF), `.env`/token file
       permission check (ASVS V6/V12)
+
+      **Reconciliation**: the allowlist is a real transport-level
+      enforcement layer (`companion/security.py`), not just tests, per an
+      explicit forward-reference already committed in `integrations/
+      itunes.py`. Includes a fourth host, `accounts.spotify.com`, beyond
+      this task's original three: `integrations/spotify.py`'s OAuth token
+      exchange/refresh genuinely needs it, and plan.md's own ASVS table was
+      missing it too (fixed alongside).
 - [ ] T091 [P] Accessibility sweep in `web/tests/e2e/accessibility.spec.ts`
       across all seven stories: keyboard-only pass, focus visibility, AA
       contrast, 24x24 targets, form-error announcements (WCAG 2.2 AA, phase 7
