@@ -292,7 +292,7 @@ local candidate and the full Spotify original.
 **Independent Test**: Seeded Review Queue resolved to accepted/rejected using
 only documented keys; both audio sources playable per item (spec.md).
 
-- [ ] T099 [US2] Implement `GET /api/auth/spotify/player-token` in
+- [x] T099 [US2] Implement `GET /api/auth/spotify/player-token` in
       `engine/src/companion/integrations/spotify.py`: short-lived token for
       the Web Playback SDK (contracts/api.md "Spotify auth"). Must land
       before T034 can run despite the higher ID — the spike depends on it.
