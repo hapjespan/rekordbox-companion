@@ -18,7 +18,6 @@ from companion.audio.stream import (
     FileMissingError,
     RangeNotSatisfiableError,
     TrackNotFoundError,
-    TranscodeNotImplementedError,
     build_stream_response,
 )
 
@@ -48,19 +47,6 @@ def stream_track(rb_content_id: str, request: Request) -> Response:
             detail={
                 "code": "file_missing",
                 "message": f"audio file for track {rb_content_id!r} is not on disk",
-            },
-        ) from exc
-    except TranscodeNotImplementedError as exc:
-        # 501: this format needs the ffmpeg transcode fallback, which is T063
-        # (US5), not T038. Honest interim state until that task lands.
-        raise HTTPException(
-            status_code=501,
-            detail={
-                "code": "transcode_not_implemented",
-                "message": (
-                    "non-native format needs the transcode fallback "
-                    "(not yet implemented; tracked as T063)"
-                ),
             },
         ) from exc
     except RangeNotSatisfiableError as exc:
