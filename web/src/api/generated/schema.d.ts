@@ -369,10 +369,22 @@ export interface paths {
     put?: never;
     /**
      * Refresh Links
-     * @description Re-runs the iTunes lookup for every OPEN row (SC-004).
+     * @description Re-runs the iTunes lookup for up to `REFRESH_BATCH_SIZE` OPEN rows
+     *     (SC-004), throttled to ADR 0011's free-tier rate limit.
      *
      *     `acquired`/`ignored` rows are left alone: a resolved or dismissed
      *     Missing Track has no remaining use for a fresher auto-pick.
+     *
+     *     Review finding (MAJOR): this used to fire one unthrottled request per
+     *     open row and let `response.raise_for_status()` bubble straight out of
+     *     the loop. A queue large enough to hit the ~20/min limit mid-loop turned
+     *     into an unhandled `httpx.HTTPStatusError` -> a raw 500 -- and because
+     *     the single `db.commit()` sat AFTER the loop, `get_db`'s finally-block
+     *     `db.close()` then discarded every link already fetched in that same
+     *     call, not just the failing row's. Each row now commits immediately on
+     *     success, so partial progress survives a later row's failure, and a
+     *     failure is caught per row (`itunes.StoreLookupError`) and counted as
+     *     `skipped` instead of propagating.
      */
     post: operations["refresh_links_api_missing_refresh_links_post"];
     delete?: never;

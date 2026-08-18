@@ -69,7 +69,7 @@ exactly one status per track (FR-003).
 | GET `/api/missing` | `?status=open` | `[MissingTrack]` |
 | POST `/api/missing/{id}/status` | `{status: acquired\|ignored\|open}` | updated row |
 | POST `/api/missing/{id}/link` | `{itunes_url}` | manual override (FR-022) |
-| POST `/api/missing/refresh-links` | – | re-runs iTunes lookups for open rows |
+| POST `/api/missing/refresh-links` | – | re-runs iTunes lookups for open rows, at most 20 per call and throttled to the free-tier rate (ADR 0011); `{refreshed, skipped, remaining}`, so the caller can resume. A row that fails is skipped, never fatal: the links already fetched are kept (phase 7 finding: one failure rolled the whole batch back) |
 
 `MissingTrack`: `{id, artist, title, status, itunes_url_auto,
 itunes_url_chosen, effective_url, no_link_found: bool}`.
@@ -78,8 +78,8 @@ itunes_url_chosen, effective_url, no_link_found: bool}`.
 
 | Method & path | Request | Response |
 |---|---|---|
-| POST `/api/enrichment/run` | – | `{queued}` — incremental, resumable (ADR 0013); progress via SSE |
-| GET `/api/enrichment/status` | – | `{pending, done, none_found, failed, coverage_pct}` |
+| POST `/api/enrichment/run` | – | `{queued}` — incremental, resumable (ADR 0013); progress via SSE. `409` with `code: enrichment_already_running` while a run is in flight, so a reload or a second tab cannot start a second run racing the first on the same database (phase 7 finding) |
+| GET `/api/enrichment/status` | – | `{pending, done, none_found, failed, coverage_pct, running}`. `running` is what the UI derives its disabled state from, rather than local component state. `coverage_pct` counts distinct enriched tracks over the whole collection index, which is SC-008's own wording, not over queue rows (phase 7 finding) |
 | GET `/api/enrichment/unenriched` | paging | the manual work list (FR-029) |
 | PUT `/api/collection/{rb_content_id}/genres` | `{genres: [text]}` | manual override, wins forever (FR-028) |
 
@@ -87,10 +87,11 @@ itunes_url_chosen, effective_url, no_link_found: bool}`.
 
 | Method & path | Request | Response |
 |---|---|---|
-| GET/POST `/api/profiles`; PUT/DELETE `/api/profiles/{id}` | name, bpm range, `genre_tags: [text]` | profile CRUD (FR-031) |
+| GET/POST `/api/profiles`; PUT/DELETE `/api/profiles/{id}` | name, bpm range, `genre_tags: [text]` | profile CRUD (FR-031); `422` with `code: duplicate_name`, `field: name` when the name or its derived slug is taken, on create and on rename alike (phase 7 finding: rename raised a bare 500) |
 | GET/POST `/api/structures`; PUT/DELETE `/api/structures/{id}` | name, profile ref | structure CRUD |
 | GET `/api/structures/{id}/nodes`; POST `/api/structures/{id}/nodes`; PUT/DELETE `/api/structures/{id}/nodes/{nid}` | kind, name, parent, position, set_phase | tree editing (FR-032); GET lists the structure's tree, ordered by position -- added during phase 6 build (T087/T088 finding), a client cannot render or edit a tree it can never fetch |
 | GET `/api/structures/{id}/nodes/{nid}/suggestions` | `?limit=` | `[Suggestion]` filtered by profile, ranked by play count, flags `already_in_playlist` (FR-033) |
+| PUT `/api/structures/{id}/nodes/{nid}` re-parenting | `parent_id` | `422` with `code: invalid_parent` when the parent is unknown or belongs to another structure, `code: parent_cycle` when it is the node itself or one of its descendants, both `field: parent_id`. Refused before anything is stored, so the cycle can never reach apply, where it used to surface as a 500 after a backup had already been made (phase 7 finding) |
 | POST `/api/structures/{id}/nodes/{nid}/tracks` | `{rb_content_id, origin}` | accept into playlist |
 | DELETE `/api/structures/{id}/nodes/{nid}/tracks/{rb_content_id}` | – | remove from (unapplied) playlist node |
 | POST `/api/structures/{id}/nodes/{nid}/dismissals` | `{rb_content_id}` | dismiss suggestion (FR-034) |
