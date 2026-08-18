@@ -2,6 +2,8 @@
 GET /api/enrichment/unenriched, PUT /api/collection/{rb_content_id}/genres
 (contracts/api.md), plus the enrichment_progress SSE event (R4)."""
 
+import threading
+
 from fastapi.testclient import TestClient
 
 from companion.api import events
@@ -123,6 +125,7 @@ def test_status_reports_counts_and_coverage_pct():
     assert body["pending"] == 0
     assert body["failed"] == 0
     assert body["coverage_pct"] == 50.0
+    assert body["running"] is False
 
 
 def test_status_is_all_zero_before_any_run():
@@ -136,7 +139,71 @@ def test_status_is_all_zero_before_any_run():
         "none_found": 0,
         "failed": 0,
         "coverage_pct": 0.0,
+        "running": False,
     }
+
+
+def test_coverage_pct_counts_the_full_collection_not_only_tracks_with_state_rows():
+    """Finding: an artist-less track (never enqueued -- _artists_by_id
+    filters blanks) and a track with a manual override set BEFORE any
+    enqueue (enqueue_pending skips a track that already has one, so it
+    never gets an enrichment_state row either) both used to fall outside
+    the old state-row-only denominator, silently inflating coverage_pct.
+    SC-008 is measured over the whole collection instead."""
+    client, _ = _client(
+        tracks=[
+            _track("1", "Daft Punk"),  # enqueued, resolves -> done
+            _track("2", "Obscure Artist"),  # enqueued, no match -> none_found
+            _track("3", ""),  # blank artist, never enqueued at all
+            _track("4", "Manual Artist"),  # override set before any run below
+            _track("5", "Another Obscure"),  # enqueued, no match -> none_found
+        ],
+        source=_FakeSource({"Daft Punk": ["house"]}),
+    )
+    client.put("/api/collection/4/genres", json={"genres": ["deep house"]})
+
+    client.post("/api/enrichment/run")
+    response = client.get("/api/enrichment/status")
+
+    body = response.json()
+    # numerator: distinct enriched_genre tracks = {"1" (musicbrainz), "4" (manual)} = 2
+    # denominator: the full collection index = 5, not the 3 tracks that got a state row
+    assert body["coverage_pct"] == 40.0
+
+
+def test_run_refuses_a_second_run_while_the_first_is_still_in_progress():
+    """The actual race the review finding was about: a page reload, a
+    second tab, or a stale button all used to be able to fire a second
+    POST /run while the first genuinely hadn't finished yet."""
+    started = threading.Event()
+    release = threading.Event()
+
+    class _SlowSource:
+        name = "fake"
+
+        def genres_for(self, artist):  # noqa: ARG002
+            started.set()
+            assert release.wait(timeout=5), "test never released the slow source"
+            return ["house"]
+
+    client, _ = _client(tracks=[_track("1", "Daft Punk")], source=_SlowSource())
+
+    first_run = threading.Thread(target=lambda: client.post("/api/enrichment/run"))
+    first_run.start()
+    try:
+        assert started.wait(timeout=5), "the first run never started"
+
+        second_response = client.post("/api/enrichment/run")
+
+        assert second_response.status_code == 409
+        assert second_response.json()["code"] == "enrichment_already_running"
+        assert client.get("/api/enrichment/status").json()["running"] is True
+    finally:
+        release.set()
+        first_run.join(timeout=5)
+
+    # cleared once the (first) background run actually finished
+    assert client.get("/api/enrichment/status").json()["running"] is False
 
 
 def test_unenriched_lists_none_found_tracks_for_the_manual_work_list():

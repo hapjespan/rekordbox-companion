@@ -7,7 +7,24 @@ is shared, rate-limited infrastructure, unsuitable for the regular suite
 import httpx
 import pytest
 
-from companion.enrichment.musicbrainz import MusicBrainzGenreSource
+from companion.enrichment.musicbrainz import REQUEST_INTERVAL_SECONDS, MusicBrainzGenreSource
+
+
+class _FakeClock:
+    """A controllable clock where `sleep` actually advances `now`, so a
+    sequence of throttled calls can be simulated without a real wall-clock
+    wait -- the same instant-test intent as the module's `sleep=lambda _:
+    None` convention, but here `sleep` must move time forward for the
+    pacing assertion to mean anything."""
+
+    def __init__(self):
+        self.t = 0.0
+
+    def now(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.t += seconds
 
 
 def _client(handler) -> httpx.Client:
@@ -102,6 +119,31 @@ def test_genres_for_retries_a_transient_503():
     source = MusicBrainzGenreSource(_client(handler), sleep=lambda _: None)
     assert source.genres_for("Some Artist") == ["techno"]
     assert attempts["n"] == 2
+
+
+def test_request_interval_is_enforced_across_calls_to_genres_for_not_only_within_one():
+    """Regression for the review finding: the old implementation only slept
+    between one call's own search and lookup, leaving the gap between track
+    N's lookup and track N+1's search -- half of a sustained run's request
+    gaps -- unthrottled. Every consecutive outbound request, including the
+    one that crosses from one `genres_for` call into the next, must be at
+    least REQUEST_INTERVAL_SECONDS apart."""
+    clock = _FakeClock()
+    request_times: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_times.append(clock.now())
+        if "tags" in str(request.url):
+            return _tags_response([("house", 5)])
+        return _search_response("mbid-1")
+
+    source = MusicBrainzGenreSource(_client(handler), sleep=clock.sleep, now=clock.now)
+    source.genres_for("Artist One")
+    source.genres_for("Artist Two")
+
+    assert len(request_times) == 4  # search+lookup, twice
+    gaps = [b - a for a, b in zip(request_times, request_times[1:], strict=False)]
+    assert all(gap >= REQUEST_INTERVAL_SECONDS for gap in gaps), gaps
 
 
 def test_genres_for_raises_after_exhausting_retries_on_persistent_503():

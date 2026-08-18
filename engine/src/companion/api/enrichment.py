@@ -26,6 +26,18 @@ fresh one is opened inside the real implementation instead.
 the queue: a source that is persistently unreachable (no network, DNS
 failure) must not spin this background task in an unthrottled infinite loop
 with zero backoff -- see its own docstring for the circuit breaker.
+
+`app.state.enrichment_running` guards against a double run (review finding):
+a page reload mid-run, a second tab, or a stale enabled button all used to
+be able to fire a second `POST /run` while the first was still going,
+racing two background runs on the same SQLite file (`apply_genres` is
+delete-then-insert with no unique constraint, so a race can leave duplicate
+`enriched_genre` rows). The flag is set synchronously before the background
+task is scheduled and always cleared in `_run_and_release`'s `finally`, so
+it can never wedge `/run` shut after a run ends -- however it ends (drained,
+circuit-broken, or raising). `GET /status` exposes the same flag so the
+frontend derives its disabled state from server truth on load, not only
+from local `useState`.
 """
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -35,7 +47,7 @@ from sqlalchemy.orm import Session
 
 from companion import security
 from companion.api import events
-from companion.db.models import EnrichmentState
+from companion.db.models import EnrichedGenre, EnrichmentState
 from companion.db.session import SessionLocal, get_db
 from companion.enrichment import runner, source
 from companion.enrichment.musicbrainz import MusicBrainzGenreSource
@@ -73,6 +85,24 @@ def _run_to_completion(artists_by_id: dict[str, str]) -> None:
         db.close()
 
 
+def _is_running(app) -> bool:
+    # `app.state` is a plain Starlette `State`; nothing pre-initialises
+    # this attribute (a fresh app -- including every test's `create_app()`
+    # -- has never had a run), so `getattr` with a default stands in for
+    # that initial "no run yet" state.
+    return getattr(app.state, "enrichment_running", False)
+
+
+def _run_and_release(app, background_runner, artists_by_id: dict[str, str]) -> None:
+    """Runs the background job, then always clears the in-progress flag --
+    on a normal drain, a circuit-broken early exit, or an exception -- so a
+    stuck flag can never permanently lock `POST /run` shut."""
+    try:
+        background_runner(artists_by_id)
+    finally:
+        app.state.enrichment_running = False
+
+
 def get_background_runner():
     """FastAPI dependency yielding the callable `BackgroundTasks` invokes to
     process the queue. Tests override this with a version that runs against
@@ -94,20 +124,30 @@ def run_enrichment(
     db: Session = Depends(get_db),
     background_runner=Depends(get_background_runner),
 ):
-    # Known gap (review finding): calling this twice in quick succession
-    # starts two concurrent background runs racing on the same SQLite file
-    # (lock contention, no guard here). Acceptable for now -- there is no UI
-    # trigger yet (T077) -- but T077's "start" control should disable itself
-    # while a run is in progress rather than this endpoint gaining a lock.
+    # Server-side double-run guard (review finding): a page reload mid-run,
+    # a second tab, or a run started before this page loaded all used to
+    # present an enabled button with nothing behind it stopping a second
+    # concurrent run. Refusing here, rather than only in the UI, is the
+    # actual guard -- the UI disabled-state is just a courtesy derived from
+    # GET /status's own "running" field.
+    if _is_running(request.app):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "enrichment_already_running",
+                "message": "an enrichment run is already in progress",
+            },
+        )
     artists_by_id = _artists_by_id(request)
     queued = runner.enqueue_pending(db, list(artists_by_id))
     db.commit()
-    background_tasks.add_task(background_runner, artists_by_id)
+    request.app.state.enrichment_running = True
+    background_tasks.add_task(_run_and_release, request.app, background_runner, artists_by_id)
     return {"queued": queued}
 
 
 @router.get("/enrichment/status")
-def enrichment_status(db: Session = Depends(get_db)):
+def enrichment_status(request: Request, db: Session = Depends(get_db)):
     counts = dict(
         db.execute(
             select(EnrichmentState.status, func.count()).group_by(EnrichmentState.status)
@@ -117,14 +157,27 @@ def enrichment_status(db: Session = Depends(get_db)):
     done = counts.get("done", 0)
     none_found = counts.get("none_found", 0)
     failed = counts.get("failed", 0)
-    total = pending + done + none_found + failed
-    coverage_pct = round(100 * done / total, 1) if total else 0.0
+
+    # SC-008 is "% of Collection Tracks with at least one Enriched Genre" --
+    # not "% of tracks that ever got an enrichment_state row". A track with
+    # a manual override set before any enqueue never gets a state row
+    # (enqueue_pending skips it) and an artist-less track never gets
+    # enqueued at all (_artists_by_id filters blanks), so both used to fall
+    # out of the old state-row-only denominator, silently inflating the
+    # number the owner judges SC-008 by. The denominator is the full
+    # collection index; the numerator counts distinct `enriched_genre`
+    # tracks (manual counts too -- FR-028's override IS the DJ's Enriched
+    # Genre for that track).
+    collection_size = len(request.app.state.collection_index.entries)
+    enriched_tracks = db.scalar(select(func.count(func.distinct(EnrichedGenre.rb_content_id))))
+    coverage_pct = round(100 * enriched_tracks / collection_size, 1) if collection_size else 0.0
     return {
         "pending": pending,
         "done": done,
         "none_found": none_found,
         "failed": failed,
         "coverage_pct": coverage_pct,
+        "running": _is_running(request.app),
     }
 
 

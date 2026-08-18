@@ -3,7 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { apiClient } from "../../api/client";
 import { asApiResponse } from "../spotify-sync/types";
 import type { ApiError } from "../spotify-sync/types";
-import type { EnrichmentProgressEvent, EnrichmentStatusDto, UnenrichedTrackDto } from "./types";
+import type { EnrichmentStatusDto, UnenrichedTrackDto } from "./types";
 
 // Same code-keyed-switch convention as PlaylistUrlForm.tsx/MissingQueue.tsx's
 // error mappers: Dutch text for known codes, the raw backend message only
@@ -16,6 +16,24 @@ function genreErrorMessageFor(error: ApiError): string {
       return error.message || "Kon de genres niet opslaan. Probeer het opnieuw.";
   }
 }
+
+function startErrorMessageFor(error: ApiError): string {
+  switch (error.code) {
+    case "enrichment_already_running":
+      return "Er loopt al een verrijking.";
+    default:
+      return error.message || "Kon de verrijking niet starten. Probeer het opnieuw.";
+  }
+}
+
+// While a run is in progress, poll GET /status as a safety net alongside
+// SSE (review finding): run_until_drained can end via
+// MAX_CONSECUTIVE_FAILED_BATCHES with tracks still remaining, and the one
+// terminal SSE event that does fire for that last chunk can race the
+// background task's own flag-clear on the server. Either way, this poll
+// converges on the real "running" state within one interval even with no
+// (or a stale) SSE signal.
+const STATUS_POLL_INTERVAL_MS = 3000;
 
 interface UnenrichedRowProps {
   track: UnenrichedTrackDto;
@@ -99,7 +117,14 @@ function UnenrichedRow({ track, onSave }: UnenrichedRowProps) {
 export function EnrichmentPanel() {
   const [status, setStatus] = useState<EnrichmentStatusDto | null>(null);
   const [unenriched, setUnenriched] = useState<UnenrichedTrackDto[] | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  // Derived from the server's own `running` flag (review finding), never
+  // from a plain local `useState`: a reload mid-run, a second tab, or a run
+  // started before this page loaded all report their real state as soon as
+  // `status` loads, instead of showing an enabled button with a run already
+  // going on behind it.
+  const isRunning = status?.running ?? false;
 
   async function refreshStatus() {
     try {
@@ -127,26 +152,43 @@ export function EnrichmentPanel() {
   }, []);
 
   // R4: enrichment runs for hours, so progress streams over the existing
-  // SSE channel rather than polling (research.md R4's own rejection of
-  // polling for exactly this reason). `remaining === 0` is this run's
-  // completion signal -- there is no separate "run finished" event type.
+  // SSE channel rather than polling. Every chunk's event now refetches
+  // status/the work list -- not only the last one -- so the status line and
+  // coverage number move live during a multi-hour run instead of staying
+  // frozen until a completion probe fires (review finding).
   useEffect(() => {
     const source = new EventSource("/api/events");
-    function handleProgress(event: MessageEvent) {
-      const progress = JSON.parse(event.data as string) as EnrichmentProgressEvent;
-      if (progress.remaining === 0) {
-        setIsRunning(false);
-        void refreshStatus();
-        void refreshUnenriched();
-      }
+    function handleProgress() {
+      void refreshStatus();
+      void refreshUnenriched();
     }
     source.addEventListener("enrichment_progress", handleProgress);
     return () => source.close();
   }, []);
 
+  // Safety net alongside SSE (review finding): run_until_drained can end
+  // via MAX_CONSECUTIVE_FAILED_BATCHES with tracks still remaining, and the
+  // one terminal SSE event that does fire can race the server clearing its
+  // own "running" flag. Polling while a run is in progress guarantees the
+  // button re-enables within one interval regardless of what SSE did or
+  // didn't deliver.
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => void refreshStatus(), STATUS_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
   async function handleStart() {
-    setIsRunning(true);
-    await apiClient.POST("/api/enrichment/run");
+    setStartError(null);
+    // Optimistic: disable the button the instant the user clicks, before
+    // the POST round-trip even resolves, so a fast double-click can't fire
+    // twice. Reverted below if the server refuses the run.
+    setStatus((current) => (current ? { ...current, running: true } : current));
+    const { error } = await apiClient.POST("/api/enrichment/run");
+    if (error) {
+      setStatus((current) => (current ? { ...current, running: false } : current));
+      setStartError(startErrorMessageFor(asApiResponse<ApiError>(error)));
+    }
   }
 
   async function handleSaveGenres(rbContentId: string, genres: string[]): Promise<ApiError | null> {
@@ -197,6 +239,12 @@ export function EnrichmentPanel() {
           </button>
         </div>
       </div>
+
+      {startError && (
+        <p role="alert" className="text-body-lg font-semibold text-pure-white">
+          {startError}
+        </p>
+      )}
 
       {unenriched.length === 0 ? (
         <p className="text-body-lg text-mist">Geen nummers zonder genre.</p>

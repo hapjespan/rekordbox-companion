@@ -138,6 +138,8 @@ def test_run_skips_a_track_that_gained_a_manual_override_after_enqueue():
         genres = db.query(EnrichedGenre).filter_by(rb_content_id="1").all()
         assert len(genres) == 1
         assert genres[0].source == "manual"
+        state = db.get(EnrichmentState, "1")
+        assert state.last_source == "manual"  # matches set_manual_override's own bookkeeping
 
 
 def test_run_respects_a_budget_and_never_reprocesses_done_tracks():

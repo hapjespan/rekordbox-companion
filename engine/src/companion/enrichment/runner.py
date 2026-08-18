@@ -77,7 +77,11 @@ def run(
         if has_manual_override(db, state.rb_content_id):
             # Gained an override after being enqueued: already fully
             # resolved, no need to spend a rate-limited call on it (FR-028).
+            # `last_source = "manual"` mirrors `set_manual_override` itself,
+            # so this track's state row doesn't misreport an automated
+            # source it was never actually resolved by.
             state.status = "done"
+            state.last_source = "manual"
             done += 1
             continue
 

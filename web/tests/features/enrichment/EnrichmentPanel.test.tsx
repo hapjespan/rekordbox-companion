@@ -1,5 +1,9 @@
 // T077: coverage status, unenriched work list, manual genre editor with
 // field-naming errors, manual/automatic origin conveyed in text (WCAG).
+// Also review findings: the start button's disabled state is driven by the
+// server's own `running` flag (not local state alone), a refused start
+// surfaces an error instead of wedging the button, and progress/coverage
+// numbers update live rather than only on a terminal event.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,7 +40,14 @@ class FakeEventSource {
   }
 }
 
-const STATUS = { pending: 5, done: 10, none_found: 2, failed: 0, coverage_pct: 71.4 };
+const STATUS = {
+  pending: 5,
+  done: 10,
+  none_found: 2,
+  failed: 0,
+  coverage_pct: 71.4,
+  running: false,
+};
 const UNENRICHED_TRACK = { rb_content_id: "1", artist: "Obscure Artist", title: "B-Side" };
 
 function mockGet(path: string, data: unknown) {
@@ -97,8 +108,94 @@ describe("EnrichmentPanel", () => {
     const source = FakeEventSource.instances[0];
     source.emit("enrichment_progress", { done: 1, none_found: 0, failed: 0, remaining: 0 });
 
+    // The panel re-enables via a GET /status refetch that reports
+    // running: false, not by inspecting the SSE payload itself (finding 2):
+    // the server's flag is the only thing that can end a run correctly.
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Verrijking starten" })).toBeEnabled();
+    });
+  });
+
+  it("disables the button on load when the server reports a run already in progress", async () => {
+    // The exact scenario the review finding named: a page reload mid-run,
+    // a second tab, or a run started before this page loaded. Local
+    // useState alone can never know this on mount; only the server can.
+    mockGet("/api/enrichment/status", { ...STATUS, running: true });
+    render(<EnrichmentPanel />);
+
+    expect(await screen.findByText("71.4%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Verrijking starten" })).toBeDisabled();
+  });
+
+  it(
+    "re-enables the button via polling even with no terminal SSE event (circuit breaker)",
+    async () => {
+      // run_until_drained can stop via MAX_CONSECUTIVE_FAILED_BATCHES with
+      // tracks still remaining -- no `remaining === 0` event ever fires. The
+      // button must still recover, purely from the status poll (real timers:
+      // the poll interval is created by the component itself, so faking
+      // timers after the fact can't reach it), with zero SSE events emitted
+      // in this test.
+      let statusCallCount = 0;
+      vi.mocked(apiClient.GET).mockImplementation(((path: string) => {
+        if (path === "/api/enrichment/status") {
+          statusCallCount += 1;
+          const running = statusCallCount === 1; // in progress on first load, then done
+          return Promise.resolve({ data: { ...STATUS, running }, error: undefined });
+        }
+        return Promise.resolve({ data: { total: 0, items: [] }, error: undefined });
+      }) as never);
+
+      render(<EnrichmentPanel />);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Verrijking starten" })).toBeDisabled();
+      });
+
+      await waitFor(
+        () => {
+          expect(screen.getByRole("button", { name: "Verrijking starten" })).toBeEnabled();
+        },
+        { timeout: 5000 },
+      );
+    },
+    { timeout: 7000 },
+  );
+
+  it("shows an error and re-enables the button when starting a run is refused", async () => {
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: undefined,
+      error: {
+        code: "enrichment_already_running",
+        message: "an enrichment run is already in progress",
+      },
+    } as never);
+    render(<EnrichmentPanel />);
+    await screen.findByText("71.4%");
+
+    fireEvent.click(screen.getByRole("button", { name: "Verrijking starten" }));
+
+    expect(await screen.findByText("Er loopt al een verrijking.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Verrijking starten" })).toBeEnabled();
+  });
+
+  it("refreshes status on every progress event, not only a terminal one (live numbers)", async () => {
+    let statusCallCount = 0;
+    vi.mocked(apiClient.GET).mockImplementation(((path: string) => {
+      if (path === "/api/enrichment/status") {
+        statusCallCount += 1;
+        const done = statusCallCount === 1 ? STATUS.done : STATUS.done + 5;
+        return Promise.resolve({ data: { ...STATUS, done }, error: undefined });
+      }
+      return Promise.resolve({ data: { total: 0, items: [] }, error: undefined });
+    }) as never);
+    render(<EnrichmentPanel />);
+    await screen.findByText("71.4%");
+
+    const source = FakeEventSource.instances[0];
+    source.emit("enrichment_progress", { done: 5, none_found: 0, failed: 0, remaining: 20 });
+
+    await waitFor(() => {
+      expect(screen.getByText("15 verrijkt, 5 wachten, 2 niet gevonden")).toBeInTheDocument();
     });
   });
 
