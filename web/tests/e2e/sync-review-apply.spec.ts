@@ -21,10 +21,16 @@ test("pasting a playlist URL renders the match report", async ({ page }) => {
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
-  // MissingQueue (T107) is mounted unconditionally on every page load;
-  // this spec isn't about the Missing Tracks queue, so it always starts
-  // empty here (missing-link.spec.ts exercises the queue itself).
+  // MissingQueue (T107) and EnrichmentPanel (T077) are mounted
+  // unconditionally on every page load; this spec isn't about either, so
+  // both always start empty here.
   await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/enrichment/status", (route) =>
+    route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
+  );
+  await page.route("**/api/enrichment/unenriched*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") {
@@ -118,10 +124,16 @@ test("applying a synced session confirms, writes, and shows the backup result", 
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
-  // MissingQueue (T107) is mounted unconditionally on every page load;
-  // this spec isn't about the Missing Tracks queue, so it always starts
-  // empty here (missing-link.spec.ts exercises the queue itself).
+  // MissingQueue (T107) and EnrichmentPanel (T077) are mounted
+  // unconditionally on every page load; this spec isn't about either, so
+  // both always start empty here.
   await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/enrichment/status", (route) =>
+    route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
+  );
+  await page.route("**/api/enrichment/unenriched*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") return route.continue();

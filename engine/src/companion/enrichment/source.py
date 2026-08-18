@@ -14,7 +14,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from companion.db.models import EnrichedGenre
+from companion.db.models import EnrichedGenre, EnrichmentState
 
 
 def _utcnow() -> datetime:
@@ -55,13 +55,27 @@ def set_manual_override(db: Session, rb_content_id: str, genres: list[str]) -> N
     """A human setting the override IS the authoritative action (FR-028):
     unlike `apply_genres`, this always replaces whatever rows exist --
     manual or automated -- rather than refusing because a manual row
-    already exists."""
+    already exists.
+
+    Also resolves this track's `enrichment_state` (if it has one), so a
+    manually-fixed track stops feeding the "manual work list" (FR-029) it
+    might have been on -- `GET /api/enrichment/unenriched` only reads
+    `enrichment_state`, never `enriched_genre` directly. Clearing an
+    override (an empty `genres` list) does the reverse: the track has no
+    genres again, so it goes back to `pending`, eligible for a future
+    automated run.
+    """
     db.query(EnrichedGenre).filter_by(rb_content_id=rb_content_id).delete()
     now = _utcnow()
     for genre in genres:
         db.add(
             EnrichedGenre(rb_content_id=rb_content_id, genre=genre, source="manual", updated_at=now)
         )
+    state = db.get(EnrichmentState, rb_content_id)
+    if state is not None:
+        state.status = "done" if genres else "pending"
+        state.attempted_at = now
+        state.last_source = "manual" if genres else None
 
 
 def apply_genres(db: Session, rb_content_id: str, genres: list[str], source: str) -> None:

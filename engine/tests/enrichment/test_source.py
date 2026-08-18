@@ -3,9 +3,9 @@ precedence -- a manual genre override is never touched by an enrichment run."""
 
 from datetime import datetime
 
-from companion.db.models import EnrichedGenre
+from companion.db.models import EnrichedGenre, EnrichmentState
 from companion.db.session import Base, create_session_factory
-from companion.enrichment.source import apply_genres, has_manual_override
+from companion.enrichment.source import apply_genres, has_manual_override, set_manual_override
 
 
 def _fresh_db():
@@ -90,3 +90,45 @@ def test_apply_genres_replaces_prior_automated_rows_from_a_previous_run():
 
         rows = db.query(EnrichedGenre).filter_by(rb_content_id="123").all()
         assert {r.genre for r in rows} == {"techno", "electro"}
+
+
+def test_set_manual_override_resolves_a_none_found_enrichment_state():
+    """FR-029: a manually-fixed track must stop appearing in the manual
+    work list, which reads enrichment_state, not enriched_genre."""
+    session_local = _fresh_db()
+    with session_local() as db:
+        db.add(EnrichmentState(rb_content_id="123", status="none_found"))
+        db.commit()
+
+        set_manual_override(db, "123", ["deep house"])
+        db.commit()
+
+        state = db.get(EnrichmentState, "123")
+        assert state.status == "done"
+        assert state.last_source == "manual"
+
+
+def test_set_manual_override_with_no_existing_enrichment_state_is_a_noop_there():
+    session_local = _fresh_db()
+    with session_local() as db:
+        set_manual_override(db, "123", ["deep house"])
+        db.commit()  # must not raise for a track never enqueued
+
+        assert db.get(EnrichmentState, "123") is None
+
+
+def test_clearing_a_manual_override_returns_the_track_to_pending():
+    session_local = _fresh_db()
+    with session_local() as db:
+        db.add(EnrichmentState(rb_content_id="123", status="none_found"))
+        db.commit()
+        set_manual_override(db, "123", ["deep house"])
+        db.commit()
+
+        set_manual_override(db, "123", [])
+        db.commit()
+
+        state = db.get(EnrichmentState, "123")
+        assert state.status == "pending"
+        assert state.last_source is None
+        assert db.query(EnrichedGenre).filter_by(rb_content_id="123").count() == 0

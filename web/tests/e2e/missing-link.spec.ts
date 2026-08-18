@@ -16,6 +16,14 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
       json: { connected: true, display_name: "DJ Test", product: "premium" },
     }),
   );
+  // EnrichmentPanel (T077) is mounted unconditionally on every page load;
+  // this spec isn't about it, so it always starts empty here.
+  await page.route("**/api/enrichment/status", (route) =>
+    route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
+  );
+  await page.route("**/api/enrichment/unenriched*", (route) =>
+    route.fulfill({ json: { total: 0, items: [] } }),
+  );
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
