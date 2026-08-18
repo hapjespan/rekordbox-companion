@@ -51,6 +51,19 @@ def has_manual_override(db: Session, rb_content_id: str) -> bool:
     )
 
 
+def set_manual_override(db: Session, rb_content_id: str, genres: list[str]) -> None:
+    """A human setting the override IS the authoritative action (FR-028):
+    unlike `apply_genres`, this always replaces whatever rows exist --
+    manual or automated -- rather than refusing because a manual row
+    already exists."""
+    db.query(EnrichedGenre).filter_by(rb_content_id=rb_content_id).delete()
+    now = _utcnow()
+    for genre in genres:
+        db.add(
+            EnrichedGenre(rb_content_id=rb_content_id, genre=genre, source="manual", updated_at=now)
+        )
+
+
 def apply_genres(db: Session, rb_content_id: str, genres: list[str], source: str) -> None:
     """Replace a track's automated genre rows from `source` with `genres`.
     No-ops entirely if a manual override exists (FR-028) -- an enriched

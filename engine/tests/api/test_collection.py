@@ -2,9 +2,13 @@
 T062: GET /api/collection -- search/sort/paginate over it (FR-024, US5).
 """
 
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
 from companion.api.collection import get_database
+from companion.db.models import EnrichedGenre
+from companion.db.session import Base, create_session_factory, get_db
 from companion.main import create_app
 from companion.rb.reader import CollectionTrack, PlaylistNode
 
@@ -163,8 +167,23 @@ def test_playlists_returns_the_tree_from_reader(monkeypatch):
     assert body[1]["parent_id"] == "root"
 
 
-def _seeded_client():
+def _seeded_client(genre_rows=()):
+    engine, session_local = create_session_factory("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    if genre_rows:
+        with session_local() as db:
+            db.add_all(genre_rows)
+            db.commit()
+
+    def override_get_db():
+        db = session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
     app = create_app()
+    app.dependency_overrides[get_db] = override_get_db
     app.state.collection_index.rebuild(
         [
             CollectionTrack(
@@ -287,8 +306,35 @@ def test_collection_item_shape_matches_the_contract():
         "duration_ms": 210_000,
         "bpm": 123.0,
         "play_count": 50,
-        "genres": [],  # US6 (T067+) wires real enriched-genre data in here
+        "genres": [],
         "format": "mp3",
+    }
+
+
+def test_collection_item_reports_real_enriched_genres():
+    client = _seeded_client(
+        genre_rows=[
+            EnrichedGenre(
+                rb_content_id="rb1",
+                genre="house",
+                source="musicbrainz",
+                updated_at=datetime(2026, 8, 18),
+            ),
+            EnrichedGenre(
+                rb_content_id="rb1",
+                genre="disco",
+                source="musicbrainz",
+                updated_at=datetime(2026, 8, 18),
+            ),
+        ]
+    )
+
+    response = client.get("/api/collection", params={"query": "one more time"})
+
+    item = response.json()["items"][0]
+    assert {(g["genre"], g["source"]) for g in item["genres"]} == {
+        ("house", "musicbrainz"),
+        ("disco", "musicbrainz"),
     }
 
 

@@ -11,7 +11,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from companion.api import auth, collection, config, events, health, missing, player, sync
+from companion.api import (
+    auth,
+    collection,
+    config,
+    enrichment,
+    events,
+    health,
+    missing,
+    player,
+    sync,
+)
 from companion.config import REPO_ROOT
 from companion.logging import configure_logging
 from companion.rb.index import CollectionIndex
@@ -59,6 +69,7 @@ def create_app() -> FastAPI:
     app.include_router(missing.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
     app.include_router(player.router, prefix="/api")
+    app.include_router(enrichment.router, prefix="/api")
 
     if WEB_DIST.is_dir():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")

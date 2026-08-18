@@ -3,10 +3,15 @@ GET /api/collection: search/sort/paginate over it (T062, FR-024, US5).
 """
 
 import time
+from collections import defaultdict
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from companion.db.models import EnrichedGenre
+from companion.db.session import get_db
 from companion.matching.normalize import normalize
 from companion.rb.index import IndexEntry
 from companion.rb.reader import open_database, read_collection_snapshot, read_playlist_tree
@@ -79,7 +84,7 @@ def _format_from_location(location: str | None) -> str | None:
     return Path(location).suffix.lstrip(".").lower() or None
 
 
-def _entry_to_collection_track(entry: IndexEntry) -> dict:
+def _entry_to_collection_track(entry: IndexEntry, genres: list[dict]) -> dict:
     return {
         "rb_content_id": entry.rb_content_id,
         "artist": entry.artist,
@@ -87,13 +92,20 @@ def _entry_to_collection_track(entry: IndexEntry) -> dict:
         "duration_ms": entry.duration_ms,
         "bpm": entry.bpm,
         "play_count": entry.play_count,
-        # US6 (T067+) wires real enriched-genre data in here; genre
-        # enrichment doesn't exist yet, so every track reports none, the
-        # same stub-and-replace forward-reference T013 already established
-        # for norm_artist/norm_title before T024's pipeline landed.
-        "genres": [],
+        "genres": genres,
         "format": _format_from_location(entry.location),
     }
+
+
+def _genres_by_track(db: Session, entries: list[IndexEntry]) -> dict[str, list[dict]]:
+    """One batched query for the whole page, not one per track (US5's
+    100ms/page budget, contracts/api.md)."""
+    ids = [e.rb_content_id for e in entries]
+    rows = db.execute(select(EnrichedGenre).where(EnrichedGenre.rb_content_id.in_(ids))).scalars()
+    genres_by_id: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        genres_by_id[row.rb_content_id].append({"genre": row.genre, "source": row.source})
+    return genres_by_id
 
 
 @router.get("/collection")
@@ -103,6 +115,7 @@ def get_collection(
     sort: str = "artist",
     limit: int = 50,
     offset: int = 0,
+    db: Session = Depends(get_db),
 ):
     entries = request.app.state.collection_index.entries
 
@@ -118,7 +131,13 @@ def get_collection(
 
     total = len(entries)
     page = entries[offset : offset + limit]
-    return {"total": total, "items": [_entry_to_collection_track(e) for e in page]}
+    genres_by_id = _genres_by_track(db, page)
+    return {
+        "total": total,
+        "items": [
+            _entry_to_collection_track(e, genres_by_id.get(e.rb_content_id, [])) for e in page
+        ],
+    }
 
 
 @router.get("/playlists")

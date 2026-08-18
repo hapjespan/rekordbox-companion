@@ -10,7 +10,12 @@ from sqlalchemy import select
 
 from companion.db.models import EnrichedGenre, EnrichmentState
 from companion.db.session import Base, create_session_factory
-from companion.enrichment.runner import enqueue_pending, run
+from companion.enrichment.runner import (
+    MAX_CONSECUTIVE_FAILED_BATCHES,
+    enqueue_pending,
+    run,
+    run_until_drained,
+)
 from companion.rb.reader import open_database, read_collection_snapshot
 
 FIXTURE_MASTER_DB = Path(__file__).resolve().parent.parent / "fixtures" / "master.db"
@@ -177,3 +182,60 @@ def test_run_leaves_master_db_byte_for_byte_unchanged(tmp_path):
         db.commit()
 
     assert db_copy.read_bytes() == before
+
+
+def test_run_until_drained_processes_every_track_in_small_chunks():
+    session_local = _fresh_db()
+    with session_local() as db:
+        enqueue_pending(db, ["1", "2", "3"])
+        db.commit()
+        source = _FakeSource({"A": ["house"], "B": ["techno"], "C": ["disco"]})
+        artists = {"1": "A", "2": "B", "3": "C"}
+        progress_calls = []
+
+        run_until_drained(db, source, artists, budget=1, on_progress=progress_calls.append)
+
+        assert len(progress_calls) == 3  # one per chunk of 1
+        assert all(db.get(EnrichmentState, i).status == "done" for i in ["1", "2", "3"])
+
+
+def test_run_until_drained_stops_after_persistent_failures_instead_of_spinning_forever():
+    """A source that is unreachable (e.g. no network) must not spin the loop
+    forever with zero backoff -- a genuine, plausible failure mode for a
+    local-first app that goes offline mid-run."""
+    session_local = _fresh_db()
+    with session_local() as db:
+        enqueue_pending(db, ["1"])
+        db.commit()
+
+        run_until_drained(db, _FailingSource(), {"1": "Daft Punk"}, budget=10)
+
+        state = db.get(EnrichmentState, "1")
+        assert state.status == "failed"  # still retryable by a later call
+        assert state.attempted_at is not None
+
+
+def test_run_until_drained_resets_the_failure_counter_on_real_progress():
+    class _FlakySource:
+        name = "fake"
+        calls = 0
+
+        def genres_for(self, artist: str) -> list[str]:
+            self.calls += 1
+            if self.calls % 2 == 0:
+                raise RuntimeError("simulated intermittent failure")
+            return ["house"]
+
+    session_local = _fresh_db()
+    with session_local() as db:
+        # more tracks than MAX_CONSECUTIVE_FAILED_BATCHES so a naive counter
+        # that never resets would give up long before the queue drains
+        ids = [str(i) for i in range(MAX_CONSECUTIVE_FAILED_BATCHES * 2 + 2)]
+        enqueue_pending(db, ids)
+        db.commit()
+        artists = dict.fromkeys(ids, "Daft Punk")
+
+        run_until_drained(db, _FlakySource(), artists, budget=1)
+
+        done_count = sum(1 for i in ids if db.get(EnrichmentState, i).status == "done")
+        assert done_count > 0  # succeeded between the failures, not given up early
