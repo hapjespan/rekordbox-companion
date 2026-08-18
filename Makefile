@@ -1,6 +1,12 @@
 .PHONY: setup dev test build run
 
-UVICORN = uv run uvicorn companion.main:app --host 127.0.0.1 --port 8787
+# DEV_HOST lets the containerized dev environment bind 0.0.0.0 (docker-compose.yml
+# sets it), while the real target -- the DJ's Mac, no container, no extra network
+# namespace hop -- keeps the documented 127.0.0.1-only default. Binding the
+# in-container process to 127.0.0.1 is unreachable through Docker's published
+# port: the port mapping delivers traffic to the container's own network
+# interface, not its loopback.
+UVICORN = uv run uvicorn companion.main:app --host $${DEV_HOST:-127.0.0.1} --port 8787
 
 setup:
 	cd engine && uv sync

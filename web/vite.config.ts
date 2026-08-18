@@ -5,7 +5,12 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    host: "127.0.0.1",
+    // DEV_HOST lets the containerized dev environment bind 0.0.0.0
+    // (docker-compose.yml sets it) so Docker's published port can reach the
+    // process; a bare 127.0.0.1 process bind inside a container only accepts
+    // connections from its own network namespace, never from the host's
+    // published port.
+    host: process.env.DEV_HOST ?? "127.0.0.1",
     // Dev-only: routes the SPA's relative /api calls to the real backend
     // (127.0.0.1:8787) as same-origin, avoiding the need for CORS headers
     // FastAPI doesn't set (production doesn't need this -- the built SPA is
