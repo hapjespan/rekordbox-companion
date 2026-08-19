@@ -87,10 +87,80 @@ def build_fake_install(source_db: Path) -> Path:
     return db_copy
 
 
+def install_search_fetcher(app, query: str, count: int) -> None:
+    """Make every pasted playlist URL resolve to a real Spotify SEARCH result.
+
+    Spotify currently refuses this app's account all track-level data: listing
+    playlists and reading a playlist's metadata both succeed, while the playlist's
+    tracks, and the account's saved tracks, answer a bare 403, and the metadata
+    comes back with its `tracks` object stripped. That is a permission on the
+    Spotify application, not something the code can fix, and it leaves the match
+    report, the review queue and the buy queue with nothing to show.
+
+    Search still works, so this substitutes it: the tracks are real Spotify
+    tracks with real artists, titles, durations and ISRCs, and everything
+    downstream of the fetch is the app's genuine behaviour, matcher and
+    missing-track spawn included. Only where the track list came from differs,
+    which is why this lives in a dev script behind an explicit flag and prints a
+    loud line saying so.
+    """
+    import httpx
+
+    from companion.api.sync import _FetchedPlaylist, _FetchedTrack, get_spotify_fetcher
+    from companion.db.session import get_db
+    from companion.integrations import spotify
+
+    def fetcher_override():
+        db = next(get_db())
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                token = spotify._get_valid_access_token(db, client)
+                response = client.get(
+                    "https://api.spotify.com/v1/search",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"q": query, "type": "track", "limit": min(count, 50)},
+                )
+                response.raise_for_status()
+                items = response.json().get("tracks", {}).get("items", [])
+        finally:
+            db.close()
+
+        tracks = [
+            _FetchedTrack(
+                spotify_track_id=item.get("id"),
+                isrc=(item.get("external_ids") or {}).get("isrc"),
+                artist=", ".join(a["name"] for a in item.get("artists", [])),
+                title=item.get("name") or "",
+                duration_ms=item.get("duration_ms"),
+            )
+            for item in items
+            if item
+        ]
+
+        def fetch(_playlist_url: str) -> _FetchedPlaylist:
+            return _FetchedPlaylist(
+                name=f"DEMO: {query}", snapshot_id=f"demo-{query}", tracks=tracks
+            )
+
+        return fetch
+
+    app.dependency_overrides[get_spotify_fetcher] = fetcher_override
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("database", type=Path, help="master.db to serve a copy of")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument(
+        "--demo-tracks-from-search",
+        metavar="QUERY",
+        help=(
+            "dev demo: resolve any pasted playlist URL to real Spotify search "
+            "results for QUERY, because Spotify refuses this account's playlist "
+            "tracks (see install_search_fetcher)"
+        ),
+    )
+    parser.add_argument("--demo-count", type=int, default=25)
     args = parser.parse_args()
 
     source_db = args.database if args.database.is_absolute() else REPO_ROOT / args.database
@@ -119,7 +189,18 @@ def main() -> int:
 
     import uvicorn
 
-    uvicorn.run("companion.main:app", host=host, port=args.port, log_level="info")
+    from companion.main import create_app
+
+    app = create_app()
+    if args.demo_tracks_from_search:
+        install_search_fetcher(app, args.demo_tracks_from_search, args.demo_count)
+        print(
+            f"DEMO MODE: any playlist URL resolves to {args.demo_count} Spotify search "
+            f"results for {args.demo_tracks_from_search!r}, because Spotify refuses this "
+            "account's playlist tracks"
+        )
+
+    uvicorn.run(app, host=host, port=args.port, log_level="info")
     return 0
 
 
