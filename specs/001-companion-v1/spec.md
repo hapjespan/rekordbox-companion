@@ -486,16 +486,22 @@ folder and playlist tree to a fixture Rekordbox database.
 - **FR-023**: The system MUST close a Missing Track automatically when a later
   Sync Session of the same playlist URL matches it against the Collection.
 - **FR-041**: The system MUST let the DJ hear a Missing Track before buying it,
-  by playing the store's own preview of the exact track the Store Link leads to,
-  and MUST show that track's price beside the link. A track without a preview or
+  and MUST show that track's price beside the link. Playback runs through Spotify,
+  the source the track came from, using the same Web Playback SDK the Review Queue
+  uses, so the two share one player rather than each owning one. The store's own
+  preview remains the fallback for when Spotify cannot play, because hearing the
+  wrong master beats hearing nothing. Amended 2026-08-19 on the owner's
+  instruction; ADR 0022 supersedes ADR 0021 and records why. A track without a preview or
   without a price says so rather than offering a dead control. Added 2026-08-19
   on the owner's request after first real use: deciding what to buy from artist
   and title alone is guesswork, and the preview, the price and the link all
   arrive in the store lookup the app already performs, so this costs no new
   service, credential or outbound host.
 - **FR-042**: On macOS the Store Link MUST be openable in the Music application
-  rather than the browser, since the browser only offers excerpts of what the
-  Music app plays and sells in full. The same store page serves both: swapping
+  rather than the browser, and MUST land on the iTunes Store view of the track
+  rather than on its Apple Music page, since buying is the point of the link.
+  Apple's partner documentation names `app=itunes` as the parameter that sends a
+  music link to the Store instead of defaulting to Apple Music. The same store page serves both: swapping
   `https` for the `itmss` scheme on a `music.apple.com` URL hands it to the Music
   app, so the app keeps one stored link and offers both destinations. The browser
   route stays available, because the app is developed and can be viewed on
