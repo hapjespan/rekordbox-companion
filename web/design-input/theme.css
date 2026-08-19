@@ -93,6 +93,18 @@
   --spacing-300: 300px;
   --spacing-340: 340px;
   --spacing-1180: 1180px;
+  --spacing-3: 3px;
+  --spacing-15: 15px;
+  --spacing-22: 22px;
+  --spacing-52: 52px;
+  --spacing-60: 60px;
+  --spacing-70: 70px;
+  --spacing-80: 80px;
+  --spacing-90: 90px;
+  --spacing-110: 110px;
+  --spacing-120: 120px;
+  --spacing-180: 180px;
+  --spacing-240: 240px;
 
   /* Border Radius */
   --radius-sm: 2px;
