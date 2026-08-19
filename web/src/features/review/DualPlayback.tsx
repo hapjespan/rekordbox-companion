@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { apiClient } from "../../api/client";
-import { asApiResponse } from "../spotify-sync/types";
-import type { ApiError } from "../spotify-sync/types";
+import { useSpotifyPlayer } from "../playback/useSpotifyPlayer";
 
 interface DualPlaybackCandidate {
   rbContentId: string;
@@ -22,74 +20,19 @@ interface DualPlaybackProps {
   previewRequestId?: number;
 }
 
-interface PlayerToken {
-  access_token: string;
-  expires_in: number;
-}
-
 type Source = "local" | "spotify";
-
-interface SpotifyPlayerReadyPayload {
-  device_id: string;
-}
-
-interface SpotifyPlayerInstance {
-  connect: () => Promise<boolean>;
-  disconnect: () => void;
-  pause: () => Promise<void>;
-  addListener: (
-    event:
-      "ready" | "not_ready" | "account_error" | "authentication_error" | "initialization_error",
-    callback: (payload: SpotifyPlayerReadyPayload | { message: string }) => void,
-  ) => void;
-}
-
-interface SpotifySdk {
-  Player: new (options: {
-    name: string;
-    getOAuthToken: (callback: (token: string) => void) => void;
-    volume?: number;
-  }) => SpotifyPlayerInstance;
-}
-
-declare global {
-  interface Window {
-    Spotify?: SpotifySdk;
-    onSpotifyWebPlaybackSDKReady?: () => void;
-  }
-}
-
-const SDK_SRC = "https://sdk.scdn.co/spotify-player.js";
-
-// Loaded at most once per page, regardless of how many DualPlayback
-// instances mount (the review queue only ever shows one at a time, but a
-// second script tag would still be wasteful and the SDK singleton-style
-// `onSpotifyWebPlaybackSDKReady` global only fires once anyway).
-let sdkLoadPromise: Promise<SpotifySdk> | null = null;
-
-function loadSpotifySdk(): Promise<SpotifySdk> {
-  if (window.Spotify) return Promise.resolve(window.Spotify);
-  if (!sdkLoadPromise) {
-    sdkLoadPromise = new Promise((resolve) => {
-      window.onSpotifyWebPlaybackSDKReady = () => resolve(window.Spotify as SpotifySdk);
-      const script = document.createElement("script");
-      script.src = SDK_SRC;
-      script.async = true;
-      document.head.appendChild(script);
-    });
-  }
-  return sdkLoadPromise;
-}
 
 // T040 (FR-013): hear both sides of a doubtful Match -- the local candidate
 // via T038's Range-streaming endpoint, the Spotify original full-length via
-// the Web Playback SDK (T099's short-lived player token, ADR 0009). Per
-// spec.md's own fallback assumption ("without Premium the review flow
-// degrades to local preview only" / "local preview plus opening the track
-// in Spotify's own client"), any failure on the Spotify side -- no session,
-// an expired session, a non-Premium account, or the SDK failing to connect
-// -- degrades to a `spotify:track:` deep link instead of embedded playback,
-// never a dead control or a silent crash.
+// the Web Playback SDK (T099's short-lived player token, ADR 0009; the SDK
+// connection itself is shared page-wide with the buy queue via
+// useSpotifyPlayer, ADR 0022). Per spec.md's own fallback assumption
+// ("without Premium the review flow degrades to local preview only" /
+// "local preview plus opening the track in Spotify's own client"), any
+// failure on the Spotify side -- no session, an expired session, a
+// non-Premium account, or the SDK failing to connect -- degrades to a
+// `spotify:track:` deep link instead of embedded playback, never a dead
+// control or a silent crash.
 export function DualPlayback({
   spotifyTrackId,
   spotifyArtist,
@@ -98,138 +41,32 @@ export function DualPlayback({
   previewRequestId,
 }: DualPlaybackProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const playerRef = useRef<SpotifyPlayerInstance | null>(null);
 
   const [activeSource, setActiveSource] = useState<Source | null>(null);
-  const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [spotifyUnavailable, setSpotifyUnavailable] = useState<ApiError | null>(null);
+  const spotify = useSpotifyPlayer(spotifyTrackId !== null);
+  const { deviceId, error: spotifyUnavailable, retry } = spotify;
 
   // A new queue item is an entirely new playback context: stale
-  // playing/paused state, a stale device, or a stale failure from the
-  // PREVIOUS item must never leak into the next one (review finding).
+  // playing/paused state from the PREVIOUS item must never leak into the
+  // next one (review finding). The shared player's device connection
+  // itself is NOT torn down here (ADR 0022 -- it stays alive for whichever
+  // other consumer, review or buy queue, still needs it); `retry()` instead
+  // gives this new item the same "fresh chance" a full reconnect used to
+  // give implicitly, by clearing a stale failure from the previous item
+  // without disconnecting the one shared device.
   useEffect(() => {
     setActiveSource(null);
-    setDeviceId(null);
-    setSpotifyUnavailable(null);
-  }, [spotifyTrackId, candidate?.rbContentId]);
-
-  // Never cache the player token. The backend hands out the REMAINING
-  // lifetime of the upstream access token minus a 60s skew
-  // (engine/src/companion/integrations/spotify.py, _EXPIRY_SKEW), so a token
-  // fetched at mount can be ~61 seconds from useless -- far shorter than a
-  // review session. Every consumer (the SDK's own getOAuthToken callback,
-  // which the SDK also calls on each renewal, and the Web API play request)
-  // therefore fetches a fresh one, and a failure degrades exactly like the
-  // documented fallbacks: local preview plus a `spotify:track:` deep link
-  // (review finding).
-  const requestPlayerToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const { data, error } = await apiClient.GET("/api/auth/spotify/player-token");
-      if (error) {
-        setSpotifyUnavailable(asApiResponse<ApiError>(error));
-        return null;
-      }
-      return asApiResponse<PlayerToken>(data).access_token;
-    } catch {
-      setSpotifyUnavailable({
-        code: "spotify_playback_unavailable",
-        message: "Spotify-afspelen kon niet worden gestart.",
-      });
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!spotifyTrackId) return;
-    let cancelled = false;
-
-    function fail(error: ApiError) {
-      if (cancelled) return;
-      setSpotifyUnavailable(error);
-    }
-
-    async function connect() {
-      try {
-        // Fetched up front purely to establish that a usable Spotify session
-        // exists at all: without one there is nothing to connect and the
-        // component degrades to the deep link right away.
-        const token = await requestPlayerToken();
-        if (cancelled || token === null) return;
-
-        const sdk = await loadSpotifySdk();
-        if (cancelled) return;
-
-        const player = new sdk.Player({
-          name: "Rekordbox Companion",
-          getOAuthToken: (callback) => {
-            // No token means the session is gone; `requestPlayerToken` has
-            // already switched this component to the deep-link fallback, so
-            // the callback is simply never invoked rather than handing the
-            // SDK an empty string to choke on.
-            void requestPlayerToken().then((fresh) => {
-              if (fresh !== null) callback(fresh);
-            });
-          },
-        });
-        player.addListener("ready", (payload) => {
-          if (cancelled) return;
-          setDeviceId((payload as SpotifyPlayerReadyPayload).device_id);
-        });
-        player.addListener("not_ready", () => {
-          if (cancelled) return;
-          setDeviceId(null);
-        });
-        player.addListener("account_error", () => {
-          fail({
-            code: "spotify_account_error",
-            message: "Spotify Premium is vereist voor afspelen in de app.",
-          });
-        });
-        // The SDK raises this when the token it was handed is rejected --
-        // the expiry case the review flow used to die silently on. Same
-        // degradation as account_error: the DJ keeps local preview and gets
-        // the deep link, and the message names the fix.
-        player.addListener("authentication_error", () => {
-          fail({
-            code: "spotify_authentication_error",
-            message: "De Spotify-sessie is verlopen. Verbind opnieuw met Spotify.",
-          });
-        });
-        player.addListener("initialization_error", () => {
-          fail({
-            code: "spotify_playback_unavailable",
-            message: "Spotify-afspelen kon niet worden gestart in deze browser.",
-          });
-        });
-        playerRef.current = player;
-        await player.connect();
-      } catch {
-        // Network failure reaching our backend, the SDK's CDN, or Spotify's
-        // own connect() rejecting -- all fall back the same way as a
-        // documented error response (spec.md: local preview plus a
-        // spotify:track: deep link), never an unhandled rejection.
-        fail({
-          code: "spotify_playback_unavailable",
-          message: "Spotify-afspelen kon niet worden gestart.",
-        });
-      }
-    }
-
-    void connect();
-
-    return () => {
-      cancelled = true;
-      playerRef.current?.disconnect();
-      playerRef.current = null;
-    };
-  }, [spotifyTrackId, requestPlayerToken]);
+    retry();
+    // `retry` is stable (useCallback with no deps in useSpotifyPlayer), but
+    // listing it keeps this honest about being a dependency.
+  }, [spotifyTrackId, candidate?.rbContentId, retry]);
 
   async function pauseLocal() {
     audioRef.current?.pause();
   }
 
   async function pauseSpotify() {
-    await playerRef.current?.pause();
+    await spotify.pause();
   }
 
   async function playLocal() {
@@ -238,31 +75,9 @@ export function DualPlayback({
   }
 
   async function playSpotify() {
-    if (!deviceId || !spotifyTrackId) return;
-    // A fresh token per request, for the same expiry reason as above: this
-    // PUT can happen many minutes into a review session.
-    const token = await requestPlayerToken();
-    if (token === null) return;
-    try {
-      const response = await fetch(
-        `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ uris: [`spotify:track:${spotifyTrackId}`] }),
-        },
-      );
-      if (!response.ok) throw new Error(`Spotify play request failed: ${response.status}`);
-      setActiveSource("spotify");
-    } catch {
-      setSpotifyUnavailable({
-        code: "spotify_playback_unavailable",
-        message: "Spotify-afspelen kon niet worden gestart.",
-      });
-    }
+    if (!spotifyTrackId) return;
+    const sent = await spotify.playTrack(spotifyTrackId);
+    if (sent) setActiveSource("spotify");
   }
 
   // Single, shared toggle so local and Spotify playback can never both be

@@ -75,6 +75,13 @@ def _missing_dict(missing: MissingTrack, track: SyncTrack) -> dict:
         "itunes_url_chosen": missing.itunes_url_chosen,
         "effective_url": effective_url,
         "no_link_found": effective_url is None,
+        # ADR 0022: every Missing Track originates in a Spotify playlist
+        # track, so this rides along on the same `sync_track` join as
+        # artist/title above -- never a second lookup. Nullable because
+        # `SyncTrack.spotify_track_id` itself is (NULL for a local/
+        # unavailable Spotify track); the buy queue falls back to the store
+        # preview when it is absent.
+        "spotify_track_id": track.spotify_track_id,
         # FR-041: the preview and the price of the automatically picked
         # store page, each independently nullable -- a track can have no
         # preview, and a streaming-only or album-only track has no

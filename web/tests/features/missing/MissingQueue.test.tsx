@@ -54,6 +54,17 @@ const TRACK_LINK_WITHOUT_PREVIEW_OR_PRICE = {
   itunes_currency: null,
 };
 
+// ADR 0022: a Missing Track that carries the Spotify id it originated from
+// -- the buy queue plays this one through Spotify rather than the store
+// preview.
+const TRACK_WITH_SPOTIFY_ID = {
+  ...TRACK_WITH_LINK,
+  id: 6,
+  artist: "Justice",
+  title: "D.A.N.C.E.",
+  spotify_track_id: "sp-dance-1",
+};
+
 beforeEach(() => {
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   // jsdom implements neither, so both are stubbed the same way
@@ -73,9 +84,11 @@ describe("MissingQueue", () => {
 
     expect(await screen.findByText("Daft Punk – One More Time")).toBeInTheDocument();
     expect(screen.getByText("Status: Open")).toBeInTheDocument();
+    // ADR 0022: both the app link and the browser link land on the iTunes
+    // Store view (`app=itunes`), since buying is the point of the link.
     expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
       "href",
-      "https://music.apple.com/nl/album/one-more-time/1",
+      "https://music.apple.com/nl/album/one-more-time/1?app=itunes",
     );
   });
 
@@ -90,11 +103,51 @@ describe("MissingQueue", () => {
 
     expect(screen.getByRole("link", { name: "Open in Muziek-app" })).toHaveAttribute(
       "href",
-      "itmss://music.apple.com/nl/album/one-more-time/1",
+      "itmss://music.apple.com/nl/album/one-more-time/1?app=itunes",
     );
     expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
       "href",
-      "https://music.apple.com/nl/album/one-more-time/1",
+      "https://music.apple.com/nl/album/one-more-time/1?app=itunes",
+    );
+  });
+
+  // ADR 0022 (owner instruction after real use): the store link must land
+  // on the iTunes Store, not on Apple Music, and `app=itunes` is Apple's
+  // own documented parameter for that. Appended to an existing query string
+  // rather than replacing it -- the stored link already carries `?i=<id>`.
+  it("appends app=itunes to an existing query string instead of replacing it (ADR 0022)", async () => {
+    mockList([
+      {
+        ...TRACK_WITH_LINK,
+        effective_url: "https://music.apple.com/nl/album/one-more-time/1?i=123&uo=4",
+      },
+    ]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://music.apple.com/nl/album/one-more-time/1?i=123&uo=4&app=itunes",
+    );
+    expect(screen.getByRole("link", { name: "Open in Muziek-app" })).toHaveAttribute(
+      "href",
+      "itmss://music.apple.com/nl/album/one-more-time/1?i=123&uo=4&app=itunes",
+    );
+  });
+
+  it("does not duplicate app=itunes when the stored link already carries it", async () => {
+    mockList([
+      {
+        ...TRACK_WITH_LINK,
+        effective_url: "https://music.apple.com/nl/album/one-more-time/1?i=123&app=itunes",
+      },
+    ]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://music.apple.com/nl/album/one-more-time/1?i=123&app=itunes",
     );
   });
 
@@ -523,6 +576,170 @@ describe("MissingQueue", () => {
       // The `stack:` variant comes from `--breakpoint-stack` in theme.css, so
       // this asserts the token is used rather than a hardcoded width.
       expect(shell.className).toContain("stack:grid-cols-");
+    });
+  });
+
+  // ADR 0022 (owner instruction after real use): the buy queue plays a
+  // Missing Track through Spotify -- the source it came from -- rather than
+  // the store's own 30 second preview, using the same shared Web Playback
+  // SDK player the Review Queue's DualPlayback uses. The store preview
+  // stays as the fallback for a row with no Spotify id, or when Spotify
+  // itself cannot play (no Premium, an SDK error).
+  //
+  // NOT VERIFIED: this container has no Spotify Premium session and no
+  // audio output. These tests cover the token fetch, the SDK wiring, the
+  // fallback-to-preview path and the mutual-exclusion state, never that
+  // audio actually plays -- the same limitation DualPlayback.test.tsx's own
+  // header comment already states for the Review Queue side of this same
+  // shared player.
+  describe("Spotify playback in the buy queue (ADR 0022)", () => {
+    class FakeSpotifyPlayer {
+      static instances: FakeSpotifyPlayer[] = [];
+      listeners: Record<string, ((payload: unknown) => void)[]> = {};
+      connect = vi.fn().mockResolvedValue(true);
+      disconnect = vi.fn();
+      pause = vi.fn().mockResolvedValue(undefined);
+
+      constructor(public options: { getOAuthToken: (cb: (token: string) => void) => void }) {
+        FakeSpotifyPlayer.instances.push(this);
+      }
+
+      addListener(event: string, callback: (payload: unknown) => void) {
+        (this.listeners[event] ??= []).push(callback);
+      }
+
+      emit(event: string, payload: unknown) {
+        for (const cb of this.listeners[event] ?? []) cb(payload);
+      }
+    }
+
+    // `apiClient.GET` serves both GET /api/missing (the queue's own list)
+    // and GET /api/auth/spotify/player-token (useSpotifyPlayer) in this
+    // component tree, so the two can no longer share one blanket
+    // mockResolvedValue the way plain `mockList` does elsewhere in this
+    // file -- each call is routed by its own path argument instead.
+    function mockListAndToken(
+      tracks: unknown[],
+      tokenResult: { data?: unknown; error?: unknown } = {
+        data: { access_token: "tok-123", expires_in: 3600 },
+        error: undefined,
+      },
+    ) {
+      vi.mocked(apiClient.GET).mockImplementation(((path: string) => {
+        if (path === "/api/auth/spotify/player-token") return Promise.resolve(tokenResult);
+        return Promise.resolve({ data: tracks, error: undefined });
+      }) as never);
+    }
+
+    beforeEach(() => {
+      FakeSpotifyPlayer.instances = [];
+      window.Spotify = { Player: FakeSpotifyPlayer as never };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    });
+
+    afterEach(() => {
+      delete window.Spotify;
+      delete window.onSpotifyWebPlaybackSDKReady;
+      vi.unstubAllGlobals();
+    });
+
+    it("plays the Spotify track (not the store preview) for a row that carries a Spotify id, and names the source", async () => {
+      mockListAndToken([TRACK_WITH_SPOTIFY_ID]);
+      render(<MissingQueue />);
+      await screen.findByText("Justice – D.A.N.C.E.");
+
+      // Spotify replaces the preview control here -- ADR 0022 makes it a
+      // fallback-replacing primary, not an alternative offered alongside it.
+      expect(screen.queryByRole("button", { name: /Speel fragment/ })).not.toBeInTheDocument();
+      expect(screen.getByText("Bron: Spotify (volledige track)")).toBeInTheDocument();
+
+      const button = screen.getByRole("button", { name: "Speel Justice – D.A.N.C.E. via Spotify" });
+      expect(button).toBeDisabled();
+
+      await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+      FakeSpotifyPlayer.instances[0].emit("ready", { device_id: "device-1" });
+      await waitFor(() => expect(button).not.toBeDisabled());
+
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(
+          "https://api.spotify.com/v1/me/player/play?device_id=device-1",
+          expect.objectContaining({
+            method: "PUT",
+            headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+            body: JSON.stringify({ uris: ["spotify:track:sp-dance-1"] }),
+          }),
+        ),
+      );
+      expect(
+        await screen.findByRole("button", { name: "Pauzeer Justice – D.A.N.C.E. via Spotify" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("falls back to the store preview when the SDK reports no Premium (ADR 0022)", async () => {
+      mockListAndToken([TRACK_WITH_SPOTIFY_ID]);
+      render(<MissingQueue />);
+      await screen.findByText("Justice – D.A.N.C.E.");
+
+      await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+      FakeSpotifyPlayer.instances[0].emit("account_error", { message: "no premium" });
+
+      expect(
+        await screen.findByRole("button", { name: "Speel fragment van Justice – D.A.N.C.E." }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Bron: 30 seconden fragment (store)")).toBeInTheDocument();
+    });
+
+    it("falls back to the store preview when the row has no Spotify id", async () => {
+      mockListAndToken([TRACK_WITH_LINK]);
+      render(<MissingQueue />);
+      await screen.findByText("Daft Punk – One More Time");
+
+      expect(
+        screen.getByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Bron: 30 seconden fragment (store)")).toBeInTheDocument();
+      // No per-row Spotify control renders for a track with no Spotify id
+      // (the summary panel's own footnote below the two-column shell
+      // mentions Spotify generically and is not scoped to this row).
+      expect(screen.queryByRole("button", { name: /via Spotify/ })).not.toBeInTheDocument();
+    });
+
+    it("stops one row's Spotify playback when another row starts (only one thing plays at a time)", async () => {
+      const SECOND = {
+        ...TRACK_WITH_SPOTIFY_ID,
+        id: 7,
+        artist: "Chic",
+        title: "Le Freak",
+        spotify_track_id: "sp-freak-1",
+      };
+      mockListAndToken([TRACK_WITH_SPOTIFY_ID, SECOND]);
+      render(<MissingQueue />);
+      await screen.findByText("Justice – D.A.N.C.E.");
+
+      await waitFor(() => expect(FakeSpotifyPlayer.instances).toHaveLength(1));
+      FakeSpotifyPlayer.instances[0].emit("ready", { device_id: "device-1" });
+
+      const first = await screen.findByRole("button", {
+        name: "Speel Justice – D.A.N.C.E. via Spotify",
+      });
+      const second = screen.getByRole("button", { name: "Speel Chic – Le Freak via Spotify" });
+      await waitFor(() => expect(first).not.toBeDisabled());
+      await waitFor(() => expect(second).not.toBeDisabled());
+
+      fireEvent.click(first);
+      await waitFor(() => expect(first).toHaveTextContent("Pauzeer Spotify-track"));
+
+      fireEvent.click(second);
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Pauzeer Chic – Le Freak via Spotify" }),
+        ).toHaveAttribute("aria-pressed", "true"),
+      );
+      expect(
+        screen.getByRole("button", { name: "Speel Justice – D.A.N.C.E. via Spotify" }),
+      ).toHaveAttribute("aria-pressed", "false");
     });
   });
 });

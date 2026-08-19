@@ -137,13 +137,20 @@ exactly one status per track (FR-003).
 
 `MissingTrack`: `{id, artist, title, status, itunes_url_auto,
 itunes_url_chosen, effective_url, no_link_found: bool, itunes_preview_url,
-itunes_price, itunes_currency}`. The last three are the automatic pick's own
-store preview and price (FR-041, ADR 0021), filled by the same lookup that
-resolves `itunes_url_auto` and each independently `null`: a track can have no
-preview, and a streaming-only or album-only track has no single-track price
-(iTunes signals that by omitting `trackPrice` or returning `-1.00`, both of
-which become `null` here). The preview is played by the browser straight from
-Apple's preview host, never proxied through the backend.
+itunes_price, itunes_currency, spotify_track_id}`. The three price/preview
+fields are the automatic pick's own store preview and price (FR-041, ADR
+0021), filled by the same lookup that resolves `itunes_url_auto` and each
+independently `null`: a track can have no preview, and a streaming-only or
+album-only track has no single-track price (iTunes signals that by omitting
+`trackPrice` or returning `-1.00`, both of which become `null` here). The
+store preview is played by the browser straight from Apple's preview host,
+never proxied through the backend, and is the buy queue's fallback source
+(ADR 0022) for when Spotify cannot play. `spotify_track_id` is the Spotify
+track id the Missing Track originated from (joined through `sync_track`,
+same as `artist`/`title`, no extra lookup); nullable because
+`SyncTrack.spotify_track_id` itself is, and the buy queue plays through
+Spotify (Web Playback SDK, ADR 0022) when it is present and falls back to
+the store preview when it is absent.
 
 ## Enrichment (US6)
 

@@ -17,4 +17,16 @@ export interface MissingTrackDto {
   itunes_preview_url: string | null;
   itunes_price: number | null;
   itunes_currency: string | null;
+  // ADR 0022: the Spotify track id this Missing Track originated from.
+  // Nullable because SyncTrack.spotify_track_id itself is (a local/
+  // unavailable Spotify track); the buy queue plays through Spotify when
+  // this is present and falls back to the store preview above when it is
+  // absent, exactly like an SDK/account error does.
+  //
+  // GET /api/missing returns a plain dict (no Pydantic response_model), so
+  // this field -- like every other field on this type -- has no generated
+  // counterpart in src/api/generated/schema.d.ts; this hand-written type is
+  // the contract, kept in step with contracts/api.md by hand (same
+  // precedent as itunes_preview_url/itunes_price/itunes_currency above).
+  spotify_track_id: string | null;
 }

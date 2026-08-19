@@ -350,6 +350,18 @@ def test_the_queue_reports_an_absent_preview_and_price_as_null():
     assert row["itunes_currency"] is None
 
 
+# ADR 0022: the buy queue plays a Missing Track through Spotify, so the
+# queue must expose the Spotify track id it came from -- it rides along on
+# the same sync_track join as artist/title, no new lookup.
+def test_the_queue_exposes_the_spotify_track_id_the_missing_track_came_from():
+    client, app, session_local = _client_and_app(collection_entries=())
+    _set_fetch(app, [_FakeTrack("sp-abc123", "Artist One", "Track One", 200_000)])
+    client.post("/api/sync/sessions", json={"playlist_url": PLAYLIST_URL})
+
+    row = client.get("/api/missing", params={"status": "open"}).json()[0]
+    assert row["spotify_track_id"] == "sp-abc123"
+
+
 def test_a_refresh_that_now_finds_nothing_clears_a_stale_preview_and_price():
     # Yesterday's price must never stay beside today's absent link.
     client, app, session_local = _client_and_app(collection_entries=())

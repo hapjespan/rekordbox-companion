@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
+import { pauseSharedSpotifyPlayer, useSpotifyPlayer } from "../playback/useSpotifyPlayer";
 import { asApiResponse } from "../spotify-sync/types";
 import type { ApiError } from "../spotify-sync/types";
 import type { MissingTrackDto, MissingTrackStatus } from "./types";
+
+// ADR 0022: playback source for whichever row currently sounds. "spotify"
+// plays the Missing Track's own Spotify track id through the shared Web
+// Playback SDK player (same device the Review Queue's DualPlayback uses);
+// "preview" is the store's own 30 second clip (ADR 0021), kept as the
+// fallback for a track with no Spotify id or when Spotify cannot play (no
+// Premium, an SDK error).
+type PlaybackSource = "preview" | "spotify";
 
 const STATUS_LABELS: Record<MissingTrackStatus, string> = {
   open: "Open",
@@ -70,18 +79,41 @@ function refreshLinksErrorMessageFor(error: ApiError): string {
 // against Apple's own documentation for `itmss`, the iTunes Music Store
 // Secure scheme; the Dutch UI copy below spells out that this is the app
 // destination so the two links never look interchangeable.
-function musicAppUrl(url: string): string | null {
-  let parsed: URL;
+function isAppleStoreUrl(url: string): boolean {
   try {
-    parsed = new URL(url);
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "music.apple.com" || parsed.hostname === "itunes.apple.com")
+    );
   } catch {
-    return null;
+    return false;
   }
-  if (parsed.protocol !== "https:") return null;
-  if (parsed.hostname !== "music.apple.com" && parsed.hostname !== "itunes.apple.com") {
-    return null;
-  }
-  return `itmss:${url.slice("https:".length)}`;
+}
+
+// FR-042 (ADR 0022): Apple's own partner documentation names `app=itunes`
+// as the parameter that sends a music link to the iTunes Store view instead
+// of defaulting to Apple Music -- buying, not listening, is the point of
+// this link. Appended to the stored query string (`?i=<id>&uo=4`), never
+// replacing it, and never duplicated if a link somehow already carries an
+// `app` parameter (a DJ-pasted override could already have one).
+function withStoreAppParam(url: string): string {
+  if (/[?&]app=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}app=itunes`;
+}
+
+// Only ever rewritten for an Apple host: `effective_url` can be the DJ's
+// own pasted override (a free-text field, FR-020), which could point
+// anywhere, and both the scheme swap and the `app=itunes` append would
+// silently corrupt an arbitrary URL that happens to share the same query
+// shape by coincidence.
+function storeUrl(url: string): string {
+  return isAppleStoreUrl(url) ? withStoreAppParam(url) : url;
+}
+
+function musicAppUrl(url: string): string | null {
+  if (!isAppleStoreUrl(url)) return null;
+  return `itmss:${withStoreAppParam(url).slice("https:".length)}`;
 }
 
 // FR-041: the price is stored as an amount plus its ISO code, never as a
@@ -140,11 +172,14 @@ interface MissingTrackRowProps {
   track: MissingTrackDto;
   onStatusChange: (id: number, status: MissingTrackStatus) => void;
   onLinkOverride: (id: number, url: string) => Promise<ApiError | null>;
-  // Playback state is owned by the queue, not the row (FR-041: one preview
-  // at a time), so a row only reports what the DJ asked for and renders
-  // whether it is the row currently sounding.
+  // Playback state is owned by the queue, not the row (FR-041/ADR 0022:
+  // only one thing plays at a time, across BOTH sources), so a row only
+  // reports what the DJ asked for and renders whether it is the row
+  // currently sounding, and through which source.
   isPreviewPlaying: boolean;
   onPreviewChange: (id: number, playing: boolean) => void;
+  isSpotifyPlaying: boolean;
+  onSpotifyPlayingChange: (id: number, playing: boolean) => void;
 }
 
 // T059 (FR-020..FR-022, WCAG): status conveyed in text (STATUS_LABELS),
@@ -157,6 +192,8 @@ function MissingTrackRow({
   onLinkOverride,
   isPreviewPlaying,
   onPreviewChange,
+  isSpotifyPlaying,
+  onSpotifyPlayingChange,
 }: MissingTrackRowProps) {
   const [draftUrl, setDraftUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +203,58 @@ function MissingTrackRow({
   const inputId = useId();
   const errorId = useId();
   const priceLabel = priceLabelFor(track);
+  // ADR 0022: Spotify is the primary source whenever this row has a Spotify
+  // id AND the shared player reports no failure; a track with no id, or a
+  // real account/SDK error, falls back to the store preview below exactly
+  // like ADR 0022 requires. `useSpotifyPlayer` is the page-wide SHARED
+  // player (Review Queue + every buy-queue row with an id) -- this hook
+  // call does not create a second SDK player, it only subscribes to and
+  // ref-counts the one that already exists (or starts it, if this happens
+  // to be the first consumer on the page).
+  // `Boolean(...)` rather than `!== null`: existing fixtures/rows fetched
+  // before this field existed carry no `spotify_track_id` key at all
+  // (`undefined`, not `null`), and both must fall back the same way.
+  const hasSpotifyId = Boolean(track.spotify_track_id);
+  const spotify = useSpotifyPlayer(hasSpotifyId);
+  const spotifyUsable = hasSpotifyId && spotify.error === null;
+
+  // Issues the actual Spotify Web API play request once the queue has
+  // marked this row as the active one. Pausing whatever ELSE was playing
+  // before this happens is the QUEUE's job (handlePlaybackChange below),
+  // done before this row is marked active -- not here -- specifically to
+  // avoid a race between an old row's pause request and this row's play
+  // request landing on the same shared device out of order.
+  //
+  // NOT VERIFIED: this container has no Spotify Premium session and no
+  // audio output, so this has been confirmed to issue the right HTTP
+  // request with a fresh token (useSpotifyPlayer.test.ts), never that audio
+  // actually starts.
+  useEffect(() => {
+    if (!isSpotifyPlaying || !track.spotify_track_id) return;
+    let cancelled = false;
+    void spotify.playTrack(track.spotify_track_id).then((sent) => {
+      // A request that could not even be sent (no device, a network
+      // failure) must release the control rather than leave it reading
+      // "Pauzeer" over silence, the same contract the store preview below
+      // already keeps.
+      if (!cancelled && !sent) onSpotifyPlayingChange(track.id, false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `spotify` is a fresh object every render (useSpotifyPlayer's return
+    // value is not memoised); depending on it would re-issue the play
+    // request on every render instead of only when this row's own playing
+    // state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSpotifyPlaying, track.id, track.spotify_track_id]);
   const musicAppHref = track.effective_url ? musicAppUrl(track.effective_url) : null;
+  // FR-042/ADR 0022: both destinations exist to buy, so both land on the
+  // Store view. The copy action below deliberately still copies the raw
+  // `effective_url` (FR-022's "keep both the automatic and the chosen
+  // link" contract) -- only the two links the app itself opens gain the
+  // `app=itunes` parameter.
+  const browserHref = track.effective_url ? storeUrl(track.effective_url) : null;
 
   // The queue's `isPreviewPlaying` is the single source of truth, so
   // starting another row's preview stops this one through the same path a
@@ -189,6 +277,19 @@ function MissingTrackRow({
       onPreviewChange(track.id, false);
     });
   }, [isPreviewPlaying, onPreviewChange, track.id]);
+
+  // Explicit toggle-off: this is the one place that actually pauses the
+  // shared Spotify device when the DJ stops THIS row's own playback (as
+  // opposed to a different row taking over, which the queue's
+  // handlePlaybackChange already pauses before this row could ever start).
+  async function handleSpotifyToggle() {
+    if (isSpotifyPlaying) {
+      await spotify.pause();
+      onSpotifyPlayingChange(track.id, false);
+      return;
+    }
+    onSpotifyPlayingChange(track.id, true);
+  }
 
   async function handleOverrideSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -262,13 +363,33 @@ function MissingTrackRow({
         ))}
       </div>
 
-      {/* FR-041: hear it before buying it. The accessible name names the
-          track (so a screen-reader user knows which row's preview this is)
-          while the visible label stays short, and the playing/stopped state
-          is carried by that label AND aria-pressed -- never by colour or an
-          icon alone. */}
+      {/* FR-041/ADR 0022: hear it before buying it, through Spotify (the
+          source the track came from) whenever that is possible, with the
+          store's own 30 second clip as the fallback. The accessible name
+          names both the track AND the source (so a screen-reader user knows
+          which row's control this is, and whether pressing it plays the
+          full Spotify track or a short store clip -- the DJ is deciding
+          what to buy, and the two are different products), and the
+          playing/stopped state is carried by that name/label AND
+          aria-pressed -- never by colour or an icon alone. Exactly one of
+          the two controls renders per row: Spotify is a fallback-replacing
+          primary here, not an alternative offered alongside the preview. */}
       <div className="flex flex-wrap items-center gap-8">
-        {track.itunes_preview_url ? (
+        {spotifyUsable ? (
+          <>
+            <button
+              type="button"
+              aria-pressed={isSpotifyPlaying}
+              aria-label={`${isSpotifyPlaying ? "Pauzeer" : "Speel"} ${track.artist} – ${track.title} via Spotify`}
+              disabled={!spotify.deviceId}
+              onClick={() => void handleSpotifyToggle()}
+              className="min-h-24 min-w-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green disabled:opacity-50"
+            >
+              {isSpotifyPlaying ? "Pauzeer Spotify-track" : "Speel via Spotify"}
+            </button>
+            <span className="text-body-lg text-mist">Bron: Spotify (volledige track)</span>
+          </>
+        ) : track.itunes_preview_url ? (
           <>
             <button
               type="button"
@@ -286,6 +407,7 @@ function MissingTrackRow({
               onPause={() => onPreviewChange(track.id, false)}
               onEnded={() => onPreviewChange(track.id, false)}
             />
+            <span className="text-body-lg text-mist">Bron: 30 seconden fragment (store)</span>
           </>
         ) : (
           <p className="text-body-lg text-mist">Geen fragment beschikbaar.</p>
@@ -315,7 +437,7 @@ function MissingTrackRow({
             </a>
           )}
           <a
-            href={track.effective_url}
+            href={browserHref ?? track.effective_url}
             target="_blank"
             rel="noreferrer"
             className="text-body-lg text-bone underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
@@ -388,22 +510,70 @@ export function MissingQueue() {
   // makes the other two statuses reachable.
   const [statusFilter, setStatusFilter] = useState<MissingTrackStatus>("open");
   const [actionError, setActionError] = useState<string | null>(null);
-  // FR-041: at most one preview sounds at a time, so the id of the playing
-  // row lives here rather than as per-row playing state -- starting one
-  // preview is what stops the previous one.
-  const [playingPreviewId, setPlayingPreviewId] = useState<number | null>(null);
+  // FR-041/ADR 0022: at most one thing sounds at a time, across BOTH
+  // sources (Spotify and the store preview) -- so the id AND source of the
+  // one playing row live here rather than as per-row state, and starting
+  // one is what stops whatever else was playing. Mirrored in a ref so the
+  // stable callbacks below can read the CURRENT value synchronously
+  // without becoming stale closures (the same problem the review queue's
+  // DualPlayback solves with an actual awaited toggle inside one
+  // component; here the two sides are different row components, so the
+  // ordering has to be enforced by this shared owner instead).
+  const [playing, setPlaying] = useState<{ id: number; source: PlaybackSource } | null>(null);
+  const playingRef = useRef<{ id: number; source: PlaybackSource } | null>(null);
 
-  // Stable across renders, so the row effect that starts/stops the audio
-  // element runs on a real state change instead of on every render.
-  const handlePreviewChange = useCallback((id: number, playing: boolean) => {
-    setPlayingPreviewId((current) => {
-      if (playing) return id;
-      // Only the row that is actually sounding may clear the field: a stop
-      // arriving from the row that was just superseded must not silence the
-      // one that superseded it.
-      return current === id ? null : current;
+  // Starting a new source. When the row being superseded was playing
+  // through Spotify, its device must be paused BEFORE this state update
+  // propagates to the new row's own play effect -- a store preview is a
+  // completely separate `<audio>` element the shared Spotify device knows
+  // nothing about, so nothing else would ever pause it. Switching from one
+  // Spotify track to ANOTHER one needs no such call (the Web API's play
+  // request already replaces whatever the device was playing), which is
+  // also what keeps this pause from racing that other row's play request.
+  const activatePlayback = useCallback((id: number, source: PlaybackSource) => {
+    const previous = playingRef.current;
+    playingRef.current = { id, source };
+    setPlaying({ id, source });
+    if (
+      previous &&
+      previous.source === "spotify" &&
+      !(previous.id === id && previous.source === source)
+    ) {
+      void pauseSharedSpotifyPlayer();
+    }
+  }, []);
+
+  // Explicit stop. Only the row/source that IS the one currently marked
+  // active may clear the field -- a stop arriving from the row that was
+  // just superseded must not silence the one that superseded it. A stop of
+  // the Spotify source pauses the shared device directly (the row's own
+  // handleSpotifyToggle does the same for its own click, so this only
+  // matters for indirect stops such as a filter switch further down).
+  const deactivatePlayback = useCallback((id: number, source: PlaybackSource) => {
+    setPlaying((current) => {
+      if (current?.id !== id || current.source !== source) return current;
+      playingRef.current = null;
+      if (source === "spotify") void pauseSharedSpotifyPlayer();
+      return null;
     });
   }, []);
+
+  // Stable across renders, so the row effects that react to the playing
+  // prop run on a real state change instead of on every render.
+  const handlePreviewChange = useCallback(
+    (id: number, isPlaying: boolean) => {
+      if (isPlaying) activatePlayback(id, "preview");
+      else deactivatePlayback(id, "preview");
+    },
+    [activatePlayback, deactivatePlayback],
+  );
+  const handleSpotifyPlayingChange = useCallback(
+    (id: number, isPlaying: boolean) => {
+      if (isPlaying) activatePlayback(id, "spotify");
+      else deactivatePlayback(id, "spotify");
+    },
+    [activatePlayback, deactivatePlayback],
+  );
 
   async function refresh(status: MissingTrackStatus) {
     // A network-level failure (not an HTTP error response, which
@@ -428,9 +598,14 @@ export function MissingQueue() {
   }
 
   useEffect(() => {
-    // Switching view unmounts the playing row's audio element, so the
-    // remembered id would otherwise outlive the sound it stands for.
-    setPlayingPreviewId(null);
+    // Switching filter unmounts every row (a new list, different ids), so
+    // the remembered id would otherwise outlive the sound it stands for.
+    // Each row's own useSpotifyPlayer release/disconnect on unmount already
+    // stops real Spotify playback if this was the last consumer on the
+    // page; this reset is what clears the STATE so the next filter's rows
+    // start clean.
+    playingRef.current = null;
+    setPlaying(null);
     void refresh(statusFilter);
   }, [statusFilter]);
 
@@ -558,8 +733,10 @@ export function MissingQueue() {
                   track={track}
                   onStatusChange={(id, status) => void handleStatusChange(id, status)}
                   onLinkOverride={handleLinkOverride}
-                  isPreviewPlaying={playingPreviewId === track.id}
+                  isPreviewPlaying={playing?.id === track.id && playing.source === "preview"}
                   onPreviewChange={handlePreviewChange}
+                  isSpotifyPlaying={playing?.id === track.id && playing.source === "spotify"}
+                  onSpotifyPlayingChange={handleSpotifyPlayingChange}
                 />
               ))}
             </ul>
@@ -598,8 +775,8 @@ export function MissingQueue() {
               mist, the next step up, instead of the fog HANDOFF.md's
               prototype used. */}
           <p className="text-caption leading-body text-mist">
-            Koop een nummer via de link op de rij; prijs en fragment komen van de Apple Music /
-            iTunes Store.
+            Koop een nummer via de link op de rij; prijs komt van de Apple Music / iTunes Store, het
+            afspelen via Spotify of, als dat niet kan, een fragment van de store.
           </p>
         </div>
       </div>
