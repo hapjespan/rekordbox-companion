@@ -415,7 +415,12 @@ folder and playlist tree to a fixture Rekordbox database.
   the DJ disconnects it.
 - **FR-002**: The system MUST accept a Spotify playlist URL and create a Sync
   Session that fetches all playlist tracks and matches each against the
-  Collection.
+  Collection. Selecting one of the operator's own Spotify playlists from a list
+  is a second way to reach the same Sync Session and creates nothing new: the
+  selection resolves to that playlist's URL and takes the identical path.
+  Recorded 2026-08-19 after a gate review noted the affordance existed in the
+  code and the contract without a sentence here saying it is presentation over
+  this requirement rather than a requirement of its own.
 - **FR-003**: The system MUST classify every track of a Sync Session as exactly
   one of: matched, review, or missing.
 - **FR-004**: The system MUST normalise artist and title before comparison:
