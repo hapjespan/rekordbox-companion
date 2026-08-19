@@ -110,6 +110,14 @@ noticed on the tenth reload rather than the first.
 
 ## B12 — Decide whether the match report needs its own buy controls
 
+Note added 2026-08-19: the match report's missing rows now say "Koop via de
+wachtrij" and their pill navigates there, because `GET /api/missing` exposes no
+`sync_track_id`, so there is no reliable key to join a store link onto a sync row.
+Building the inline cell therefore needs that id on the missing row first. Whether
+it is worth it is still the owner's call.
+
+### Original entry
+
 The delivered design puts a store cell on every row of Match-overzicht's
 "Ontbreekt in Rekordbox" group: store, price and a call to action per track. What
 shipped instead is the design's own hero action, "Ontbrekende naar wachtrij",

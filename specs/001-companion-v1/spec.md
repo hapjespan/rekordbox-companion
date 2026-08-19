@@ -488,6 +488,15 @@ folder and playlist tree to a fixture Rekordbox database.
   and title alone is guesswork, and the preview, the price and the link all
   arrive in the store lookup the app already performs, so this costs no new
   service, credential or outbound host.
+- **FR-042**: On macOS the Store Link MUST be openable in the Music application
+  rather than the browser, since the browser only offers excerpts of what the
+  Music app plays and sells in full. The same store page serves both: swapping
+  `https` for the `itmss` scheme on a `music.apple.com` URL hands it to the Music
+  app, so the app keeps one stored link and offers both destinations. The browser
+  route stays available, because the app is developed and can be viewed on
+  machines where no Music application exists. Added 2026-08-19 on the owner's
+  request, in place of the design's per-store checkout, which they dropped in
+  favour of iTunes alone.
 
 **Collection and playback**
 
