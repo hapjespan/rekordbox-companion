@@ -480,6 +480,14 @@ folder and playlist tree to a fixture Rekordbox database.
   Track and keep both the automatic and the chosen link.
 - **FR-023**: The system MUST close a Missing Track automatically when a later
   Sync Session of the same playlist URL matches it against the Collection.
+- **FR-041**: The system MUST let the DJ hear a Missing Track before buying it,
+  by playing the store's own preview of the exact track the Store Link leads to,
+  and MUST show that track's price beside the link. A track without a preview or
+  without a price says so rather than offering a dead control. Added 2026-08-19
+  on the owner's request after first real use: deciding what to buy from artist
+  and title alone is guesswork, and the preview, the price and the link all
+  arrive in the store lookup the app already performs, so this costs no new
+  service, credential or outbound host.
 
 **Collection and playback**
 
