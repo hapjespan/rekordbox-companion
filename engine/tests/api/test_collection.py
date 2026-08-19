@@ -424,6 +424,96 @@ def test_collection_accepts_the_max_allowed_limit():
     assert response.status_code == 200
 
 
+# --- ids filter (resolving known ids without a paged sweep) -----------------
+#
+# Two views need BPM/key/title for a handful of known rb_content_ids (the
+# Structure builder's phase rows, the review queue's candidate cards) and
+# previously had to sweep pages of GET /api/collection until every wanted id
+# turned up, capping out at `_MAX_LIMIT` on a large collection.
+
+
+def test_collection_ids_filter_returns_exactly_the_requested_tracks():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"ids": ["rb1", "rb3"]})
+
+    body = response.json()
+    assert body["total"] == 2
+    assert {item["rb_content_id"] for item in body["items"]} == {"rb1", "rb3"}
+
+
+def test_collection_ids_filter_silently_drops_unknown_ids():
+    # No error for an id the collection doesn't have -- the caller compares
+    # the ids it sent against `items` to see which ones came back.
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"ids": ["rb1", "does-not-exist"]})
+
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["rb_content_id"] == "rb1"
+
+
+def test_collection_ids_filter_applies_before_query_sort_and_paging():
+    # `ids` narrows the set first; `query`, `sort` and `limit`/`offset` still
+    # apply on top of that narrowed set, same as they do for every other page.
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"ids": ["rb1", "rb2", "rb3"], "query": "daft"})
+
+    body = response.json()
+    assert {item["rb_content_id"] for item in body["items"]} == {"rb1", "rb2"}
+
+
+def test_collection_ids_filter_returns_the_full_collection_track_shape():
+    client = _seeded_client()
+
+    item = client.get("/api/collection", params={"ids": ["rb1"]}).json()["items"][0]
+
+    assert item == {
+        "rb_content_id": "rb1",
+        "artist": "Daft Punk",
+        "title": "One More Time",
+        "duration_ms": 210_000,
+        "bpm": 123.0,
+        "play_count": 50,
+        "genres": [],
+        "format": "mp3",
+        "musical_key": "8m",
+        "label": "Virgin",
+    }
+
+
+def test_collection_ids_filter_rejects_more_ids_than_the_bound():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"ids": [f"rb{i}" for i in range(201)]})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "too_many_ids"
+    assert body["field"] == "ids"
+
+
+def test_collection_ids_filter_accepts_the_max_allowed_count():
+    client = _seeded_client()
+
+    response = client.get("/api/collection", params={"ids": [f"rb{i}" for i in range(200)]})
+
+    assert response.status_code == 200
+
+
+def test_collection_without_ids_behaves_exactly_as_before():
+    # Omitting `ids` entirely must not change the existing default-page
+    # behaviour (no regression on the untouched code path).
+    client = _seeded_client()
+
+    response = client.get("/api/collection")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+
+
 # --- get_database closes its SQLCipher connection (review finding) ----------
 
 

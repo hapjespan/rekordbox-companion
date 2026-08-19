@@ -11,12 +11,13 @@ playlist) instead of `writer.apply_playlist`.
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from companion.api import events
+from companion.api.collection import _MAX_LIMIT, _page_body
 from companion.bookings.models import suggestions_for_node
 from companion.config import BACKUP_DIR
 from companion.db.models import (
@@ -305,6 +306,56 @@ def get_suggestions(
         }
         for s in suggestions
     ]
+
+
+@router.get("/structures/{structure_id}/nodes/{node_id}/tracks")
+def get_node_tracks(
+    structure_id: int,
+    node_id: int,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """The node's own stored tracks (`structure_track`), in their stored
+    `position` order -- the same `{total, items: [CollectionTrack]}` shape
+    `GET /api/collection` and `GET /api/playlists/{id}/tracks` return, so the
+    client reuses one row type and one table.
+
+    Deliberately NOT the Suggestions query (`GET .../suggestions`): that one
+    is filtered by the structure's profile (genre tags, BPM) and ranked by
+    play count, so a member the filter excludes -- or a manually-added track
+    outside the profile -- would be invisible there. This endpoint is the
+    only way to see everything a node actually holds, in the order the DJ
+    built it.
+
+    Every track field is served from the in-memory index (ADR 0012), same as
+    the playlist-tracks endpoint, which is why an unindexed collection is a
+    documented 409 rather than an empty page, and why a `structure_track` row
+    the index no longer knows (removed from Rekordbox since the last scan) is
+    skipped rather than rendered as an empty row.
+    """
+    _get_structure_or_404(db, structure_id)
+    _get_node_or_404(db, structure_id, node_id)
+
+    entries_by_id = {e.rb_content_id: e for e in request.app.state.collection_index.entries}
+    if not entries_by_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "collection_not_indexed",
+                "message": "the collection has not been indexed yet; "
+                "run POST /api/collection/reindex first",
+            },
+        )
+
+    track_rows = (
+        db.query(StructureTrack).filter_by(node_id=node_id).order_by(StructureTrack.position).all()
+    )
+    entries = [
+        entries_by_id[row.rb_content_id] for row in track_rows if row.rb_content_id in entries_by_id
+    ]
+    return _page_body(db, entries, limit, offset)
 
 
 class TrackBody(BaseModel):

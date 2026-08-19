@@ -17,7 +17,7 @@ stable English identifiers.
 | Method & path | Request | Response | Notes |
 |---|---|---|---|
 | GET `/api/health` | – | `{status, rekordbox_version, version_pin_ok, db_path, rekordbox_running, ffmpeg_ok}` | guard visibility (FR-015) |
-| GET `/api/collection` | `?query=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | serves US5; 100ms budget (SC-005) |
+| GET `/api/collection` | `?query=&ids=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | serves US5; 100ms budget (SC-005) |
 | POST `/api/collection/reindex` | – | `{indexed_count, took_ms}` | rebuilds in-memory index (R6) |
 | GET `/api/playlists` | – | `[PlaylistNode]` | read-only |
 | GET `/api/playlists/{rb_playlist_id}/tracks` | `?query=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | the Collection view filtered to one Rekordbox playlist; same row shape as `/api/collection` so the client reuses one table |
@@ -34,6 +34,17 @@ notation like `8m`/`2d`, occasionally a classical spelling like `G m`, never
 normalised or converted, because the DJ recognises their own notation and a
 lossy conversion is worse than none. Named `musical_key`, not `key`, so a row
 object never carries a field that reads as an identifier.
+
+`?ids=` on `GET /api/collection` requests exact `rb_content_id`s (repeated,
+`?ids=a&ids=b`), for a caller that already knows which tracks it wants (a
+Structure node's phase rows, the review queue's candidate cards) and would
+otherwise sweep every page to find them. It is a filter, applied before
+`query`, `sort`, `limit` and `offset` -- the same position `query` already
+occupies -- so a caller wanting every one of N ids back in one page sets
+`limit >= N`. Bounded to the same 200 as `limit`, for the identical reason
+(a phase 7 finding already caught the unbounded-`limit` version of this
+defect): `422` with `code: too_many_ids`, `field: ids`. An id absent from the
+collection is simply absent from the result, never an error.
 
 `GET /api/playlists/{rb_playlist_id}/tracks` serves the same body from the
 same in-memory index: only the playlist's membership comes from `master.db`
@@ -152,6 +163,7 @@ Apple's preview host, never proxied through the backend.
 | GET `/api/structures/{id}/nodes`; POST `/api/structures/{id}/nodes`; PUT/DELETE `/api/structures/{id}/nodes/{nid}` | kind, name, parent, position, set_phase | tree editing (FR-032); GET lists the structure's tree, ordered by position -- added during phase 6 build (T087/T088 finding), a client cannot render or edit a tree it can never fetch |
 | GET `/api/structures/{id}/nodes/{nid}/suggestions` | `?limit=` | `[Suggestion]` filtered by profile, ranked by play count, flags `already_in_playlist` (FR-033) |
 | PUT `/api/structures/{id}/nodes/{nid}` re-parenting | `parent_id` | `422` with `code: invalid_parent` when the parent is unknown or belongs to another structure, `code: parent_cycle` when it is the node itself or one of its descendants, both `field: parent_id`. Refused before anything is stored, so the cycle can never reach apply, where it used to surface as a 500 after a backup had already been made (phase 7 finding) |
+| GET `/api/structures/{id}/nodes/{nid}/tracks` | `?limit=&offset=` | `{total, items: [CollectionTrack]}` | the node's stored `structure_track` rows in their stored `position` order -- unlike Suggestions above (profile-filtered, play-count-ranked), this is everything the node actually holds, same row shape as `GET /api/collection` |
 | POST `/api/structures/{id}/nodes/{nid}/tracks` | `{rb_content_id, origin}` | accept into playlist |
 | DELETE `/api/structures/{id}/nodes/{nid}/tracks/{rb_content_id}` | – | remove from (unapplied) playlist node |
 | POST `/api/structures/{id}/nodes/{nid}/dismissals` | `{rb_content_id}` | dismiss suggestion (FR-034) |

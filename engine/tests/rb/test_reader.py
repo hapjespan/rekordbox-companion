@@ -405,3 +405,24 @@ def test_read_playlist_track_refs_reads_the_real_playlist_to_content_relation(tm
     populated = max(refs_by_playlist.values(), key=len)
     assert all(ref.rb_content_id for ref in populated)
     assert [ref.position for ref in populated] == sorted(ref.position for ref in populated)
+
+
+def test_an_unanalysed_track_reports_no_bpm_rather_than_zero():
+    # Rekordbox stores 0 for a track it has not analysed, and 85 of the 119
+    # tracks in the owner's fixture do. Carrying that through as a real value
+    # made "0 BPM" a measurement: it appeared in the collection table, plotted
+    # at the foot of the builder's BPM chart, turned a set's range into
+    # "0-120 BPM", and let the checks bar report nothing missing a BPM while
+    # most of the set had none.
+    db = _FakeRekordboxDatabase(
+        contents=[
+            _FakeContent(ID="1", title="Unanalysed", bpm_hundredths=0),
+            _FakeContent(ID="2", title="Analysed", bpm_hundredths=12_800),
+        ],
+        playlists=[],
+    )
+
+    unanalysed, analysed = read_collection_snapshot(db)
+
+    assert unanalysed.bpm is None
+    assert analysed.bpm == 128.0

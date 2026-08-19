@@ -218,7 +218,7 @@ export function PhaseBoard({ phases, onMove }: PhaseBoardProps) {
                 <span className="shrink-0 text-caption text-mist">{phaseDurationText(phase)}</span>
               </div>
               <p className="text-caption text-mist">
-                {`${phase.node_name} · ${phaseBpmRangeText(phase)} · ${phase.tracks.length} nummers`}
+                {`${phase.node_name} · ${phaseBpmRangeText(phase)} · ${phase.tracks.length} ${phase.tracks.length === 1 ? "nummer" : "nummers"}`}
                 {phase.applied ? " · toegepast in Rekordbox" : ""}
               </p>
             </div>

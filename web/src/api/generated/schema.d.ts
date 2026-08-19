@@ -684,7 +684,27 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
+    /**
+     * Get Node Tracks
+     * @description The node's own stored tracks (`structure_track`), in their stored
+     *     `position` order -- the same `{total, items: [CollectionTrack]}` shape
+     *     `GET /api/collection` and `GET /api/playlists/{id}/tracks` return, so the
+     *     client reuses one row type and one table.
+     *
+     *     Deliberately NOT the Suggestions query (`GET .../suggestions`): that one
+     *     is filtered by the structure's profile (genre tags, BPM) and ranked by
+     *     play count, so a member the filter excludes -- or a manually-added track
+     *     outside the profile -- would be invisible there. This endpoint is the
+     *     only way to see everything a node actually holds, in the order the DJ
+     *     built it.
+     *
+     *     Every track field is served from the in-memory index (ADR 0012), same as
+     *     the playlist-tracks endpoint, which is why an unindexed collection is a
+     *     documented 409 rather than an empty page, and why a `structure_track` row
+     *     the index no longer knows (removed from Rekordbox since the last scan) is
+     *     skipped rather than rendered as an empty row.
+     */
+    get: operations["get_node_tracks_api_structures__structure_id__nodes__node_id__tracks_get"];
     put?: never;
     /** Add Track */
     post: operations["add_track_api_structures__structure_id__nodes__node_id__tracks_post"];
@@ -923,6 +943,7 @@ export interface operations {
     parameters: {
       query?: {
         query?: string | null;
+        ids?: string[] | null;
         sort?: string;
         limit?: number;
         offset?: number;
@@ -2043,6 +2064,41 @@ export interface operations {
     parameters: {
       query?: {
         limit?: number | null;
+      };
+      header?: never;
+      path: {
+        structure_id: number;
+        node_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_node_tracks_api_structures__structure_id__nodes__node_id__tracks_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+        offset?: number;
       };
       header?: never;
       path: {

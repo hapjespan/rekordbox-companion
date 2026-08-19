@@ -134,6 +134,13 @@ Per-track queue state that makes runs incremental and resumable (R1, ADR 0013).
 | structure_track | node_id FK, rb_content_id, position, origin enum(`suggestion`,`manual`) | contents of playlist nodes |
 | suggestion_dismissal | node_id FK, rb_content_id | dismissed Suggestions never return for that playlist (FR-034) |
 
+`GET /api/structures/{id}/nodes/{nid}/tracks` (phase 6 gap-close) is the one
+read path for actual `structure_track` membership, in stored `position`
+order, resolving every other field from the Collection index below -- a row
+whose `rb_content_id` the index no longer knows is skipped, same precedent as
+playlist membership below. Suggestions is a different, profile-filtered,
+play-count-ranked query over the whole Collection, never this table.
+
 ### write_log
 
 Audit trail for the guarded write path (constraints: NIS2 logging; SC-006).

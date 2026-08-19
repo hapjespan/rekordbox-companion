@@ -129,8 +129,15 @@ def read_collection_snapshot(db: _ContentSource) -> list[CollectionTrack]:
     """Snapshot of every track in the collection."""
     tracks = []
     for content in db.get_content():
-        # Rekordbox stores BPM as an integer scaled by 100 (12800 == 128.00).
-        bpm = content.BPM / 100 if content.BPM is not None else None
+        # Rekordbox stores BPM as an integer scaled by 100 (12800 == 128.00), and
+        # stores 0 for a track it has not analysed. Zero is therefore an absence,
+        # not a measurement: no music has a tempo of nought. 85 of the 119 tracks
+        # in the owner's own fixture report it, and carrying it through as a real
+        # value put "0 BPM" in the collection table, plotted those tracks at the
+        # foot of the builder's BPM chart, made a set's range read "0-120 BPM",
+        # and let the checks bar claim nothing was missing a BPM while most of
+        # the set was. Mapping it to None makes every one of those honest.
+        bpm = content.BPM / 100 if content.BPM else None
         duration_ms = content.Length * 1000 if content.Length is not None else None
         tracks.append(
             CollectionTrack(

@@ -505,6 +505,187 @@ def test_put_node_can_still_move_a_node_to_the_root():
     assert response.json()["parent_id"] is None
 
 
+# --- GET /api/structures/{id}/nodes/{nid}/tracks ----------------------------
+#
+# The node's own stored `structure_track` rows, in stored `position` order:
+# the only complete, correctly-ordered read path for a node's membership.
+# `GET .../suggestions` is filtered by the structure's profile (genre tags,
+# BPM) and ranked by play count, so a member outside the profile -- or a
+# manually-added track -- would be invisible there.
+
+
+def test_get_node_tracks_returns_stored_tracks_in_position_order():
+    client, _ = _client(
+        tracks=[
+            _track("1", "A", "Track A", bpm=None, play_count=1),
+            _track("2", "B", "Track B", bpm=None, play_count=100),
+            _track("3", "C", "Track C", bpm=None, play_count=50),
+        ]
+    )
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+    add_url = f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks"
+    # Added out of play-count order on purpose: the response must follow
+    # stored position (insertion order here), never get re-ranked by play
+    # count the way GET .../suggestions would.
+    client.post(add_url, json={"rb_content_id": "2", "origin": "suggestion"})
+    client.post(add_url, json={"rb_content_id": "3", "origin": "manual"})
+    client.post(add_url, json={"rb_content_id": "1", "origin": "suggestion"})
+
+    response = client.get(add_url)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert [item["rb_content_id"] for item in body["items"]] == ["2", "3", "1"]
+
+
+def test_get_node_tracks_returns_404_for_an_unknown_structure():
+    client, _ = _client()
+
+    response = client.get("/api/structures/999/nodes/1/tracks")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "structure_not_found"
+
+
+def test_get_node_tracks_returns_404_for_an_unknown_node():
+    client, _ = _client()
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+
+    response = client.get(f"/api/structures/{structure['id']}/nodes/999/tracks")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "node_not_found"
+
+
+def test_get_node_tracks_refuses_when_the_collection_has_not_been_indexed():
+    # `add_track` never checks index membership, so a track can be stored
+    # for a node before the collection has ever been scanned.
+    client, _ = _client(tracks=())
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+    client.post(
+        f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks",
+        json={"rb_content_id": "1", "origin": "manual"},
+    )
+
+    response = client.get(f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "collection_not_indexed"
+    assert "message" in body
+
+
+def test_get_node_tracks_skips_a_member_the_index_no_longer_knows():
+    client, _ = _client(tracks=[_track("1", "A", "Track A", bpm=None, play_count=1)])
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+    add_url = f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks"
+    client.post(add_url, json={"rb_content_id": "1", "origin": "manual"})
+    # "ghost" was never indexed -- removed from Rekordbox since the last
+    # scan, or added before a reindex ever ran.
+    client.post(add_url, json={"rb_content_id": "ghost", "origin": "manual"})
+
+    response = client.get(add_url)
+
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["rb_content_id"] for item in body["items"]] == ["1"]
+
+
+def test_get_node_tracks_item_shape_matches_the_collection_contract():
+    client, _ = _client(
+        tracks=[
+            CollectionTrack(
+                rb_content_id="1",
+                artist="Daft Punk",
+                title="One More Time",
+                duration_ms=210_000,
+                bpm=123.0,
+                isrc=None,
+                play_count=50,
+                location="/music/one-more-time.mp3",
+                musical_key="8m",
+                label="Virgin",
+            )
+        ]
+    )
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+    add_url = f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks"
+    client.post(add_url, json={"rb_content_id": "1", "origin": "manual"})
+
+    item = client.get(add_url).json()["items"][0]
+
+    assert item == {
+        "rb_content_id": "1",
+        "artist": "Daft Punk",
+        "title": "One More Time",
+        "duration_ms": 210_000,
+        "bpm": 123.0,
+        "play_count": 50,
+        "genres": [],
+        "format": "mp3",
+        "musical_key": "8m",
+        "label": "Virgin",
+    }
+
+
+def test_get_node_tracks_paginates_within_the_same_bounds_as_the_collection():
+    client, _ = _client(
+        tracks=[
+            _track("1", "A", "Track A", bpm=None, play_count=1),
+            _track("2", "B", "Track B", bpm=None, play_count=2),
+            _track("3", "C", "Track C", bpm=None, play_count=3),
+        ]
+    )
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+    add_url = f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks"
+    for rb_content_id in ("1", "2", "3"):
+        client.post(add_url, json={"rb_content_id": rb_content_id, "origin": "manual"})
+
+    page = client.get(add_url, params={"limit": 1, "offset": 1}).json()
+
+    assert page["total"] == 3
+    assert [item["rb_content_id"] for item in page["items"]] == ["2"]
+    assert client.get(add_url, params={"offset": -1}).status_code == 422
+    assert client.get(add_url, params={"limit": 0}).status_code == 422
+    assert client.get(add_url, params={"limit": 100_000}).status_code == 422
+    assert client.get(add_url, params={"limit": 200}).status_code == 200
+
+
+def test_get_node_tracks_returns_an_empty_page_for_a_node_with_no_tracks():
+    client, _ = _client(tracks=[_track("1", "A", "Track A", bpm=None, play_count=1)])
+    structure = client.post("/api/structures", json={"name": "S"}).json()
+    node = client.post(
+        f"/api/structures/{structure['id']}/nodes",
+        json={"kind": "playlist", "name": "X", "parent_id": None, "position": 0},
+    ).json()
+
+    response = client.get(f"/api/structures/{structure['id']}/nodes/{node['id']}/tracks")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "items": []}
+
+
 def test_dismissed_suggestions_never_return_via_the_api():
     """FR-034, tested through the real dismiss-then-suggest round trip."""
     client, _ = _client(tracks=[_track("1", "A", "Track", bpm=None, play_count=10)])
