@@ -416,8 +416,10 @@ Rekordbox install. Each is tracked in `tasks.md` and left unchecked there.
 - **T103**: the SC-009 booking-prep judgement, on the first real booking
   prepared with the app.
 - The two WCAG deviations above, plus the extended axe sweep.
-- **B2**: whether Rekordbox runs `master.db` in WAL mode, which decides
-  whether backups must include the SQLite sidecars.
+- **B2** is closed: Rekordbox does run `master.db` in WAL mode, and a backup now
+  checkpoints a disposable copy so committed frames cannot be missing from the
+  zip. What still needs the Mac is only whether the real Rekordbox process holds a
+  lock or cache that would make a live snapshot differ from the checkpointed one.
 
 ## Exit criteria
 

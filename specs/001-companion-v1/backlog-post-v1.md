@@ -21,25 +21,27 @@ the orchestrator. Deferred out of phase 7 because it refactors code that is
 correct: the invariant holds today, it is just convention rather than structure.
 That conformance test also closes B3 mechanically.
 
-## B2 — Backups must include the SQLite sidecars — ANSWERED, and it is a defect
+## B2 — Backups must include the SQLite sidecars — CLOSED
 
-No longer an open question. `master.db` demonstrably uses a write-ahead log: a
-`master.db-wal` appeared beside the owner's own fixture copy carrying committed
-data, and SQLite replayed it onto a freshly copied base file, resurrecting a
-playlist an earlier apply had written. That was observed in the dev container, so
-it did not need the Mac after all.
+Was a question, became a defect, is now fixed. `master.db` demonstrably uses a
+write-ahead log: a `master.db-wal` appeared beside the owner's own fixture copy
+carrying committed data, and SQLite replayed it onto a freshly copied base file,
+resurrecting a playlist an earlier apply had written. So a backup taken while a
+log held committed frames verified as readable while missing the newest
+transactions, which is the one case backups exist for and the thing SC-006 claims
+cannot happen.
 
-Consequence for the product: `rb/backup.py` zips `master.db` and
-`masterPlaylists6.xml` and nothing else, so a backup taken while a `-wal` holds
-committed frames verifies readable while missing the newest transactions. That
-undercuts SC-006's "verified Backup" for precisely the case backups exist for.
-The fix is to checkpoint before copying, or to include both sidecars in the zip
-and restore them together; checkpointing is the safer of the two because a base
-file plus a foreign sidecar is what caused the surprise in the first place.
+`backup.create()` now copies the database and any sidecar into a temporary
+directory, checkpoints that disposable copy, and zips the self-contained result.
+The real `master.db` is never opened for writing, which keeps project rule 2
+intact by construction rather than by argument: checkpointing the real file would
+have required `backup.create()` to take a backup before its own write. A test
+watches every database open during `create()` and fails if the real path is among
+them.
 
-Raised from a question to a defect on 2026-08-19. Not fixed in the same breath
-because it changes the write path's most safety-critical helper, which deserves
-its own change with its own tests rather than riding along with UI work.
+What remains open, and needs the Mac: whether the real Rekordbox 7.2.17 process
+holds a lock or cache that would still make a live snapshot differ from the
+checkpointed one. That is recorded under the owner's open items, not here.
 
 ## B3 — Reconcile ADR 0017 with the test-side pyrekordbox imports
 
@@ -136,3 +138,25 @@ Building the inline cell as well would mean exposing each missing row's store
 fields on the sync-session detail and running a second preview player, so it is a
 question about duplication rather than a missing capability. Belongs with the
 owner after a few real playlists have gone through.
+
+## B13 — A phase silently shrinks when a track leaves Rekordbox
+
+`GET /api/structures/{id}/nodes/{nid}/tracks` skips a `structure_track` row whose
+`rb_content_id` the collection index no longer knows, which is the documented and
+tested behaviour and matches what the playlist-tracks endpoint does. But nothing on
+screen tells the DJ that a phase now holds fewer tracks than they put in it, and
+the checks bar counts only what came back, so a phase that lost a track to a
+Rekordbox deletion can look completely healthy. The honest version names the
+missing rows, or at least their number, so a shrunk phase reads as a change rather
+than as the truth.
+
+## B14 — The buy queue lists the same track once per playlist
+
+`missing_track` is unique per `sync_track`, so a track missing from five playlists
+produces five queue rows. That is right for FR-023, which closes a Missing Track
+when a later sync of the same playlist finds it, and it is what FR-020's "all
+Missing Tracks" says. As a shopping list it stops working the moment more than a
+couple of playlists have been scanned: the owner's dev queue reached 158 rows for
+11 distinct tracks. Grouping the queue by track, with the playlists it is missing
+from as detail and one purchase closing all of them, changes no requirement and
+only the presentation. Raised with the owner 2026-08-19; theirs to decide.
