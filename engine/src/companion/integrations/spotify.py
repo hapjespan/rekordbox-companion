@@ -409,6 +409,31 @@ def _extract_track(item: dict) -> dict:
     }
 
 
+def _fetch_tracks_page(client: httpx.Client, headers: dict, playlist_id: str) -> dict:
+    """First page of a playlist's items from the dedicated tracks endpoint.
+
+    The fallback for a playlist response that carries no embedded `tracks`
+    object. Spotify answers this endpoint with a bare 403 when it will not give
+    an app a playlist's contents, and the caller must hear about that rather
+    than see an empty playlist, so every non-2xx becomes an error here.
+    """
+    response = client.get(
+        f"{API_BASE}/playlists/{playlist_id}/tracks",
+        headers=headers,
+        params={"limit": _PAGE_LIMIT},
+    )
+    if response.status_code == 401:
+        raise SessionExpiredError("Spotify rejected the access token; reconnect the account")
+    if response.status_code in (403, 404):
+        raise PlaylistUnreachableError(
+            f"Spotify will not return the tracks of playlist {playlist_id!r}. The playlist "
+            "itself is readable, so this is a permission on the Spotify app rather than the "
+            "playlist: check that the app may read playlist contents for this account"
+        )
+    response.raise_for_status()
+    return response.json()
+
+
 def fetch_playlist_tracks(
     db, client: httpx.Client, playlist_url_or_id: str
 ) -> SpotifyPlaylistFetch:
@@ -442,7 +467,18 @@ def fetch_playlist_tracks(
     first.raise_for_status()
     body = first.json()
 
-    tracks_page = body.get("tracks") or {}
+    # Spotify does not always embed the tracks object in the playlist response:
+    # this account gets a playlist object with no `tracks` key at all, and a bare
+    # 403 on the dedicated tracks endpoint. Reading a MISSING object as an empty
+    # playlist is the difference between "you own none of these" and "we could
+    # not read the playlist", and the app used to report the first while meaning
+    # the second: a session went `ready` with zero tracks and no error. An
+    # absent object is therefore an error, while an object that is present and
+    # says zero is a genuinely empty playlist and stays fine.
+    if "tracks" not in body:
+        tracks_page = _fetch_tracks_page(client, headers, playlist_id)
+    else:
+        tracks_page = body.get("tracks") or {}
     total = int(tracks_page.get("total", 0))
     if total > PLAYLIST_TRACK_CAP:
         logger.info(

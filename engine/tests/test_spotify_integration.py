@@ -489,3 +489,81 @@ def test_disconnect_deletes_the_row(session):
     spotify.disconnect(session)
 
     assert session.get(SpotifyAuth, 1) is None
+
+
+def test_a_playlist_response_without_a_tracks_object_falls_back_to_the_tracks_endpoint(session):
+    # Spotify does not always embed the tracks object. Reading its absence as an
+    # empty playlist is what made a real sync report a ready session with zero
+    # tracks and no error, so the fallback must actually be taken.
+    _store_auth(session, expires_in_seconds=3600)
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if request.url.path.endswith("/tracks"):
+            return httpx.Response(
+                200,
+                json={
+                    "total": 1,
+                    "items": [
+                        {
+                            "track": {
+                                "id": "sp1",
+                                "name": "One More Time",
+                                "artists": [{"name": "Daft Punk"}],
+                                "duration_ms": 210_000,
+                                "external_ids": {"isrc": "USRC17607839"},
+                            }
+                        }
+                    ],
+                    "next": None,
+                },
+            )
+        # The playlist itself is readable, but carries no `tracks` key at all.
+        return httpx.Response(200, json={"name": "Bruiloft", "snapshot_id": "snap-1"})
+
+    result = spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+    assert [track["title"] for track in result.tracks] == ["One More Time"]
+    assert result.name == "Bruiloft"
+    assert any(path.endswith("/tracks") for path in paths)
+
+
+def test_a_forbidden_tracks_endpoint_is_an_error_not_an_empty_playlist(session):
+    # The failure this pairs with: the playlist reads fine, Spotify refuses its
+    # contents with a bare 403, and the DJ must be told rather than shown an
+    # empty match report.
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        if request.url.path.endswith("/tracks"):
+            return httpx.Response(403, json={"error": {"status": 403, "message": "Forbidden"}})
+        return httpx.Response(200, json={"name": "Bruiloft", "snapshot_id": "snap-1"})
+
+    with pytest.raises(PlaylistUnreachableError) as caught:
+        spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+    # The message has to name where the permission sits, because "playlist is
+    # private" sends the DJ to fix the wrong thing.
+    assert "Spotify app" in str(caught.value)
+
+
+def test_a_genuinely_empty_playlist_still_fetches_as_empty(session):
+    # The other side of the same coin: a tracks object that is present and says
+    # zero is a real, empty playlist and must not become an error.
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "name": "Nog leeg",
+                "snapshot_id": "snap-1",
+                "tracks": {"total": 0, "items": [], "next": None},
+            },
+        )
+
+    result = spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
+
+    assert result.tracks == []
+    assert result.name == "Nog leeg"
