@@ -5,6 +5,13 @@ import { Tree, nextPositionAmong } from "../../components/Tree";
 import type { TreeNodeDto } from "../../components/Tree";
 import { asApiResponse } from "../spotify-sync/types";
 import type { ApiError } from "../spotify-sync/types";
+import { BpmProgressionCard } from "./BpmProgressionCard";
+import { ChecksBar } from "./ChecksBar";
+import { PhaseBoard } from "./PhaseBoard";
+import { SetPhaseEditor } from "./SetPhaseEditor";
+import { resolveTrackFacts } from "./collectionFacts";
+import { buildPhases, computeChecks, isPhaseNode } from "./phaseModel";
+import type { PhaseMember, TrackFacts } from "./phaseModel";
 import type { ApplyResultDto, ProfileDto, StructureDto, SuggestionDto } from "./types";
 
 // Same code-keyed-switch convention as MissingQueue.tsx/Tree.tsx's error
@@ -25,6 +32,21 @@ function applyErrorMessageFor(error: ApiError): string {
 // (tens of thousands of rows at the project's sizing envelope), which is a
 // multi-MB response and a list item with two buttons per track in the DOM.
 const SUGGESTION_PAGE_SIZE = 50;
+
+// Which tracks a phase playlist holds can only be read from the Suggestions
+// endpoint's `already_in_playlist` flag: there is no GET for a node's tracks
+// (contracts/api.md lists POST and DELETE only), so this is the whole read
+// path. A member outside the page this asks for stays invisible, hence a page
+// far larger than the suggestion list's own -- and hence the note in the
+// report that a GET for node tracks is genuinely missing.
+const PHASE_MEMBER_SCAN_LIMIT = 200;
+
+// A missing track that is still `open` has not been bought yet (FR-021).
+interface MissingTrackRefDto {
+  artist: string;
+  title: string;
+  status: string;
+}
 
 const INPUT_CLASSES =
   "min-h-24 rounded-full border border-iron bg-smoke px-12 py-8 text-body-lg text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
@@ -310,7 +332,14 @@ export function BookingWorkspace() {
   const [suggestions, setSuggestions] = useState<SuggestionDto[]>([]);
   const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const [phaseMembers, setPhaseMembers] = useState<Record<number, PhaseMember[]>>({});
+  const [trackFacts, setTrackFacts] = useState<Map<string, TrackFacts>>(new Map());
+  const [openBuyQueue, setOpenBuyQueue] = useState<{ artist: string; title: string }[]>([]);
   const structureProfileSelectId = useId();
+  // BPM/key/duration per rb_content_id, kept for the whole session: the
+  // collection has no per-id endpoint, so every page this ever walked is worth
+  // holding on to rather than sweeping again for the next phase.
+  const factsCacheRef = useRef(new Map<string, TrackFacts>());
   // Tree.tsx's move/nest/lift actions each fire two independent onMove
   // calls (a position swap, or a re-parent) in the same click. Each call
   // triggers its own PUT + refreshNodes; without sequencing, the two
@@ -343,16 +372,77 @@ export function BookingWorkspace() {
     }
   }
 
+  // The checks bar's "still in the buy queue" item (FR-021's open items),
+  // matched on artist and title: a MissingTrack is a Spotify track that is not
+  // in the collection, so it carries no rb_content_id to join on.
+  async function refreshOpenBuyQueue() {
+    try {
+      const { data } = await apiClient.GET("/api/missing", {
+        params: { query: { status: "open" } },
+      });
+      const rows = asApiResponse<MissingTrackRefDto[]>(data) ?? [];
+      setOpenBuyQueue(
+        rows
+          .filter((row) => row.status === "open")
+          .map((row) => ({ artist: row.artist, title: row.title })),
+      );
+    } catch {
+      setOpenBuyQueue([]);
+    }
+  }
+
   useEffect(() => {
     void refreshStructures();
     void refreshProfiles();
+    void refreshOpenBuyQueue();
   }, []);
+
+  // One request per phase playlist, then one bounded sweep of the collection
+  // for the BPM/key/duration of every id those phases hold together (never one
+  // request per row, and never the whole collection per row).
+  async function refreshPhaseData(structureId: number, currentNodes: TreeNodeDto[]) {
+    const phaseNodes = currentNodes.filter(isPhaseNode);
+    const membersByNode: Record<number, PhaseMember[]> = {};
+    for (const node of phaseNodes) {
+      const { data } = await apiClient.GET(
+        "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
+        {
+          params: {
+            path: { structure_id: structureId, node_id: node.id },
+            query: { limit: PHASE_MEMBER_SCAN_LIMIT },
+          },
+        },
+      );
+      const rows = asApiResponse<SuggestionDto[]>(data) ?? [];
+      membersByNode[node.id] = rows
+        .filter((row) => row.already_in_playlist)
+        .map((row) => ({
+          rb_content_id: row.rb_content_id,
+          artist: row.artist,
+          title: row.title,
+          bpm: row.bpm,
+        }));
+    }
+    setPhaseMembers(membersByNode);
+
+    const ids = [
+      ...new Set(Object.values(membersByNode).flatMap((rows) => rows.map((r) => r.rb_content_id))),
+    ];
+    if (ids.length === 0) {
+      setTrackFacts(new Map(factsCacheRef.current));
+      return;
+    }
+    const { facts } = await resolveTrackFacts(ids, factsCacheRef.current);
+    setTrackFacts(new Map(facts));
+  }
 
   async function refreshNodes(structureId: number) {
     const { data } = await apiClient.GET("/api/structures/{structure_id}/nodes", {
       params: { path: { structure_id: structureId } },
     });
-    setNodes(asApiResponse<TreeNodeDto[]>(data) ?? []);
+    const list = asApiResponse<TreeNodeDto[]>(data) ?? [];
+    setNodes(list);
+    await refreshPhaseData(structureId, list);
   }
 
   // `limit` is always sent: the endpoint treats its absence as "the whole
@@ -500,6 +590,70 @@ export function BookingWorkspace() {
     await refreshNodes(selectedStructureId);
   }
 
+  // FR-032: `set_phase` is what makes a playlist node a phase column, and the
+  // tree editor has no field for it. Sending the node's own name back
+  // unchanged keeps the rename-lock on an applied node satisfied.
+  async function handleSetPhase(nodeId: number, setPhase: string | null) {
+    if (selectedStructureId === null) return;
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    await apiClient.PUT("/api/structures/{structure_id}/nodes/{node_id}", {
+      params: { path: { structure_id: selectedStructureId, node_id: nodeId } },
+      body: {
+        name: node.name,
+        parent_id: node.parent_id,
+        position: node.position,
+        set_phase: setPhase,
+      },
+    });
+    await refreshNodes(selectedStructureId);
+  }
+
+  // Moving a track between two phase playlists is an add to the target plus a
+  // remove from the source; the backend refuses the remove once a node is
+  // applied to Rekordbox, so that case is answered here before anything is
+  // written rather than leaving the track in both playlists.
+  async function handleMovePhaseTrack(
+    rbContentId: string,
+    fromNodeId: number,
+    toNodeId: number,
+  ): Promise<string | null> {
+    if (selectedStructureId === null) return "Geen structuur geselecteerd.";
+    const from = nodes.find((n) => n.id === fromNodeId);
+    if (from?.rb_ref) {
+      return "Deze fase is al toegepast in Rekordbox; verplaats het nummer daar.";
+    }
+    try {
+      const { error: addError } = await apiClient.POST(
+        "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+        {
+          params: { path: { structure_id: selectedStructureId, node_id: toNodeId } },
+          body: { rb_content_id: rbContentId, origin: "manual" },
+        },
+      );
+      if (addError) return applyErrorMessageFor(asApiResponse<ApiError>(addError));
+      const { error: removeError } = await apiClient.DELETE(
+        "/api/structures/{structure_id}/nodes/{node_id}/tracks/{rb_content_id}",
+        {
+          params: {
+            path: {
+              structure_id: selectedStructureId,
+              node_id: fromNodeId,
+              rb_content_id: rbContentId,
+            },
+          },
+        },
+      );
+      if (removeError) return applyErrorMessageFor(asApiResponse<ApiError>(removeError));
+    } catch {
+      // FR-026's silent-failure ban: a failed request must say so, not leave
+      // the row looking as if it moved (or as if nothing was clicked).
+      return "Verplaatsen is mislukt. Probeer het opnieuw.";
+    }
+    await refreshNodes(selectedStructureId);
+    return null;
+  }
+
   async function handleAccept(track: SuggestionDto) {
     if (selectedStructureId === null || selectedNodeId === null) return;
     await apiClient.POST("/api/structures/{structure_id}/nodes/{node_id}/tracks", {
@@ -507,6 +661,9 @@ export function BookingWorkspace() {
       body: { rb_content_id: track.rb_content_id, origin: "suggestion" },
     });
     await refreshSuggestions(selectedStructureId, selectedNodeId, suggestionLimit);
+    // The accepted track now sits in a phase playlist, so the phase columns,
+    // the BPM bars and the checks all have to take it into account.
+    await refreshPhaseData(selectedStructureId, nodes);
   }
 
   async function handleDismiss(track: SuggestionDto) {
@@ -541,6 +698,9 @@ export function BookingWorkspace() {
       </p>
     );
   }
+
+  const phases = buildPhases(nodes, phaseMembers, trackFacts);
+  const checks = computeChecks(phases, openBuyQueue);
 
   return (
     <div className="flex flex-col gap-16">
@@ -582,6 +742,21 @@ export function BookingWorkspace() {
 
       {selectedStructureId !== null && (
         <>
+          {/* The design's order for this view: the curve card, the phase
+              columns, then the checks bar (HANDOFF.md "3. Playlist builder").
+              The structure/profile/tree editing this workspace already had
+              follows underneath. */}
+          <BpmProgressionCard phases={phases} />
+
+          <PhaseBoard phases={phases} onMove={handleMovePhaseTrack} />
+
+          <ChecksBar checks={checks} />
+
+          <SetPhaseEditor
+            nodes={nodes}
+            onSave={(nodeId, setPhase) => void handleSetPhase(nodeId, setPhase)}
+          />
+
           <div className="flex flex-col gap-8">
             <label htmlFor={structureProfileSelectId} className="text-body-lg font-semibold">
               Profiel voor deze structuur

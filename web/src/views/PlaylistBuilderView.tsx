@@ -1,19 +1,19 @@
 import { BookingWorkspace } from "../features/bookings/BookingWorkspace";
 
 // The prototype's Playlist builder view (HANDOFF.md, "3. Playlist builder"),
-// carrying US7 (generate booking-type playlist structures).
+// carrying US7 (generate booking-type playlist structures): the header stack,
+// then BookingWorkspace's BPM-verloop card, phase columns and checks bar.
 //
-// Deliberately not built, because the data and the scope do not exist:
-// - the "Energiecurve" card -- no energy value exists per track, and a curve
-//   drawn from anything else would be invented;
-// - the per-phase BPM/key columns and the green Camelot key -- the collection
-//   model carries BPM but no musical key (components/TrackTable.tsx's
-//   CollectionTrackDto);
-// - drag-and-drop between the phase columns and "Voorstel automatisch
-//   herordenen" -- HANDOFF.md lists both as "intended but not built", and
-//   both would be new features rather than this re-layout;
-// - the "Controles" bar's key-conflict and cue-point checks -- neither key nor
-//   cue-point presence is read from Rekordbox.
+// Two things the design shows are deliberately not here:
+// - the "Energiecurve" name and an energy value per track: Spotify's
+//   audio-features endpoint answers 403 for this application, so no energy
+//   value exists anywhere and the card plots BPM under its own name instead;
+// - "Voorstel automatisch herordenen": the owner chose the option without a
+//   reordering algorithm.
+//
+// The design's right-hand "Naar Rekordbox sturen" pill is BookingWorkspace's
+// existing "Toepassen" action, which goes through the guarded write path; it is
+// not duplicated here.
 export function PlaylistBuilderView() {
   return (
     <div className="flex flex-col gap-24">
@@ -23,7 +23,8 @@ export function PlaylistBuilderView() {
           Boekingstructuren
         </h1>
         <p className="text-body text-mist">
-          Stel een setstructuur samen per boekingstype en schrijf die als playlist naar Rekordbox.
+          Stel een setstructuur samen per boekingstype: geef je playlists een setfase, verdeel de
+          nummers over de fases en schrijf de structuur naar Rekordbox.
         </p>
       </div>
 

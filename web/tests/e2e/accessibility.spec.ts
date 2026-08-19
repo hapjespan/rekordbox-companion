@@ -59,6 +59,64 @@ async function mockCommonEndpoints(page: import("@playwright/test").Page) {
   );
   await page.route("**/api/structures", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/profiles", (route) => route.fulfill({ json: [] }));
+  // The sidebar's two playlist sources. One real Spotify row (its cover stays
+  // a placeholder so this suite makes no request to Spotify's CDN) and a
+  // folder holding one playlist, so the tree's fold control and a nested row
+  // are both in the sweep. No name here collides with a WORKSPACE nav label.
+  await page.route("**/api/spotify/playlists", (route) =>
+    route.fulfill({
+      json: [
+        {
+          spotify_playlist_id: "37i9",
+          name: "Bruiloft 2026",
+          image_url: null,
+          owner_display_name: "DJ Test",
+          sync: {
+            state: "ready",
+            session_id: 1,
+            session_created_at: "2026-08-18T00:00:00",
+            last_applied_at: null,
+            totals: { matched: 2, review: 1, missing: 1, rejected: 0, unmatchable: 0 },
+          },
+        },
+      ],
+    }),
+  );
+  await page.route("**/api/playlists", (route) =>
+    route.fulfill({
+      json: [
+        { rb_playlist_id: "1", name: "Bruiloften", parent_id: null, is_folder: true, position: 1 },
+        {
+          rb_playlist_id: "2",
+          name: "Warme opener",
+          parent_id: "1",
+          is_folder: false,
+          position: 1,
+        },
+      ],
+    }),
+  );
+  await page.route("**/api/playlists/*/tracks?*", (route) =>
+    route.fulfill({
+      json: {
+        total: 1,
+        items: [
+          {
+            rb_content_id: "rb1",
+            artist: "Daft Punk",
+            title: "One More Time",
+            duration_ms: 210_000,
+            bpm: 123,
+            play_count: 5,
+            genres: [],
+            format: "mp3",
+            musical_key: "9B",
+            label: "Virgin",
+          },
+        ],
+      },
+    }),
+  );
   // The shell's sidebar card and the collection table both read this one.
   await page.route("**/api/collection?*", (route) =>
     route.fulfill({
@@ -74,6 +132,8 @@ async function mockCommonEndpoints(page: import("@playwright/test").Page) {
             play_count: 5,
             genres: [],
             format: "mp3",
+            musical_key: "8m",
+            label: "Virgin",
           },
         ],
       },
@@ -110,6 +170,16 @@ test("every workspace view has no automatically detectable accessibility violati
       [],
     );
   }
+
+  // The sixth state the nav cannot reach on its own: the Collection view
+  // filtered to a Rekordbox playlist, reached by folding open the sidebar's
+  // library tree and picking a playlist inside it.
+  await page.getByRole("button", { name: "Warme opener" }).click();
+  await expect(page.getByRole("heading", { name: "Warme opener" })).toBeVisible();
+
+  const filtered = await new AxeBuilder({ page }).analyze();
+
+  expect(filtered.violations, JSON.stringify(filtered.violations, null, 2)).toEqual([]);
 });
 
 test("the match report and apply flow has no automatically detectable accessibility violations", async ({

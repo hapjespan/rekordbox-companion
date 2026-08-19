@@ -274,6 +274,141 @@ describe("ReviewQueue", () => {
     expect(screen.getByText(/Rekordbox-id rb-z · score 81/)).toBeInTheDocument();
   });
 
+  // The delivered design's Uncertain group card (HANDOFF.md, "1. Match-
+  // overzicht" -> Uncertain group): Spotify left, the match score in the
+  // middle, the Rekordbox candidate right with duration, BPM and musical key,
+  // and the two actions. Everything the keyboard already guaranteed above must
+  // keep holding with those buttons on the card.
+  const RESOLVED_ITEM = {
+    sync_track_id: 11,
+    spotify_artist: "Sora Watanabe",
+    spotify_title: "Falling Light (Extended)",
+    spotify_duration_ms: 432_000,
+    candidates: [
+      {
+        rb_content_id: "rb-p",
+        score: 84,
+        artist: "Sora Watanabe",
+        title: "Falling Light (Original Mix)",
+        duration_ms: 408_000,
+        bpm: 130,
+        musical_key: "5A",
+      },
+      {
+        rb_content_id: "rb-q",
+        score: 71,
+        artist: "Sora Watanabe",
+        title: "Falling Light (Rework)",
+        duration_ms: 362_000,
+        bpm: 128,
+        musical_key: "8B",
+      },
+    ],
+  };
+
+  it("shows both sides of the match, the score, and the candidate's BPM and key", () => {
+    renderQueue({ items: [RESOLVED_ITEM] });
+
+    expect(screen.getByText("SPOTIFY")).toBeInTheDocument();
+    expect(screen.getByText("Falling Light (Extended)")).toBeInTheDocument();
+    expect(screen.getByText("Sora Watanabe · 7:12")).toBeInTheDocument();
+    expect(screen.getByText("84%")).toBeInTheDocument();
+    // The design shows the bare percentage; read out of the layout it
+    // needs to say what it measures, so the label is hidden, not absent.
+    expect(screen.getByText("Matchscore")).toBeInTheDocument();
+    expect(screen.getByText("REKORDBOX")).toBeInTheDocument();
+    expect(screen.getByText("Falling Light (Original Mix)")).toBeInTheDocument();
+    expect(screen.getByText("6:48 · 130 BPM · 5A")).toBeInTheDocument();
+  });
+
+  it("Andere moves to the next candidate and Bevestig accepts that one", () => {
+    const onAccept = vi.fn();
+    renderQueue({ items: [RESOLVED_ITEM], onAccept });
+
+    fireEvent.click(screen.getByRole("button", { name: "Andere" }));
+
+    expect(screen.getByText("Falling Light (Rework)")).toBeInTheDocument();
+    expect(screen.getByText("6:02 · 128 BPM · 8B")).toBeInTheDocument();
+    expect(activeCandidateId()).toBe("review-candidate-11-rb-q");
+
+    fireEvent.click(screen.getByRole("button", { name: "Bevestig" }));
+
+    expect(onAccept).toHaveBeenCalledWith(11, "rb-q");
+    // A pointer action must never strand the focus on a button the next
+    // render unmounts: the queue keeps it, so the keys keep working.
+    expect(document.activeElement).toBe(queue());
+  });
+
+  it("keeps Andere out of the tab order's way when there is nothing to switch to", () => {
+    renderQueue({
+      items: [
+        {
+          sync_track_id: 12,
+          spotify_artist: "VETA",
+          spotify_title: "Ritual Machine",
+          candidates: [{ rb_content_id: "rb-only", score: 68 }],
+        },
+      ],
+    });
+
+    expect(screen.getByRole("button", { name: "Andere" })).toBeDisabled();
+  });
+
+  it("says the Rekordbox side could not be resolved rather than inventing one", () => {
+    renderQueue({
+      items: [
+        {
+          sync_track_id: 13,
+          spotify_artist: "Kamera",
+          spotify_title: "Untitled B2",
+          candidates: [{ rb_content_id: "rb-z", score: 81 }],
+        },
+      ],
+    });
+
+    expect(screen.getByText("Rekordbox-id rb-z")).toBeInTheDocument();
+    expect(screen.getByText("Niet gevonden in de collectie")).toBeInTheDocument();
+  });
+
+  it("clicking a candidate row selects it for the keyboard too", () => {
+    const onAccept = vi.fn();
+    renderQueue({ items: [RESOLVED_ITEM], onAccept });
+
+    fireEvent.click(screen.getAllByTestId("review-queue-candidate")[1]);
+    fireEvent.keyDown(queue(), { key: "a" });
+
+    expect(onAccept).toHaveBeenCalledWith(11, "rb-q");
+  });
+
+  it("keeps only the active card's actions in the tab order", () => {
+    renderQueue();
+
+    const others = screen.getAllByRole("button", { name: "Andere" });
+    const confirms = screen.getAllByRole("button", { name: "Bevestig" });
+    expect(others[0]).toHaveAttribute("tabindex", "0");
+    expect(confirms[0]).toHaveAttribute("tabindex", "0");
+    expect(others[1]).toHaveAttribute("tabindex", "-1");
+    expect(confirms[1]).toHaveAttribute("tabindex", "-1");
+
+    fireEvent.keyDown(queue(), { key: "ArrowDown" });
+
+    expect(screen.getAllByRole("button", { name: "Bevestig" })[0]).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
+    expect(screen.getAllByRole("button", { name: "Bevestig" })[1]).toHaveAttribute("tabindex", "0");
+  });
+
+  it("does not also preview when space activates a focused card button", () => {
+    const { onPreview } = renderQueue();
+
+    // Space on a button is that button's own activation; the queue must not
+    // fire a preview from the same press as well.
+    fireEvent.keyDown(screen.getAllByRole("button", { name: "Bevestig" })[0], { key: " " });
+
+    expect(onPreview).not.toHaveBeenCalled();
+  });
+
   it("renders no queue items when the list is empty", () => {
     // The completion state itself is QueueComplete.tsx's job (T041, a
     // separate component) -- the parent composing them decides which to

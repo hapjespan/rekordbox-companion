@@ -291,4 +291,139 @@ describe("Tree", () => {
 
     expect(onSelect).toHaveBeenCalledWith(2);
   });
+
+  it("folds a folder closed and open again, reporting it on the treeitem too", () => {
+    render(
+      <Tree
+        nodes={[FOLDER, PLAYLIST]}
+        onCreate={noop}
+        onRename={vi.fn()}
+        onMove={noop}
+        onDelete={noop}
+      />,
+    );
+
+    // Open by default: a booking structure is built by looking at all of it.
+    expect(screen.getByRole("treeitem", { name: /Vooravond/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Vouw in: Vooravond" }));
+
+    expect(screen.getByRole("treeitem", { name: /Vooravond/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByText("Ontvangst")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Vouw uit: Vooravond" }));
+
+    expect(screen.getByText("Ontvangst")).toBeInTheDocument();
+  });
+
+  it("offers no fold control on a folder that has no children", () => {
+    render(
+      <Tree nodes={[FOLDER]} onCreate={noop} onRename={vi.fn()} onMove={noop} onDelete={noop} />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Vouw/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: /Vooravond/ })).not.toHaveAttribute(
+      "aria-expanded",
+    );
+  });
+});
+
+// The same component renders the read-only Rekordbox library in the sidebar
+// (components/RekordboxLibrary.tsx): string ids, no editing affordances, and
+// a folder row that is itself the expand/collapse control.
+const LIBRARY_FOLDER = {
+  id: "1",
+  parent_id: null,
+  kind: "folder" as const,
+  name: "Bruiloften",
+  position: 1,
+};
+
+const LIBRARY_PLAYLIST = {
+  id: "2",
+  parent_id: "1",
+  kind: "playlist" as const,
+  name: "Warme opener",
+  position: 1,
+};
+
+describe("Tree, compact variant", () => {
+  it("renders string-keyed nodes without any editing control", () => {
+    render(
+      <Tree
+        variant="compact"
+        label="Rekordbox-bibliotheek"
+        nodes={[LIBRARY_FOLDER, LIBRARY_PLAYLIST]}
+        onSelect={noop}
+      />,
+    );
+
+    expect(screen.getByRole("tree", { name: "Rekordbox-bibliotheek" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Naam wijzigen/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Verwijderen/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nieuwe/ })).not.toBeInTheDocument();
+  });
+
+  it("makes the folder row itself the expand/collapse control", () => {
+    render(
+      <Tree
+        variant="compact"
+        label="Rekordbox-bibliotheek"
+        nodes={[LIBRARY_FOLDER, LIBRARY_PLAYLIST]}
+        onSelect={noop}
+      />,
+    );
+
+    const folder = screen.getByRole("button", { name: "Bruiloften" });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(folder);
+
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Warme opener" })).not.toBeInTheDocument();
+  });
+
+  it("selects a playlist by its own name and marks the selected one", () => {
+    const onSelect = vi.fn();
+    render(
+      <Tree
+        variant="compact"
+        label="Rekordbox-bibliotheek"
+        nodes={[LIBRARY_FOLDER, LIBRARY_PLAYLIST]}
+        onSelect={onSelect}
+        selectedId="2"
+      />,
+    );
+
+    const playlist = screen.getByRole("button", { name: "Warme opener" });
+    expect(playlist).toHaveAttribute("aria-current", "true");
+
+    fireEvent.click(playlist);
+
+    expect(onSelect).toHaveBeenCalledWith("2");
+  });
+
+  it("indents nested rows through the spacing token, never a hardcoded pixel value", () => {
+    render(
+      <Tree
+        variant="compact"
+        label="Rekordbox-bibliotheek"
+        nodes={[LIBRARY_FOLDER, LIBRARY_PLAYLIST]}
+        onSelect={noop}
+      />,
+    );
+
+    const nestedRow = screen
+      .getByRole("treeitem", { name: "Warme opener" })
+      .querySelector<HTMLElement>("div");
+    const style = nestedRow?.getAttribute("style") ?? "";
+    expect(style).toContain("var(--spacing-16)");
+    expect(style).not.toMatch(/\d+px/);
+  });
 });

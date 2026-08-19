@@ -380,3 +380,199 @@ describe("BookingWorkspace", () => {
     await waitFor(() => expect(putCount).toBe(2));
   });
 });
+
+// The Playlist builder's own blocks (HANDOFF.md "3. Playlist builder"), wired
+// to the endpoints that actually exist: phase membership comes from the
+// Suggestions endpoint's `already_in_playlist` flag (there is no GET for a
+// node's tracks), and BPM/key come from a bounded sweep of GET /api/collection
+// (which has no per-id lookup).
+const PHASE_A = {
+  ...PLAYLIST_NODE,
+  id: 2,
+  name: "Ontvangst",
+  position: 0,
+  set_phase: "vooravond",
+};
+const PHASE_B = {
+  ...PLAYLIST_NODE,
+  id: 3,
+  name: "Dansvloer",
+  position: 1,
+  set_phase: "prime",
+};
+
+interface GetOptions {
+  params?: { path?: { node_id?: number }; query?: Record<string, unknown> };
+}
+
+function mockPhaseTree(
+  overrides: {
+    nodes?: unknown[];
+    missing?: { artist: string; title: string; status: string }[];
+    collection?: { total: number; items: unknown[] };
+  } = {},
+) {
+  vi.mocked(apiClient.GET).mockImplementation(((path: string, options?: GetOptions) => {
+    const data = (() => {
+      switch (path) {
+        case "/api/structures":
+          return [STRUCTURE];
+        case "/api/profiles":
+          return [PROFILE];
+        case "/api/structures/{structure_id}/nodes":
+          return overrides.nodes ?? [PHASE_A, PHASE_B];
+        case "/api/structures/{structure_id}/nodes/{node_id}/suggestions":
+          return options?.params?.path?.node_id === 2
+            ? [{ ...SUGGESTION, already_in_playlist: true }]
+            : [];
+        case "/api/collection":
+          return (
+            overrides.collection ?? {
+              total: 1,
+              items: [
+                {
+                  rb_content_id: "1",
+                  artist: "Daft Punk",
+                  title: "One More Time",
+                  bpm: 123,
+                  musical_key: "8m",
+                  duration_ms: 320_000,
+                },
+              ],
+            }
+          );
+        case "/api/missing":
+          return overrides.missing ?? [];
+        default:
+          return undefined;
+      }
+    })();
+    return Promise.resolve({ data, error: undefined });
+  }) as never);
+}
+
+describe("BookingWorkspace playlist builder", () => {
+  it("builds a phase column per playlist node that carries a set_phase", async () => {
+    mockPhaseTree();
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    expect(await screen.findByRole("heading", { name: "vooravond" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "prime" })).toBeInTheDocument();
+    expect(screen.getByText("Nog geen nummers in deze fase.")).toBeInTheDocument();
+  });
+
+  it("resolves BPM and key for the phase rows from one bounded collection page", async () => {
+    mockPhaseTree();
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    const column = (await screen.findByRole("heading", { name: "vooravond" })).closest(
+      "li",
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(within(column).getByText("8m")).toBeInTheDocument();
+    });
+    expect(within(column).getByText("123 BPM")).toBeInTheDocument();
+    expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
+      params: { query: { limit: 200, offset: 0 } },
+    });
+  });
+
+  it("moves a track to the next phase as an add plus a remove", async () => {
+    mockPhaseTree();
+    vi.mocked(apiClient.POST).mockResolvedValue({
+      data: { added: true },
+      error: undefined,
+    } as never);
+    vi.mocked(apiClient.DELETE).mockResolvedValue({
+      data: { removed: true },
+      error: undefined,
+    } as never);
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Verplaats One More Time naar fase prime" }),
+    );
+
+    await waitFor(() => {
+      expect(apiClient.POST).toHaveBeenCalledWith(
+        "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+        {
+          params: { path: { structure_id: 1, node_id: 3 } },
+          body: { rb_content_id: "1", origin: "manual" },
+        },
+      );
+    });
+    expect(apiClient.DELETE).toHaveBeenCalledWith(
+      "/api/structures/{structure_id}/nodes/{node_id}/tracks/{rb_content_id}",
+      { params: { path: { structure_id: 1, node_id: 2, rb_content_id: "1" } } },
+    );
+  });
+
+  it("refuses to move out of a phase that Rekordbox already owns, before writing anything", async () => {
+    mockPhaseTree({ nodes: [{ ...PHASE_A, rb_ref: "rb-1" }, PHASE_B] });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Verplaats One More Time naar fase prime" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Deze fase is al toegepast in Rekordbox; verplaats het nummer daar.",
+    );
+    expect(apiClient.POST).not.toHaveBeenCalled();
+  });
+
+  it("says the move failed instead of silently leaving the row where it was", async () => {
+    // FR-026's silent-failure ban: a rejected request (offline, backend down)
+    // must not look like a click that did nothing.
+    mockPhaseTree();
+    vi.mocked(apiClient.POST).mockRejectedValue(new Error("offline") as never);
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Verplaats One More Time naar fase prime" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Verplaatsen is mislukt. Probeer het opnieuw.",
+    );
+  });
+
+  it("gives a playlist node a set_phase, which is what makes it a phase column", async () => {
+    mockPhaseTree({ nodes: [{ ...PHASE_A, set_phase: null }] });
+    vi.mocked(apiClient.PUT).mockResolvedValue({ data: PHASE_A, error: undefined } as never);
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    fireEvent.change(await screen.findByLabelText("Setfase voor Ontvangst"), {
+      target: { value: "vooravond" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Setfase opslaan: Ontvangst" }));
+
+    await waitFor(() => {
+      expect(apiClient.PUT).toHaveBeenCalledWith("/api/structures/{structure_id}/nodes/{node_id}", {
+        params: { path: { structure_id: 1, node_id: 2 } },
+        body: { name: "Ontvangst", parent_id: null, position: 0, set_phase: "vooravond" },
+      });
+    });
+  });
+
+  it("flags a phase track that still sits in the buy queue as an open item", async () => {
+    mockPhaseTree({
+      missing: [{ artist: "daft punk", title: "One More Time", status: "open" }],
+    });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    expect(
+      await screen.findByText(
+        "1 nummer(s) staan nog in de koop-wachtrij: Daft Punk – One More Time",
+      ),
+    ).toBeInTheDocument();
+  });
+});

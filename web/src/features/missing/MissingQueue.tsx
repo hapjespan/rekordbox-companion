@@ -76,6 +76,38 @@ function priceLabelFor(track: MissingTrackDto): string | null {
   }
 }
 
+interface QueueTotals {
+  count: number;
+  noPriceCount: number;
+  totalLabel: string | null;
+}
+
+// HANDOFF.md's store-card header total and "Overzicht" summary panel both
+// need the same arithmetic: sum only the prices that are actually present
+// (FR-041 -- a streaming-only or album-only track has none) and report how
+// many rows carry no price rather than quietly excluding them from the
+// count the DJ sees.
+function summarize(tracks: MissingTrackDto[]): QueueTotals {
+  const priced = tracks.filter(
+    (track): track is MissingTrackDto & { itunes_price: number } => track.itunes_price !== null,
+  );
+  let totalLabel: string | null = null;
+  if (priced.length > 0) {
+    const amount = priced.reduce((sum, track) => sum + track.itunes_price, 0);
+    // Every row observed in practice prices in EUR (the iTunes NL
+    // storefront); a genuinely mixed-currency queue is outside this cut's
+    // scope, so the first present currency stands in for the summed total
+    // rather than adding real multi-currency arithmetic.
+    const currency = priced[0].itunes_currency ?? "EUR";
+    try {
+      totalLabel = new Intl.NumberFormat("nl-NL", { style: "currency", currency }).format(amount);
+    } catch {
+      totalLabel = `${amount.toFixed(2)} ${currency}`;
+    }
+  }
+  return { count: tracks.length, noPriceCount: tracks.length - priced.length, totalLabel };
+}
+
 interface MissingTrackRowProps {
   track: MissingTrackDto;
   onStatusChange: (id: number, status: MissingTrackStatus) => void;
@@ -152,13 +184,35 @@ function MissingTrackRow({
   }
 
   return (
-    <li
-      data-testid="missing-track-row"
-      className="flex flex-col gap-8 rounded-md bg-graphite p-16 text-pure-white"
-    >
-      <p className="text-body-lg font-semibold">
-        {track.artist} – {track.title}
-      </p>
+    <li data-testid="missing-track-row" className="flex flex-col gap-8 px-16 py-10 hover:bg-smoke">
+      {/* HANDOFF.md's item row is a grid `22px minmax(0,1fr) 90px 70px 80px`
+          (checkbox / track / bpm·key / quality / price). A Missing Track
+          carries an Apple Music / iTunes link and a status, nothing else
+          (FR-020..FR-022, ADR 0006) -- there is no bpm/key (that is
+          Rekordbox collection data, not this row's) and no quality field,
+          so both middle columns are dropped rather than filled with
+          invented data. There is also no per-row checkout selection (no
+          checkout button, owner decision), so the checkbox is repurposed as
+          a decorative, aria-hidden echo of whether this row's price is one
+          of the ones the summary panel's total actually counts; the same
+          fact is already stated in text below (this row's own "Prijs: ..."
+          line, or its absence), which is what a screen reader announces. */}
+      <div className="grid grid-cols-[var(--spacing-22)_minmax(0,1fr)_var(--spacing-80)] items-center gap-16">
+        <span
+          aria-hidden="true"
+          className={`flex h-15 w-15 flex-none items-center justify-center rounded-sm text-micro font-bold ${
+            priceLabel ? "bg-spotify-green text-void-black" : "border border-iron"
+          }`}
+        >
+          {priceLabel ? "✓" : null}
+        </span>
+        <p className="truncate text-body-lg font-semibold">
+          {track.artist} – {track.title}
+        </p>
+        <span aria-hidden="true" className="text-right text-body font-semibold text-pure-white">
+          {priceLabel ?? "–"}
+        </span>
+      </div>
       <p className="text-body-lg text-mist">Status: {STATUS_LABELS[track.status]}</p>
 
       <div className="flex flex-wrap gap-8" role="group" aria-label="Status wijzigen">
@@ -274,6 +328,15 @@ function MissingTrackRow({
 
 export function MissingQueue() {
   const [tracks, setTracks] = useState<MissingTrackDto[] | null>(null);
+  // The summary panel's total is always the OPEN queue's, independent of
+  // which status filter is currently shown in the store card (owner
+  // decision: "the real total of the open tracks"). Kept as its own piece
+  // of state rather than re-fetched on every filter switch: `refresh` below
+  // already fetches "open" on first load (the default filter), so this
+  // stays in step with zero extra requests whenever the DJ is looking at
+  // the default view, and simply keeps the last known open total while
+  // browsing Aangeschaft/Genegeerd.
+  const [openTracks, setOpenTracks] = useState<MissingTrackDto[] | null>(null);
   // Review finding: "open" was the only reachable view -- an accidental tap
   // on "Genegeerd"/"Aangeschaft" in the per-row status control removed a
   // row from this (only) list with no way back short of the API. Default
@@ -311,9 +374,12 @@ export function MissingQueue() {
       const { data } = await apiClient.GET("/api/missing", {
         params: { query: { status } },
       });
-      setTracks(asApiResponse<MissingTrackDto[]>(data) ?? []);
+      const list = asApiResponse<MissingTrackDto[]>(data) ?? [];
+      setTracks(list);
+      if (status === "open") setOpenTracks(list);
     } catch {
       setTracks((current) => current ?? []);
+      if (status === "open") setOpenTracks((current) => current ?? []);
     }
   }
 
@@ -369,6 +435,9 @@ export function MissingQueue() {
     );
   }
 
+  const cardTotals = summarize(tracks);
+  const summaryTotals = summarize(openTracks ?? []);
+
   return (
     <div className="flex flex-col gap-16">
       {/* The panel title is the Koop-wachtrij view's own <h1> now, so this
@@ -407,22 +476,89 @@ export function MissingQueue() {
         </p>
       )}
 
-      {tracks.length === 0 ? (
-        <p className="text-body-lg text-mist">{EMPTY_STATE_LABELS[statusFilter]}</p>
-      ) : (
-        <ul className="flex flex-col gap-16">
-          {tracks.map((track) => (
-            <MissingTrackRow
-              key={track.id}
-              track={track}
-              onStatusChange={(id, status) => void handleStatusChange(id, status)}
-              onLinkOverride={handleLinkOverride}
-              isPreviewPlaying={playingPreviewId === track.id}
-              onPreviewChange={handlePreviewChange}
-            />
-          ))}
-        </ul>
-      )}
+      {/* HANDOFF.md's two-column buy-queue shell: one store card (left) and a
+          sticky summary panel (right), stacking below the width the handoff
+          names. That width is the `--breakpoint-stack` token, so the same
+          number cannot drift apart between this view and the builder's grid. */}
+      <div
+        data-testid="buy-queue-columns"
+        className="grid grid-cols-1 items-start gap-24 stack:grid-cols-[minmax(0,1fr)_minmax(var(--spacing-240),var(--spacing-300))]"
+      >
+        {/* Store card: HANDOFF.md shows one card per store (Beatport,
+            Bandcamp, Traxsource); this app only ever resolves one store's
+            link (Apple Music / iTunes, FR-020..FR-022/ADR 0006), so there is
+            no per-store grouping beyond this single card -- it holds every
+            row the current filter shows. */}
+        <div data-testid="buy-queue-store-card" className="overflow-hidden rounded-md bg-graphite">
+          <div className="flex items-center gap-8 border-b border-smoke px-16 py-14">
+            <span className="text-body-lg font-bold text-pure-white">Apple Music</span>
+            <span className="rounded-full-2 bg-smoke px-10 py-3 text-caption text-mist">
+              {cardTotals.count} tracks
+            </span>
+            <span className="flex-1" />
+            <span
+              data-testid="buy-queue-store-card-total"
+              className="text-body font-bold text-pure-white"
+            >
+              {cardTotals.totalLabel ?? "–"}
+            </span>
+          </div>
+
+          {tracks.length === 0 ? (
+            <p className="px-16 py-16 text-body-lg text-mist">{EMPTY_STATE_LABELS[statusFilter]}</p>
+          ) : (
+            <ul className="divide-y divide-smoke">
+              {tracks.map((track) => (
+                <MissingTrackRow
+                  key={track.id}
+                  track={track}
+                  onStatusChange={(id, status) => void handleStatusChange(id, status)}
+                  onLinkOverride={handleLinkOverride}
+                  isPreviewPlaying={playingPreviewId === track.id}
+                  onPreviewChange={handlePreviewChange}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Summary panel: HANDOFF.md's "Overzicht" card. Its total always
+            covers the open queue (see the `openTracks` comment above), and
+            is computed only from the prices that are actually present
+            (FR-041) -- the "zonder prijs" row says how many rows carry no
+            price rather than quietly excluding them from what the DJ reads
+            as "the total".
+            Not built, because the app never handles money or a cart, and
+            there is no watch-folder import: the "Afrekenen per winkel"
+            checkout pill (owner decision) and the "Na aankoop" watch-folder
+            card (FR-023, ADR 0008) that HANDOFF.md places here. */}
+        <div
+          data-testid="buy-queue-summary"
+          className="sticky top-0 flex flex-col gap-14 rounded-md bg-graphite p-16"
+        >
+          <p className="text-body-lg font-bold text-pure-white">Overzicht</p>
+          <div className="flex items-center justify-between text-body text-mist">
+            <span>{summaryTotals.count} tracks</span>
+            <span className="text-pure-white">{summaryTotals.totalLabel ?? "–"}</span>
+          </div>
+          <div className="flex items-center justify-between text-body text-mist">
+            <span>{summaryTotals.noPriceCount} zonder prijs</span>
+            <span>niet meegeteld</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-iron pt-8 text-body-lg font-bold text-pure-white">
+            <span>Totaal</span>
+            <span>{summaryTotals.totalLabel ?? "–"}</span>
+          </div>
+          {/* theme.css deliberately does not use --color-fog for small text
+              (it fails AA on these surfaces, ADR 0020); the footnote uses
+              mist, the next step up, instead of the fog HANDOFF.md's
+              prototype used. */}
+          <p className="text-caption leading-body text-mist">
+            Koop een nummer via de link op de rij; prijs en fragment komen van de Apple Music /
+            iTunes Store.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

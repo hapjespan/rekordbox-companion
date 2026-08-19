@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiClient } from "../../api/client";
 import { KeymapOverlay } from "../../components/KeymapOverlay";
+import { sortTracks } from "../spotify-sync/matchFilters";
+import type { MatchSort } from "../spotify-sync/matchFilters";
 import { asApiResponse } from "../spotify-sync/types";
 import type { ApiError, SyncSessionDetail, SyncTrack } from "../spotify-sync/types";
 import { DualPlayback } from "./DualPlayback";
 import { QueueComplete } from "./QueueComplete";
 import { ReviewQueue } from "./ReviewQueue";
+import { useCandidateDetails } from "./useCandidateDetails";
 
 interface ReviewViewProps {
   // Fed from App.tsx's GET /api/sync/sessions/{id} rather than fetching the
@@ -17,6 +20,10 @@ interface ReviewViewProps {
   // Re-fetches the session after a resolution, so the queue shrinks and the
   // totals update from the backend's own numbers instead of a local guess.
   onResolved: () => Promise<void> | void;
+  // The Match-overzicht sort control (views/MatchOverviewView.tsx) orders this
+  // group too, not only the tables: one control over every group the filter
+  // row sits above. Defaults to the design's own "zekerheid".
+  sort?: MatchSort;
 }
 
 // Same code-keyed-switch convention as PlaylistUrlForm/MissingQueue: Dutch
@@ -41,7 +48,7 @@ function resolutionErrorMessageFor(error: ApiError): string {
 // whichever side the selection points at, and QueueComplete (T041) closes
 // the session -- none of which was mounted anywhere before, leaving US2's
 // independent test and its WCAG criteria unreachable in the running app.
-export function ReviewView({ session, onResolved }: ReviewViewProps) {
+export function ReviewView({ session, onResolved, sort = "score" }: ReviewViewProps) {
   const [activeSyncTrackId, setActiveSyncTrackId] = useState<number | null>(null);
   const [activeRbContentId, setActiveRbContentId] = useState<string | null>(null);
   const [previewRequestId, setPreviewRequestId] = useState(0);
@@ -64,16 +71,37 @@ export function ReviewView({ session, onResolved }: ReviewViewProps) {
     [],
   );
 
-  const reviewTracks = session.tracks.filter((track) => track.status === "review");
+  const reviewTracks = sortTracks(
+    session.tracks.filter((track) => track.status === "review"),
+    sort,
+  );
+  const lookupItems = reviewTracks.map((track) => ({
+    spotify_artist: track.artist,
+    spotify_title: track.title,
+    candidates: track.candidates,
+  }));
+  // The Rekordbox side of every card: title, duration, BPM and musical key,
+  // which the session's candidate rows do not carry (useCandidateDetails).
+  const candidateDetails = useCandidateDetails(lookupItems);
+
   const items = reviewTracks.map((track) => ({
     sync_track_id: track.id,
     spotify_artist: track.artist,
     spotify_title: track.title,
+    spotify_duration_ms: track.duration_ms,
     // Backend scores are floats (rapidfuzz), the queue shows whole numbers.
-    candidates: track.candidates.map((candidate) => ({
-      rb_content_id: candidate.rb_content_id,
-      score: Math.round(candidate.score),
-    })),
+    candidates: track.candidates.map((candidate) => {
+      const detail = candidateDetails.get(candidate.rb_content_id);
+      return {
+        rb_content_id: candidate.rb_content_id,
+        score: Math.round(candidate.score),
+        artist: detail?.artist,
+        title: detail?.title,
+        duration_ms: detail?.duration_ms ?? null,
+        bpm: detail?.bpm ?? null,
+        musical_key: detail?.musical_key ?? null,
+      };
+    }),
   }));
 
   // Falls back to the first item so both playback sides are usable from the
@@ -155,11 +183,15 @@ export function ReviewView({ session, onResolved }: ReviewViewProps) {
                 candidateRbContentId
                   ? {
                       rbContentId: candidateRbContentId,
-                      // The API's candidate rows carry no artist/title (see
-                      // ReviewQueue's ReviewCandidate), so the local side is
-                      // named by the Rekordbox id the DJ can look up.
-                      artist: "Kandidaat",
-                      title: `Rekordbox-id ${candidateRbContentId}`,
+                      // Named from the resolved collection row where the
+                      // lookup found it (useCandidateDetails); the API's own
+                      // candidate rows carry no artist/title, so the fallback
+                      // is the Rekordbox id the DJ can look up -- never a
+                      // guessed name.
+                      artist: candidateDetails.get(candidateRbContentId)?.artist ?? "Kandidaat",
+                      title:
+                        candidateDetails.get(candidateRbContentId)?.title ??
+                        `Rekordbox-id ${candidateRbContentId}`,
                     }
                   : null
               }

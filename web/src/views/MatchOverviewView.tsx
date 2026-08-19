@@ -1,7 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApplyAction } from "../features/spotify-sync/ApplyAction";
-import { MatchReport } from "../features/spotify-sync/MatchReport";
+import { MatchFilters } from "../features/spotify-sync/MatchFilters";
+import { MatchReport, MissingTracks } from "../features/spotify-sync/MatchReport";
+import { groupOf, isGroupVisible, sortTracks } from "../features/spotify-sync/matchFilters";
+import type { MatchFilter, MatchSort } from "../features/spotify-sync/matchFilters";
 import { PlaylistUrlForm } from "../features/spotify-sync/PlaylistUrlForm";
 import { SpotifyConnection } from "../features/spotify-sync/SpotifyConnection";
 import type {
@@ -67,18 +70,21 @@ function StatCard({ label, value, note, accent }: StatCardProps) {
 // carrying US1 (connect + paste a playlist), US2 (review the doubtful
 // matches) and US3 (write the result back to Rekordbox).
 //
+// The filter chips and the sort control live here rather than inside one of
+// the groups: the design's groups are rendered by two different feature
+// components (the missing table in spotify-sync/MatchReport, the review cards
+// in review/ReviewView), and only an owner above both can make a chip
+// actually filter and the sort actually reorder all of them.
+//
 // Deliberately not built, because the data does not exist:
 // - the "GEEN ANALYSE / BPM/key ontbreekt" stat card -- no analysis-status
 //   field exists on a sync track (features/spotify-sync/types.ts);
-// - the missing-track table's LABEL, BPM and KEY columns, its per-store
-//   name/price cell and its "In wachtrij" button -- there is no label, key,
-//   price or store model, and the buy path is an Apple Music / iTunes link
-//   per track (FR-020..FR-023, ADR 0006), not a cart;
+// - the missing-track table's LABEL, BPM and KEY columns and its store/price
+//   cell (reasons in MatchReport.tsx, at the table itself);
+// - the year on the review card's Spotify side -- a SyncTrack carries no
+//   release date, and Spotify's audio-features/album detail is not fetched;
 // - the "Exporteer XML" pill -- writing to Rekordbox goes through the guarded
-//   database writer, and XML export is out of scope (ADR 0008);
-// - the filter chips and the "Sorteer op zekerheid" control -- HANDOFF.md
-//   itself lists them as "intended but not built", and adding filtering here
-//   would be a new feature rather than this re-layout.
+//   database writer, and XML export is out of scope (ADR 0008).
 export function MatchOverviewView({
   session,
   onSessionCreated,
@@ -88,6 +94,9 @@ export function MatchOverviewView({
   focusUrlToken,
 }: MatchOverviewViewProps) {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState<MatchFilter>("all");
+  // The design's own default caption is "Sorteer op zekerheid".
+  const [sort, setSort] = useState<MatchSort>("score");
 
   useEffect(() => {
     if (focusUrlToken > 0) urlInputRef.current?.focus();
@@ -96,6 +105,17 @@ export function MatchOverviewView({
   const totals = session?.totals;
   const trackCount = session?.tracks.length ?? 0;
   const matchedPct = totals && trackCount > 0 ? Math.round((totals.matched / trackCount) * 100) : 0;
+
+  const tracks = session?.tracks ?? [];
+  const missingTracks = sortTracks(
+    tracks.filter((track) => groupOf(track.status) === "missing"),
+    sort,
+  );
+  const collectionTracks = sortTracks(
+    tracks.filter((track) => groupOf(track.status) === "collection"),
+    sort,
+  );
+  const reviewCount = tracks.filter((track) => groupOf(track.status) === "review").length;
 
   return (
     <div className="flex flex-col gap-28">
@@ -157,20 +177,48 @@ export function MatchOverviewView({
       </section>
 
       {session && (
-        <section className="flex flex-col gap-16">
-          <GroupHeading dot="bg-bone" title="Match-rapport" meta={`${trackCount} tracks`} />
-          <MatchReport totals={session.totals} tracks={session.tracks} />
-        </section>
+        <MatchFilters
+          filter={filter}
+          onFilterChange={setFilter}
+          sort={sort}
+          onSortChange={setSort}
+        />
       )}
 
-      {session && (
+      {/* The design's groups, in its own order: what is missing first, then
+          what needs a decision, then what is already in the collection. Each
+          heading is a coloured dot (decoration) plus text that carries the
+          meaning, and the chips above decide which of them render. */}
+      {session && isGroupVisible(filter, "missing") && (
         <section className="flex flex-col gap-16">
           <GroupHeading
             dot="bg-signal-red"
-            title="Twijfelgevallen — jouw beslissing"
-            meta={`${session.totals.review} tracks`}
+            title="Ontbreekt in Rekordbox"
+            meta={`${missingTracks.length} tracks`}
           />
-          <ReviewView session={session} onResolved={onSessionChanged} />
+          <MissingTracks tracks={missingTracks} onGoToBuyQueue={onGoToBuyQueue} />
+        </section>
+      )}
+
+      {session && isGroupVisible(filter, "review") && (
+        <section className="flex flex-col gap-16">
+          <GroupHeading
+            dot="bg-bone"
+            title="Twijfelgevallen — jouw beslissing"
+            meta={`${reviewCount} tracks`}
+          />
+          <ReviewView session={session} sort={sort} onResolved={onSessionChanged} />
+        </section>
+      )}
+
+      {session && isGroupVisible(filter, "collection") && (
+        <section className="flex flex-col gap-16">
+          <GroupHeading
+            dot="bg-spotify-green"
+            title="In collectie"
+            meta={`${collectionTracks.length} van ${trackCount} tracks`}
+          />
+          <MatchReport totals={session.totals} tracks={collectionTracks} />
         </section>
       )}
 

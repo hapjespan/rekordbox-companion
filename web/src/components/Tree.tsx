@@ -2,24 +2,51 @@ import { useId, useState } from "react";
 
 import type { ApiError } from "../features/spotify-sync/types";
 
-export interface TreeNodeDto {
-  id: number;
-  parent_id: number | null;
+// Ids come from two different sources: a booking structure's own nodes are
+// keyed by an integer primary key, a Rekordbox playlist by its `ID` string
+// (GET /api/playlists). One tree renders both, so the id type is a parameter
+// rather than a hardcoded `number`.
+export type TreeNodeId = string | number;
+
+// The shape both trees share: a name, whether the node is a folder, its
+// parent and its position among its siblings. `set_phase` and `rb_ref` only
+// exist on a booking structure's nodes, so they are optional -- the Rekordbox
+// library has neither.
+export interface TreeNode<TId extends TreeNodeId = number> {
+  id: TId;
+  parent_id: TId | null;
   kind: "folder" | "playlist";
   name: string;
   position: number;
+  set_phase?: string | null;
+  rb_ref?: string | null;
+}
+
+// The booking structure's node as GET /api/structures/{id} returns it.
+export interface TreeNodeDto extends TreeNode<number> {
   set_phase: string | null;
   rb_ref: string | null;
 }
 
-interface TreeProps {
-  nodes: TreeNodeDto[];
-  onCreate: (parentId: number | null, kind: "folder" | "playlist") => void;
-  onRename: (id: number, name: string) => Promise<ApiError | null>;
-  onMove: (id: number, parentId: number | null, position: number) => void;
-  onDelete: (id: number) => void;
-  onSelect?: (id: number) => void;
-  selectedId?: number | null;
+// "editor" is the booking-structure workspace (T087): create, rename, move,
+// nest, lift, delete. "compact" is the sidebar's read-only Rekordbox library:
+// the same tree, folded and unfolded, with the row itself as the control.
+type TreeVariant = "editor" | "compact";
+
+interface TreeProps<TId extends TreeNodeId> {
+  nodes: TreeNode<TId>[];
+  // The tree's accessible name; defaults to the booking structure's.
+  label?: string;
+  variant?: TreeVariant;
+  // Every editing affordance is optional: a row only offers what the caller
+  // can actually carry out, which is what makes the read-only variant read-
+  // only by construction instead of by a flag.
+  onCreate?: (parentId: TId | null, kind: "folder" | "playlist") => void;
+  onRename?: (id: TId, name: string) => Promise<ApiError | null>;
+  onMove?: (id: TId, parentId: TId | null, position: number) => void;
+  onDelete?: (id: TId) => void;
+  onSelect?: (id: TId) => void;
+  selectedId?: TId | null;
 }
 
 // Same code-keyed-switch convention as MissingQueue.tsx/PlaylistUrlForm.tsx's
@@ -34,13 +61,19 @@ function renameErrorMessageFor(error: ApiError): string {
   }
 }
 
-function siblingsOf(nodes: TreeNodeDto[], node: TreeNodeDto): TreeNodeDto[] {
+function siblingsOf<TId extends TreeNodeId>(
+  nodes: TreeNode<TId>[],
+  node: TreeNode<TId>,
+): TreeNode<TId>[] {
   return nodes
     .filter((n) => n.parent_id === node.parent_id)
     .sort((a, b) => a.position - b.position);
 }
 
-function childrenOf(nodes: TreeNodeDto[], parentId: number): TreeNodeDto[] {
+function childrenOf<TId extends TreeNodeId>(
+  nodes: TreeNode<TId>[],
+  parentId: TId,
+): TreeNode<TId>[] {
   return nodes.filter((n) => n.parent_id === parentId).sort((a, b) => a.position - b.position);
 }
 
@@ -57,21 +90,24 @@ function indentStyle(depth: number): React.CSSProperties {
 // addressed for structure_track positions. Exported so every caller that
 // needs a fresh sibling position (BookingWorkspace's create included) shares
 // this one implementation instead of re-deriving it from a count.
-export function nextPositionAmong(nodes: TreeNodeDto[], parentId: number | null): number {
+export function nextPositionAmong<TId extends TreeNodeId>(
+  nodes: TreeNode<TId>[],
+  parentId: TId | null,
+): number {
   const siblings = nodes.filter((n) => n.parent_id === parentId);
   if (siblings.length === 0) return 0;
   return Math.max(...siblings.map((n) => n.position)) + 1;
 }
 
-interface RenameFormProps {
-  node: TreeNodeDto;
-  onRename: (id: number, name: string) => Promise<ApiError | null>;
+interface RenameFormProps<TId extends TreeNodeId> {
+  node: TreeNode<TId>;
+  onRename: (id: TId, name: string) => Promise<ApiError | null>;
   onDone: () => void;
 }
 
 // T087 (FR-032, WCAG): field-naming errors, same pattern as
 // MissingQueue.tsx's manual override form.
-function RenameForm({ node, onRename, onDone }: RenameFormProps) {
+function RenameForm<TId extends TreeNodeId>({ node, onRename, onDone }: RenameFormProps<TId>) {
   const [draft, setDraft] = useState(node.name);
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
@@ -118,32 +154,44 @@ function RenameForm({ node, onRename, onDone }: RenameFormProps) {
   );
 }
 
-interface TreeItemProps {
-  node: TreeNodeDto;
-  nodes: TreeNodeDto[];
+interface TreeItemProps<TId extends TreeNodeId> {
+  node: TreeNode<TId>;
+  nodes: TreeNode<TId>[];
   depth: number;
-  onCreate: TreeProps["onCreate"];
-  onRename: TreeProps["onRename"];
-  onMove: TreeProps["onMove"];
-  onDelete: TreeProps["onDelete"];
-  onSelect?: TreeProps["onSelect"];
-  selectedId?: number | null;
+  variant: TreeVariant;
+  collapsedKeys: Set<string>;
+  onToggle: (id: TId) => void;
+  onCreate?: TreeProps<TId>["onCreate"];
+  onRename?: TreeProps<TId>["onRename"];
+  onMove?: TreeProps<TId>["onMove"];
+  onDelete?: TreeProps<TId>["onDelete"];
+  onSelect?: TreeProps<TId>["onSelect"];
+  selectedId?: TId | null;
 }
 
 const ACTION_BUTTON_CLASSES =
   "min-h-24 min-w-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
 
-function TreeItem({
+// The sidebar's row: the prototype's list-row rhythm (HANDOFF.md "Sidebar" --
+// 6px radius, #1f1f1f hover), sized for a 300px column instead of the
+// workspace's pill buttons, and still a 24px minimum target (WCAG 2.5.8).
+const COMPACT_ROW_CLASSES =
+  "flex min-h-24 w-full items-center gap-8 rounded-md px-8 py-6 text-left text-body-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green";
+
+function TreeItem<TId extends TreeNodeId>({
   node,
   nodes,
   depth,
+  variant,
+  collapsedKeys,
+  onToggle,
   onCreate,
   onRename,
   onMove,
   onDelete,
   onSelect,
   selectedId,
-}: TreeItemProps) {
+}: TreeItemProps<TId>) {
   const [renaming, setRenaming] = useState(false);
   const siblings = siblingsOf(nodes, node);
   const index = siblings.findIndex((s) => s.id === node.id);
@@ -151,26 +199,29 @@ function TreeItem({
   const nextSibling = index < siblings.length - 1 ? siblings[index + 1] : null;
   const parent = node.parent_id !== null ? nodes.find((n) => n.id === node.parent_id) : undefined;
   const children = node.kind === "folder" ? childrenOf(nodes, node.id) : [];
+  const foldable = children.length > 0;
+  const expanded = foldable && !collapsedKeys.has(String(node.id));
+  const isSelected = selectedId === node.id;
 
   function moveUp() {
-    if (!previousSibling) return;
+    if (!previousSibling || !onMove) return;
     onMove(node.id, node.parent_id, previousSibling.position);
     onMove(previousSibling.id, node.parent_id, node.position);
   }
 
   function moveDown() {
-    if (!nextSibling) return;
+    if (!nextSibling || !onMove) return;
     onMove(node.id, node.parent_id, nextSibling.position);
     onMove(nextSibling.id, node.parent_id, node.position);
   }
 
   function nestUnderPrevious() {
-    if (!previousSibling) return;
+    if (!previousSibling || !onMove) return;
     onMove(node.id, previousSibling.id, nextPositionAmong(nodes, previousSibling.id));
   }
 
   function liftOut() {
-    if (!parent) return;
+    if (!parent || !onMove) return;
     onMove(node.id, parent.parent_id, nextPositionAmong(nodes, parent.parent_id));
   }
 
@@ -178,86 +229,129 @@ function TreeItem({
     <li
       role="treeitem"
       aria-label={node.name}
-      aria-selected={selectedId === node.id}
-      aria-expanded={node.kind === "folder" ? true : undefined}
+      aria-selected={variant === "editor" ? isSelected : undefined}
+      // Real state, not a constant: a collapsed folder reports itself as
+      // collapsed, and a folder with nothing in it is a leaf (ARIA APG).
+      aria-expanded={foldable ? expanded : undefined}
     >
-      <div className="flex flex-wrap items-center gap-8 py-4" style={indentStyle(depth)}>
-        {node.kind === "playlist" && onSelect ? (
-          <button type="button" onClick={() => onSelect(node.id)} className={ACTION_BUTTON_CLASSES}>
-            {`Selecteer ${node.name}`}
-          </button>
+      <div
+        className={variant === "compact" ? "py-2" : "flex flex-wrap items-center gap-8 py-4"}
+        style={indentStyle(depth)}
+      >
+        {variant === "compact" ? (
+          <CompactRow
+            node={node}
+            foldable={foldable}
+            expanded={expanded}
+            isSelected={isSelected}
+            onToggle={onToggle}
+            onSelect={onSelect}
+          />
         ) : (
-          <span className="text-body-lg font-semibold text-pure-white">{node.name}</span>
-        )}
-        {node.set_phase && (
-          <span className="text-body-lg text-mist">{`Setfase: ${node.set_phase}`}</span>
-        )}
-        {node.rb_ref && <span className="text-body-lg text-mist">Toegepast in Rekordbox</span>}
-
-        <button
-          type="button"
-          onClick={() => setRenaming((current) => !current)}
-          className={ACTION_BUTTON_CLASSES}
-        >
-          {`Naam wijzigen: ${node.name}`}
-        </button>
-        {previousSibling && (
-          <button type="button" onClick={moveUp} className={ACTION_BUTTON_CLASSES}>
-            {`Verplaats omhoog: ${node.name}`}
-          </button>
-        )}
-        {nextSibling && (
-          <button type="button" onClick={moveDown} className={ACTION_BUTTON_CLASSES}>
-            {`Verplaats omlaag: ${node.name}`}
-          </button>
-        )}
-        {previousSibling && (
-          <button type="button" onClick={nestUnderPrevious} className={ACTION_BUTTON_CLASSES}>
-            {`Nest onder vorige: ${node.name}`}
-          </button>
-        )}
-        {parent && (
-          <button type="button" onClick={liftOut} className={ACTION_BUTTON_CLASSES}>
-            {`Til uit map: ${node.name}`}
-          </button>
-        )}
-        {node.kind === "folder" && (
           <>
-            <button
-              type="button"
-              onClick={() => onCreate(node.id, "folder")}
-              className={ACTION_BUTTON_CLASSES}
-            >
-              {`Nieuwe map in ${node.name}`}
-            </button>
-            <button
-              type="button"
-              onClick={() => onCreate(node.id, "playlist")}
-              className={ACTION_BUTTON_CLASSES}
-            >
-              {`Nieuwe playlist in ${node.name}`}
-            </button>
+            {foldable && (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => onToggle(node.id)}
+                className={ACTION_BUTTON_CLASSES}
+              >
+                {expanded ? `Vouw in: ${node.name}` : `Vouw uit: ${node.name}`}
+              </button>
+            )}
+            {node.kind === "playlist" && onSelect ? (
+              <button
+                type="button"
+                onClick={() => onSelect(node.id)}
+                className={ACTION_BUTTON_CLASSES}
+              >
+                {`Selecteer ${node.name}`}
+              </button>
+            ) : (
+              <span className="text-body-lg font-semibold text-pure-white">{node.name}</span>
+            )}
+            {node.set_phase && (
+              <span className="text-body-lg text-mist">{`Setfase: ${node.set_phase}`}</span>
+            )}
+            {node.rb_ref && <span className="text-body-lg text-mist">Toegepast in Rekordbox</span>}
+
+            {onRename && (
+              <button
+                type="button"
+                onClick={() => setRenaming((current) => !current)}
+                className={ACTION_BUTTON_CLASSES}
+              >
+                {`Naam wijzigen: ${node.name}`}
+              </button>
+            )}
+            {onMove && previousSibling && (
+              <button type="button" onClick={moveUp} className={ACTION_BUTTON_CLASSES}>
+                {`Verplaats omhoog: ${node.name}`}
+              </button>
+            )}
+            {onMove && nextSibling && (
+              <button type="button" onClick={moveDown} className={ACTION_BUTTON_CLASSES}>
+                {`Verplaats omlaag: ${node.name}`}
+              </button>
+            )}
+            {onMove && previousSibling && (
+              <button type="button" onClick={nestUnderPrevious} className={ACTION_BUTTON_CLASSES}>
+                {`Nest onder vorige: ${node.name}`}
+              </button>
+            )}
+            {onMove && parent && (
+              <button type="button" onClick={liftOut} className={ACTION_BUTTON_CLASSES}>
+                {`Til uit map: ${node.name}`}
+              </button>
+            )}
+            {onCreate && node.kind === "folder" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onCreate(node.id, "folder")}
+                  className={ACTION_BUTTON_CLASSES}
+                >
+                  {`Nieuwe map in ${node.name}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCreate(node.id, "playlist")}
+                  className={ACTION_BUTTON_CLASSES}
+                >
+                  {`Nieuwe playlist in ${node.name}`}
+                </button>
+              </>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(node.id)}
+                className={ACTION_BUTTON_CLASSES}
+              >
+                {`Verwijderen: ${node.name}`}
+              </button>
+            )}
           </>
         )}
-        <button type="button" onClick={() => onDelete(node.id)} className={ACTION_BUTTON_CLASSES}>
-          {`Verwijderen: ${node.name}`}
-        </button>
       </div>
 
-      {renaming && (
+      {renaming && onRename && (
         <div style={indentStyle(depth)}>
           <RenameForm node={node} onRename={onRename} onDone={() => setRenaming(false)} />
         </div>
       )}
 
-      {children.length > 0 && (
+      {expanded && children.length > 0 && (
         <ul role="group">
           {children.map((child) => (
             <TreeItem
-              key={child.id}
+              key={String(child.id)}
               node={child}
               nodes={nodes}
               depth={depth + 1}
+              variant={variant}
+              collapsedKeys={collapsedKeys}
+              onToggle={onToggle}
               onCreate={onCreate}
               onRename={onRename}
               onMove={onMove}
@@ -272,60 +366,161 @@ function TreeItem({
   );
 }
 
+interface CompactRowProps<TId extends TreeNodeId> {
+  node: TreeNode<TId>;
+  foldable: boolean;
+  expanded: boolean;
+  isSelected: boolean;
+  onToggle: (id: TId) => void;
+  onSelect?: (id: TId) => void;
+}
+
+// One sidebar row. A folder row IS its fold control (biggest target, one tab
+// stop per row); a playlist row selects. Both are real buttons, so the tree is
+// keyboard-operable without a custom key handler, and the fold state rides on
+// aria-expanded plus the glyph's shape -- never on colour.
+function CompactRow<TId extends TreeNodeId>({
+  node,
+  foldable,
+  expanded,
+  isSelected,
+  onToggle,
+  onSelect,
+}: CompactRowProps<TId>) {
+  if (node.kind === "folder") {
+    if (!foldable) {
+      return (
+        <span className={`${COMPACT_ROW_CLASSES} font-semibold text-mist`}>
+          <span aria-hidden="true" className="flex-none">
+            ·
+          </span>
+          <span className="truncate">{node.name}</span>
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => onToggle(node.id)}
+        className={`${COMPACT_ROW_CLASSES} font-semibold text-pure-white hover:bg-graphite`}
+      >
+        <span aria-hidden="true" className="flex-none">
+          {expanded ? "▾" : "▸"}
+        </span>
+        <span className="truncate">{node.name}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      // The playlist the main pane is currently filtered to is announced,
+      // not merely shaded (WCAG 1.4.1 / 4.1.2) -- same pattern as the
+      // WORKSPACE nav items.
+      aria-current={isSelected ? "true" : undefined}
+      onClick={() => onSelect?.(node.id)}
+      className={`${COMPACT_ROW_CLASSES} ${
+        isSelected
+          ? "bg-smoke text-pure-white"
+          : "text-mist hover:bg-graphite hover:text-pure-white"
+      }`}
+    >
+      <span aria-hidden="true" className="flex-none">
+        ♪
+      </span>
+      <span className="truncate">{node.name}</span>
+    </button>
+  );
+}
+
 // T087 (FR-032, WCAG): a real nested <ul>/<li role="treeitem"> tree, not a
 // flat list -- nesting is conveyed structurally, matching TrackTable.tsx's
 // choice of a real <table> for its own semantics. Move/nest/lift use plain
 // buttons (position swap / re-parent), not drag-and-drop: fully keyboard-
 // operable by construction, no custom arrow-key widget needed.
-export function Tree({
+//
+// The sidebar's Rekordbox library (components/RekordboxLibrary.tsx) renders
+// through this same component in the "compact" variant, rather than a second
+// tree implementation: the indentation, the parent_id reconstruction, the
+// treeitem semantics and the fold state are the parts that must not drift.
+export function Tree<TId extends TreeNodeId>({
   nodes,
+  label = "Boekingstructuur",
+  variant = "editor",
   onCreate,
   onRename,
   onMove,
   onDelete,
   onSelect,
   selectedId,
-}: TreeProps) {
-  const roots = childrenOfRoot(nodes);
+}: TreeProps<TId>) {
+  // Collapsed, not expanded, is what is tracked: everything starts open, so a
+  // freshly loaded tree shows what is in it, and a node added later is not
+  // hidden by a stale expansion set.
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+
+  function handleToggle(id: TId) {
+    setCollapsedKeys((current) => {
+      const next = new Set(current);
+      const key = String(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const roots = rootsOf(nodes);
+  const items = (
+    <ul role="tree" aria-label={label} className={variant === "compact" ? "flex flex-col" : ""}>
+      {roots.map((node) => (
+        <TreeItem
+          key={String(node.id)}
+          node={node}
+          nodes={nodes}
+          depth={0}
+          variant={variant}
+          collapsedKeys={collapsedKeys}
+          onToggle={handleToggle}
+          onCreate={onCreate}
+          onRename={onRename}
+          onMove={onMove}
+          onDelete={onDelete}
+          onSelect={onSelect}
+          selectedId={selectedId}
+        />
+      ))}
+    </ul>
+  );
+
+  if (variant === "compact") return items;
 
   return (
     <div className="flex flex-col gap-16">
-      <div className="flex flex-wrap gap-8" role="group" aria-label="Nieuw item aanmaken">
-        <button
-          type="button"
-          onClick={() => onCreate(null, "folder")}
-          className={ACTION_BUTTON_CLASSES}
-        >
-          Nieuwe map
-        </button>
-        <button
-          type="button"
-          onClick={() => onCreate(null, "playlist")}
-          className={ACTION_BUTTON_CLASSES}
-        >
-          Nieuwe playlist
-        </button>
-      </div>
-      <ul role="tree" aria-label="Boekingstructuur">
-        {roots.map((node) => (
-          <TreeItem
-            key={node.id}
-            node={node}
-            nodes={nodes}
-            depth={0}
-            onCreate={onCreate}
-            onRename={onRename}
-            onMove={onMove}
-            onDelete={onDelete}
-            onSelect={onSelect}
-            selectedId={selectedId}
-          />
-        ))}
-      </ul>
+      {onCreate && (
+        <div className="flex flex-wrap gap-8" role="group" aria-label="Nieuw item aanmaken">
+          <button
+            type="button"
+            onClick={() => onCreate(null, "folder")}
+            className={ACTION_BUTTON_CLASSES}
+          >
+            Nieuwe map
+          </button>
+          <button
+            type="button"
+            onClick={() => onCreate(null, "playlist")}
+            className={ACTION_BUTTON_CLASSES}
+          >
+            Nieuwe playlist
+          </button>
+        </div>
+      )}
+      {items}
     </div>
   );
 }
 
-function childrenOfRoot(nodes: TreeNodeDto[]): TreeNodeDto[] {
+function rootsOf<TId extends TreeNodeId>(nodes: TreeNode<TId>[]): TreeNode<TId>[] {
   return nodes.filter((n) => n.parent_id === null).sort((a, b) => a.position - b.position);
 }

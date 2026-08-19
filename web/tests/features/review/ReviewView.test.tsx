@@ -216,6 +216,100 @@ describe("ReviewView", () => {
     expect(screen.getAllByTestId("review-queue-item")).toHaveLength(2);
   });
 
+  // The Rekordbox side of the delivered design's card needs the candidate's
+  // title, duration, BPM and musical key, none of which a session's candidate
+  // rows carry. GET /api/collection is the only endpoint that returns them and
+  // it has no per-id lookup, so the ids are resolved through its `query`
+  // filter and cached per session.
+  it("resolves the candidate's Rekordbox detail through the collection search", async () => {
+    vi.mocked(apiClient.GET).mockImplementation((path: string) => {
+      if (path === "/api/collection") {
+        return Promise.resolve({
+          data: {
+            total: 1,
+            items: [
+              {
+                rb_content_id: "rb-a",
+                artist: "Daft Punk",
+                title: "One More Time (Club Edit)",
+                duration_ms: 408_000,
+                bpm: 123,
+                musical_key: "8m",
+                label: "Virgin",
+              },
+            ],
+          },
+          error: undefined,
+        }) as never;
+      }
+      return Promise.resolve({
+        data: undefined,
+        error: { code: "spotify_not_connected", message: "not connected" },
+      }) as never;
+    });
+
+    renderView([REVIEW_TRACK_1]);
+
+    expect(await screen.findByText("One More Time (Club Edit)")).toBeInTheDocument();
+    expect(screen.getByText("6:48 · 123 BPM · 8m")).toBeInTheDocument();
+    // The Spotify artist is the query, the endpoint's own maximum page size
+    // the limit, and one call is enough for every candidate of that track.
+    expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
+      params: { query: { query: "Daft Punk", limit: 200 } },
+    });
+  });
+
+  it("keeps the Rekordbox id as the label when the collection lookup finds nothing", async () => {
+    vi.mocked(apiClient.GET).mockImplementation((path: string) => {
+      if (path === "/api/collection") {
+        return Promise.resolve({ data: { total: 0, items: [] }, error: undefined }) as never;
+      }
+      return Promise.resolve({
+        data: undefined,
+        error: { code: "spotify_not_connected", message: "not connected" },
+      }) as never;
+    });
+
+    renderView([REVIEW_TRACK_1]);
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
+        params: { query: { query: "Daft Punk", limit: 200 } },
+      }),
+    );
+    expect(screen.getByText("Rekordbox-id rb-a")).toBeInTheDocument();
+    // Still fully reviewable: the lookup only decorates the card.
+    fireEvent.keyDown(queue(), { key: "a" });
+    await waitFor(() =>
+      expect(apiClient.POST).toHaveBeenCalledWith(
+        "/api/sync/sessions/{session_id}/tracks/{track_id}/accept",
+        expect.objectContaining({ body: { rb_content_id: "rb-a" } }),
+      ),
+    );
+  });
+
+  it("orders the queue by the Match-overzicht sort control", () => {
+    const first = track({ id: 21, title: "Zebra", match_score: 60, candidates: [] });
+    const second = track({ id: 22, title: "Alpha", match_score: 90, candidates: [] });
+    const onResolved = vi.fn().mockResolvedValue(undefined);
+
+    const { rerender } = render(
+      <ReviewView session={session([first, second])} onResolved={onResolved} sort="score" />,
+    );
+    const byScore = screen
+      .getAllByTestId("review-queue-item")
+      .map((item) => (item.textContent ?? "").match(/Alpha|Zebra/)?.[0]);
+    expect(byScore).toEqual(["Alpha", "Zebra"]);
+
+    rerender(
+      <ReviewView session={session([first, second])} onResolved={onResolved} sort="position" />,
+    );
+    const byPosition = screen
+      .getAllByTestId("review-queue-item")
+      .map((item) => (item.textContent ?? "").match(/Alpha|Zebra/)?.[0]);
+    expect(byPosition).toEqual(["Zebra", "Alpha"]);
+  });
+
   it("reports an unreachable backend in Dutch instead of crashing", async () => {
     vi.mocked(apiClient.POST).mockRejectedValue(new Error("network down"));
     renderView();

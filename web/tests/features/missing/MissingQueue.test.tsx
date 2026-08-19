@@ -414,4 +414,84 @@ describe("MissingQueue", () => {
     await waitFor(() => expect(apiClient.POST).toHaveBeenCalledWith("/api/missing/refresh-links"));
     await waitFor(() => expect(apiClient.GET).toHaveBeenCalledTimes(2));
   });
+
+  // Owner decision: the design's two-column buy queue -- one store card
+  // holding the tracks as rows, plus a sticky summary panel with the real
+  // total of the open tracks (HANDOFF.md, "2. Koop-wachtrij").
+  describe("the store card and summary panel (owner decision: two-column buy queue)", () => {
+    it("shows the store card header with the real track count and total", async () => {
+      mockList([TRACK_WITH_LINK]);
+      render(<MissingQueue />);
+      await screen.findByText("Daft Punk – One More Time");
+
+      const card = screen.getByTestId("buy-queue-store-card");
+      expect(within(card).getByText("Apple Music")).toBeInTheDocument();
+      expect(within(card).getByText("1 tracks")).toBeInTheDocument();
+      expect(screen.getByTestId("buy-queue-store-card-total")).toHaveTextContent(/1,29/);
+    });
+
+    it("sums only the prices that are present and reports how many rows have none, never inventing a total", async () => {
+      const UNPRICED = { ...TRACK_NO_LINK, id: 5, itunes_price: null };
+      mockList([TRACK_WITH_LINK, UNPRICED]);
+      render(<MissingQueue />);
+      await screen.findByText("Daft Punk – One More Time");
+
+      const summary = screen.getByTestId("buy-queue-summary");
+      // Two open tracks, one priced (1.29) and one not: the total is the
+      // priced one alone, and the unpriced one is reported, not hidden.
+      expect(within(summary).getByText("2 tracks")).toBeInTheDocument();
+      expect(within(summary).getByText("1 zonder prijs")).toBeInTheDocument();
+      // The total appears twice in the summary panel (running total row and
+      // the bordered "Totaal" row); both must show the real sum, not a
+      // placeholder like the design's static "€ 26,84".
+      expect(within(summary).getAllByText(/1,29/)).toHaveLength(2);
+    });
+
+    it("shows a dash rather than an invented amount when no open track has a price", async () => {
+      mockList([TRACK_NO_LINK]);
+      render(<MissingQueue />);
+      await screen.findByText("Nobody At All – Nothing Similar");
+
+      const summary = screen.getByTestId("buy-queue-summary");
+      expect(within(summary).getByText("1 tracks")).toBeInTheDocument();
+      expect(within(summary).getByText("1 zonder prijs")).toBeInTheDocument();
+      expect(within(summary).getAllByText("–")).toHaveLength(2);
+    });
+
+    it("keeps the summary panel's total pinned to the open queue while browsing another filter", async () => {
+      mockList([TRACK_WITH_LINK]);
+      render(<MissingQueue />);
+      await screen.findByText("Daft Punk – One More Time");
+      // The initial "open" load also seeds the summary's own open-queue
+      // total: confirm it before switching filters.
+      expect(
+        within(screen.getByTestId("buy-queue-summary")).getByText("1 tracks"),
+      ).toBeInTheDocument();
+
+      const ACQUIRED_TRACK = { ...TRACK_WITH_LINK, id: 9, status: "acquired", itunes_price: 4.5 };
+      mockList([ACQUIRED_TRACK]);
+      const filterGroup = screen.getByRole("group", { name: "Filter op status" });
+      fireEvent.click(within(filterGroup).getByRole("button", { name: "Aangeschaft" }));
+      await screen.findByText("Status: Aangeschaft");
+
+      // The store card now reflects the Aangeschaft filter, but the summary
+      // still reports the last known OPEN total, not the acquired one.
+      expect(screen.getByTestId("buy-queue-store-card-total")).toHaveTextContent(/4,50/);
+      const summary = screen.getByTestId("buy-queue-summary");
+      expect(within(summary).getByText("1 tracks")).toBeInTheDocument();
+      expect(within(summary).getAllByText(/1,29/).length).toBeGreaterThan(0);
+    });
+
+    it("stacks the two-column shell into a single column below the handoff's stacking width", async () => {
+      mockList([TRACK_WITH_LINK]);
+      render(<MissingQueue />);
+      await screen.findByText("Daft Punk – One More Time");
+
+      const shell = screen.getByTestId("buy-queue-columns");
+      expect(shell.className).toContain("grid-cols-1");
+      // The `stack:` variant comes from `--breakpoint-stack` in theme.css, so
+      // this asserts the token is used rather than a hardcoded width.
+      expect(shell.className).toContain("stack:grid-cols-");
+    });
+  });
 });

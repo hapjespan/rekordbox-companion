@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { apiClient } from "./api/client";
+import type { SelectedRekordboxPlaylist } from "./components/RekordboxLibrary";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { asApiResponse } from "./features/spotify-sync/types";
@@ -31,6 +32,11 @@ export function App() {
   const [spotifyStatus, setSpotifyStatus] = useState<SpotifyConnectionStatus | null>(null);
   const [openMissingCount, setOpenMissingCount] = useState<number | null>(null);
   const [collectionSeed, setCollectionSeed] = useState({ query: "", token: 0 });
+  // The Rekordbox playlist the Collection view is filtered to, or null for the
+  // whole collection.
+  const [rekordboxPlaylist, setRekordboxPlaylist] = useState<SelectedRekordboxPlaylist | null>(
+    null,
+  );
   const [collectionReloadToken, setCollectionReloadToken] = useState(0);
   const [focusUrlToken, setFocusUrlToken] = useState(0);
   const mainRef = useRef<HTMLElement>(null);
@@ -75,9 +81,32 @@ export function App() {
     await refreshSession(created.id);
   }
 
+  // Started from the sidebar's Spotify list: the report is what the DJ asked
+  // for, so the view switches to it rather than leaving the result off screen.
+  function handleSidebarSessionCreated(created: SyncSession) {
+    setView("match");
+    void handleSessionCreated(created);
+  }
+
   function handleSearch(query: string) {
     setView("collection");
+    // A search is a search of the whole collection: leaving a playlist filter
+    // silently in place would make the result set a lie.
+    setRekordboxPlaylist(null);
     setCollectionSeed((current) => ({ query, token: current.token + 1 }));
+  }
+
+  function handleRekordboxPlaylistSelected(playlist: SelectedRekordboxPlaylist) {
+    setView("collection");
+    setRekordboxPlaylist(playlist);
+    // A new playlist starts unfiltered: the previous playlist's search term
+    // has no meaning in this one.
+    setCollectionSeed((current) => ({ query: "", token: current.token + 1 }));
+  }
+
+  function handleShowWholeCollection() {
+    setRekordboxPlaylist(null);
+    setCollectionSeed((current) => ({ query: "", token: current.token + 1 }));
   }
 
   function handleSyncRequested() {
@@ -106,6 +135,9 @@ export function App() {
         onNavigate={setView}
         counters={counters}
         onCollectionScanned={() => setCollectionReloadToken((token) => token + 1)}
+        onSessionCreated={handleSidebarSessionCreated}
+        onRekordboxPlaylistSelected={handleRekordboxPlaylistSelected}
+        rekordboxPlaylistId={rekordboxPlaylist?.id ?? null}
       />
 
       <main ref={mainRef} className="overflow-y-auto bg-carbon px-32 pt-28 pb-48">
@@ -129,6 +161,8 @@ export function App() {
               seedQuery={collectionSeed.query}
               seedToken={collectionSeed.token}
               reloadToken={collectionReloadToken}
+              playlist={rekordboxPlaylist}
+              onShowWholeCollection={handleShowWholeCollection}
             />
           )}
           {view === "enrichment" && <EnrichmentView />}

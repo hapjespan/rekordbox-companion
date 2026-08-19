@@ -21,10 +21,13 @@
 //
 // Committed RED: the component doesn't exist until T032 (owner-confirmed
 // US1 red/green split, same as T019-T022).
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+//
+// The delivered design's Missing group (HANDOFF.md, "1. Match-overzicht")
+// lives in the same module and is covered in its own describe block below.
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { MatchReport } from "../../../src/features/spotify-sync/MatchReport";
+import { MatchReport, MissingTracks } from "../../../src/features/spotify-sync/MatchReport";
 
 const TRACKS = [
   { position: 1, artist: "Daft Punk", title: "One More Time", status: "matched" as const },
@@ -83,5 +86,64 @@ describe("MatchReport", () => {
     const rows = screen.queryAllByRole("row");
     // Header row only, no track rows.
     expect(rows.length).toBe(1);
+  });
+});
+
+// The Missing group of the delivered design: the handoff's grid, minus the
+// three columns whose values do not exist anywhere for a track that is not in
+// the collection (LABEL, BPM, KEY -- see the component's own comment). These
+// assertions therefore pin the ABSENCE of those columns as much as the
+// presence of the rest: rendering them full of em dashes would be three
+// columns of nothing.
+const MISSING_TRACKS = [
+  {
+    position: 3,
+    artist: "Anna Kovač",
+    title: "Hydraulic (Original Mix)",
+    status: "missing" as const,
+  },
+  { position: 12, artist: "Tolga Ergün", title: "Static Bloom", status: "missing" as const },
+];
+
+describe("MissingTracks", () => {
+  it("renders the design's columns and no LABEL, BPM or KEY column", () => {
+    render(<MissingTracks tracks={MISSING_TRACKS} onGoToBuyQueue={vi.fn()} />);
+
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    expect(headers).toEqual(["#", "TRACK", "ACTIE"]);
+    expect(screen.queryByText("LABEL")).not.toBeInTheDocument();
+    expect(screen.queryByText("BPM")).not.toBeInTheDocument();
+    expect(screen.queryByText("KEY")).not.toBeInTheDocument();
+  });
+
+  it("numbers every row two-digit and names artist and title", () => {
+    render(<MissingTracks tracks={MISSING_TRACKS} onGoToBuyQueue={vi.fn()} />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText("03")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Hydraulic (Original Mix)")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("Anna Kovač")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("12")).toBeInTheDocument();
+  });
+
+  it("its row action leads to the buy queue", () => {
+    const onGoToBuyQueue = vi.fn();
+    render(<MissingTracks tracks={MISSING_TRACKS} onGoToBuyQueue={onGoToBuyQueue} />);
+
+    const buttons = screen.getAllByRole("button", { name: "Naar wachtrij" });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[1]);
+
+    expect(onGoToBuyQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("says in Dutch that nothing is missing instead of rendering an empty table", () => {
+    render(<MissingTracks tracks={[]} onGoToBuyQueue={vi.fn()} />);
+
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Geen ontbrekende nummers in deze synchronisatie."),
+    ).toBeInTheDocument();
   });
 });

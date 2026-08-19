@@ -26,6 +26,8 @@ const TRACKS = [
     play_count: 30,
     genres: [],
     format: "mp3",
+    musical_key: "8m",
+    label: "XL Recordings",
   },
   {
     rb_content_id: "rb2",
@@ -36,6 +38,8 @@ const TRACKS = [
     play_count: 50,
     genres: [],
     format: "mp3",
+    musical_key: null,
+    label: null,
   },
 ];
 
@@ -292,6 +296,147 @@ describe("collection index refresh", () => {
     await waitFor(() => {
       expect(screen.getByText("Rolling in the Deep")).toBeInTheDocument();
     });
+  });
+});
+
+describe("Rekordbox key and label", () => {
+  // GET /api/collection now carries Rekordbox's own key notation and record
+  // label per track (the prototype's KEY and LABEL columns).
+  it("shows the key verbatim, in Rekordbox's own notation", async () => {
+    render(<TrackTable />);
+
+    expect(await screen.findByText("8m")).toBeInTheDocument();
+    expect(screen.getByText("XL Recordings")).toBeInTheDocument();
+  });
+
+  it("marks a track without key or label rather than leaving the cell blank", async () => {
+    mockCollection(1, [TRACKS[1]]);
+    render(<TrackTable />);
+
+    await screen.findByText("Daft Punk");
+    const row = screen.getByText("One More Time").closest("tr");
+    expect(row?.textContent).toContain("–");
+  });
+});
+
+describe("filtered to one Rekordbox playlist", () => {
+  // Clicking a playlist in the sidebar's Rekordbox tree opens this same table
+  // over GET /api/playlists/{id}/tracks, in Rekordbox's own playlist order.
+  it("reads the playlist endpoint, defaulting to playlist order", async () => {
+    render(<TrackTable playlistId="pl-1" />);
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/playlists/{rb_playlist_id}/tracks",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            path: { rb_playlist_id: "pl-1" },
+            query: expect.objectContaining({ sort: "position" }),
+          }),
+        }),
+      ),
+    );
+    expect(apiClient.GET).not.toHaveBeenCalledWith("/api/collection", expect.anything());
+  });
+
+  it("searches inside the playlist, saying so on the label", async () => {
+    render(<TrackTable playlistId="pl-1" />);
+    await screen.findByText("Adele");
+
+    fireEvent.change(screen.getByLabelText("Zoeken in deze playlist"), {
+      target: { value: "daft" },
+    });
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/playlists/{rb_playlist_id}/tracks",
+        expect.objectContaining({
+          params: expect.objectContaining({
+            path: { rb_playlist_id: "pl-1" },
+            query: expect.objectContaining({ query: "daft" }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("offers the playlist-order column, and can sort away from it and back", async () => {
+    render(<TrackTable playlistId="pl-1" />);
+    await screen.findByText("Adele");
+
+    expect(screen.getByRole("columnheader", { name: /Playlistvolgorde/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Artiest" }));
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/playlists/{rb_playlist_id}/tracks",
+        expect.objectContaining({
+          params: expect.objectContaining({ query: expect.objectContaining({ sort: "artist" }) }),
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Playlistvolgorde/ }));
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/playlists/{rb_playlist_id}/tracks",
+        expect.objectContaining({
+          params: expect.objectContaining({ query: expect.objectContaining({ sort: "position" }) }),
+        }),
+      ),
+    );
+  });
+
+  it("never asks the whole collection for a playlist-only sort field", async () => {
+    const { rerender } = render(<TrackTable playlistId="pl-1" />);
+    await screen.findByText("Adele");
+
+    rerender(<TrackTable playlistId={null} />);
+
+    await waitFor(() =>
+      expect(apiClient.GET).toHaveBeenLastCalledWith(
+        "/api/collection",
+        expect.objectContaining({
+          params: expect.objectContaining({ query: expect.objectContaining({ sort: "artist" }) }),
+        }),
+      ),
+    );
+    expect(
+      screen.queryByRole("columnheader", { name: /Playlistvolgorde/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says an empty playlist is empty, not that the collection needs scanning", async () => {
+    mockCollection(0, []);
+    render(<TrackTable playlistId="pl-1" />);
+
+    expect(
+      await screen.findByText("Deze playlist heeft geen nummers die in je collectie staan."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/nog niet ingelezen/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "rekordbox_playlist_not_found",
+      "Deze playlist bestaat niet meer in Rekordbox. Scan je collectie opnieuw.",
+    ],
+    [
+      "collection_not_indexed",
+      "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin.",
+    ],
+  ])("reports the documented refusal %s in Dutch", async (code, message) => {
+    vi.mocked(apiClient.GET).mockResolvedValue({
+      data: undefined,
+      error: { code, message: "refused" },
+    } as never);
+
+    render(<TrackTable playlistId="pl-1" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 });
 

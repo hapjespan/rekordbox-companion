@@ -43,6 +43,11 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
   );
   await page.route("**/api/structures", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/profiles", (route) => route.fulfill({ json: [] }));
+  // The sidebar's two playlist sources (GET /api/spotify/playlists and the
+  // Rekordbox tree of GET /api/playlists): not what this spec is about, so
+  // both answer empty rather than reaching a real backend.
+  await page.route("**/api/spotify/playlists", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/playlists", (route) => route.fulfill({ json: [] }));
 
   await page.route("**/api/sync/sessions", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -156,6 +161,27 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
   await previewButton.focus();
   await expect(previewButton).toBeFocused();
   await expect(page.getByText(/Prijs:/)).toContainText("1,29");
+
+  // Owner decision: the two-column buy-queue shell (store card + sticky
+  // summary panel) stacks below ~1100px (HANDOFF.md, "2. Koop-wachtrij").
+  // 900px is the width the task explicitly calls out for "does the sticky
+  // panel hide or trap anything" -- checked here as a real stacked layout,
+  // not just a class-name assertion (which jsdom's unit tests can't verify,
+  // since it never runs Tailwind's generated CSS).
+  await page.setViewportSize({ width: 900, height: 900 });
+  const storeCard = page.getByTestId("buy-queue-store-card");
+  const summaryPanel = page.getByTestId("buy-queue-summary");
+  await expect(storeCard).toBeVisible();
+  await expect(summaryPanel).toBeVisible();
+  const cardBox = await storeCard.boundingBox();
+  const summaryBox = await summaryPanel.boundingBox();
+  if (!cardBox || !summaryBox)
+    throw new Error("expected both the store card and summary panel to lay out");
+  // Stacked, not side-by-side: the summary panel sits below the store card
+  // instead of beside it once the shell drops to a single column, and
+  // nothing is clipped or hidden behind the sticky panel.
+  expect(summaryBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height - 1);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   const copyButton = page.getByRole("button", { name: "Kopieer link" });
   await copyButton.click();

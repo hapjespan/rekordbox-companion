@@ -12,16 +12,36 @@ export interface CollectionTrackDto {
   play_count: number;
   genres: { genre: string; source: string }[];
   format: string | null;
+  // Rekordbox's own key notation, verbatim ("8m", "2d", "G m"), and the record
+  // label. Both independently nullable (engine/src/companion/api/collection.py).
+  musical_key: string | null;
+  label: string | null;
 }
 
-type SortField = "artist" | "title" | "bpm" | "play_count";
+// `position` is the playlist endpoint's own extra sort field and its default:
+// the order the DJ built inside Rekordbox. GET /api/collection rejects it
+// (422 invalid_sort), so it only ever leaves here in playlist mode.
+type SortField = "position" | "artist" | "title" | "bpm" | "play_count";
 
-const COLUMNS: { field: SortField; label: string }[] = [
+interface SortableColumn {
+  field: SortField;
+  label: string;
+  // Set where the visible label is a glyph rather than a word.
+  spokenLabel?: string;
+}
+
+const COLUMNS: SortableColumn[] = [
   { field: "artist", label: "Artiest" },
   { field: "title", label: "Titel" },
   { field: "bpm", label: "BPM" },
   { field: "play_count", label: "Afspeelteller" },
 ];
+
+const POSITION_COLUMN: SortableColumn = {
+  field: "position",
+  label: "#",
+  spokenLabel: "Playlistvolgorde",
+};
 
 const PAGE_SIZE = 50;
 
@@ -35,12 +55,22 @@ interface ApiErrorBody {
   message?: string;
 }
 
-function errorMessageFor(apiError: unknown): string {
+function errorMessageFor(apiError: unknown, inPlaylist: boolean): string {
   const body = apiError as ApiErrorBody | undefined;
-  if (body?.code === "rekordbox_not_found") {
-    return "Rekordbox is niet gevonden. Start Rekordbox en herlaad de pagina.";
+  switch (body?.code) {
+    case "rekordbox_not_found":
+      return "Rekordbox is niet gevonden. Start Rekordbox en herlaad de pagina.";
+    case "rekordbox_playlist_not_found":
+      return "Deze playlist bestaat niet meer in Rekordbox. Scan je collectie opnieuw.";
+    case "collection_not_indexed":
+      return "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin.";
+    case "invalid_sort":
+      return "Op dit veld kan niet gesorteerd worden.";
+    default:
+      return inPlaylist
+        ? "Kon deze playlist niet laden. Probeer het opnieuw."
+        : "Kon de collectie niet laden. Probeer het opnieuw.";
   }
-  return "Kon de collectie niet laden. Probeer het opnieuw.";
 }
 
 interface TrackTableProps {
@@ -52,6 +82,10 @@ interface TrackTableProps {
   // Bumped by the sidebar's Collectie-scan card once a rebuild completes, so
   // the table shows the freshly indexed collection.
   reloadToken?: number;
+  // Set to a Rekordbox playlist id to read GET /api/playlists/{id}/tracks
+  // instead of GET /api/collection. Same page shape, same search, sort and
+  // pagination -- deliberately this table rather than a second one.
+  playlistId?: string | null;
 }
 
 // T064 (FR-024, WCAG): a searchable, sortable table over GET /api/collection.
@@ -73,17 +107,30 @@ export function TrackTable({
   seedQuery = "",
   seedToken = 0,
   reloadToken = 0,
+  playlistId = null,
 }: TrackTableProps) {
   const [query, setQuery] = useState(seedQuery);
-  const [sort, setSort] = useState<SortField>("artist");
+  const [sort, setSort] = useState<SortField>(playlistId ? "position" : "artist");
   const [descending, setDescending] = useState(false);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [tracks, setTracks] = useState<CollectionTrackDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
+  const [renderedPlaylistId, setRenderedPlaylistId] = useState(playlistId);
   const rowButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const searchInputId = useId();
+
+  // Switching between the whole collection and one playlist resets sort and
+  // page during render, not in an effect: an effect would leave one request in
+  // flight with the previous mode's sort, and `position` is not a sort field
+  // the collection endpoint accepts at all (422 invalid_sort).
+  if (renderedPlaylistId !== playlistId) {
+    setRenderedPlaylistId(playlistId);
+    setSort(playlistId ? "position" : "artist");
+    setDescending(false);
+    setPage(0);
+  }
 
   useEffect(() => {
     setActiveRowIndex(0);
@@ -99,20 +146,21 @@ export function TrackTable({
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      const params = {
+        query: query || undefined,
+        sort: descending ? `-${sort}` : sort,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      };
       try {
-        const { data, error: apiError } = await apiClient.GET("/api/collection", {
-          params: {
-            query: {
-              query: query || undefined,
-              sort: descending ? `-${sort}` : sort,
-              limit: PAGE_SIZE,
-              offset: page * PAGE_SIZE,
-            },
-          },
-        });
+        const { data, error: apiError } = playlistId
+          ? await apiClient.GET("/api/playlists/{rb_playlist_id}/tracks", {
+              params: { path: { rb_playlist_id: playlistId }, query: params },
+            })
+          : await apiClient.GET("/api/collection", { params: { query: params } });
         if (cancelled) return;
         if (apiError) {
-          setError(errorMessageFor(apiError));
+          setError(errorMessageFor(apiError, playlistId !== null));
           setTotal(0);
           setTracks([]);
           return;
@@ -125,7 +173,7 @@ export function TrackTable({
         setTracks(body?.items ?? []);
       } catch {
         if (!cancelled) {
-          setError(errorMessageFor(undefined));
+          setError(errorMessageFor(undefined, playlistId !== null));
           setTotal(0);
           setTracks([]);
         }
@@ -135,7 +183,7 @@ export function TrackTable({
     return () => {
       cancelled = true;
     };
-  }, [query, sort, descending, page, reloadToken]);
+  }, [query, sort, descending, page, reloadToken, playlistId]);
 
   function handleSort(field: SortField) {
     if (field === sort) {
@@ -162,6 +210,9 @@ export function TrackTable({
   }
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const inPlaylist = playlistId !== null;
+  const columns = inPlaylist ? [POSITION_COLUMN, ...COLUMNS] : COLUMNS;
+  const searchLabel = inPlaylist ? "Zoeken in deze playlist" : "Zoeken in collectie";
 
   return (
     <div className="flex flex-col gap-16">
@@ -170,7 +221,7 @@ export function TrackTable({
           puts it there); this panel is the table itself. */}
       <div className="flex flex-col gap-8">
         <label htmlFor={searchInputId} className="text-body-lg font-semibold text-pure-white">
-          Zoeken in collectie
+          {searchLabel}
         </label>
         <input
           id={searchInputId}
@@ -184,10 +235,12 @@ export function TrackTable({
 
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-body-lg text-pure-white">
-          <caption className="sr-only">Collectie, {total} nummers</caption>
+          <caption className="sr-only">
+            {inPlaylist ? `Playlist, ${total} nummers` : `Collectie, ${total} nummers`}
+          </caption>
           <thead>
             <tr>
-              {COLUMNS.map(({ field, label }) => {
+              {columns.map(({ field, label, spokenLabel }) => {
                 const isActive = sort === field;
                 return (
                   <th
@@ -199,14 +252,29 @@ export function TrackTable({
                     <button
                       type="button"
                       onClick={() => handleSort(field)}
-                      className="min-h-24 font-bold text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+                      className="min-h-24 min-w-24 font-bold text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
                     >
-                      {label}
+                      {spokenLabel ? (
+                        <>
+                          <span aria-hidden="true">{label}</span>
+                          <span className="sr-only">{spokenLabel}</span>
+                        </>
+                      ) : (
+                        label
+                      )}
                       {isActive ? (descending ? " ▼" : " ▲") : ""}
                     </button>
                   </th>
                 );
               })}
+              {/* Rekordbox's own label and key: read-only columns, because
+                  neither is a sort field the API offers. */}
+              <th scope="col" className="px-8 py-8 text-left text-mist">
+                Label
+              </th>
+              <th scope="col" className="px-8 py-8 text-left text-mist">
+                Toonaard
+              </th>
               <th scope="col" className="px-8 py-8 text-left text-mist">
                 Afspelen
               </th>
@@ -215,10 +283,15 @@ export function TrackTable({
           <tbody>
             {tracks.map((track, index) => (
               <tr key={track.rb_content_id} className="border-t border-iron">
+                {inPlaylist && (
+                  <td className="px-8 py-8 text-mist">{page * PAGE_SIZE + index + 1}</td>
+                )}
                 <td className="px-8 py-8">{track.artist}</td>
                 <td className="px-8 py-8">{track.title}</td>
                 <td className="px-8 py-8">{track.bpm ?? "–"}</td>
                 <td className="px-8 py-8">{track.play_count}</td>
+                <td className="px-8 py-8">{track.label ?? "–"}</td>
+                <td className="px-8 py-8">{track.musical_key ?? "–"}</td>
                 <td className="px-8 py-8">
                   <button
                     ref={(el) => {
@@ -245,13 +318,16 @@ export function TrackTable({
           {error}
         </p>
       )}
-      {/* An empty index and an empty search result need different copy: the
-          first is fixed by a scan, the second by a different search term. */}
+      {/* Three empty states, not one: an unscanned index is fixed by a scan, an
+          empty search by a different term, and an empty playlist by nothing at
+          all -- so they must not read the same. */}
       {!error && tracks.length === 0 && (
         <p className="text-body-lg text-mist">
           {query
             ? "Geen nummers gevonden."
-            : "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin om hem uit Rekordbox te lezen."}
+            : inPlaylist
+              ? "Deze playlist heeft geen nummers die in je collectie staan."
+              : "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin om hem uit Rekordbox te lezen."}
         </p>
       )}
 
