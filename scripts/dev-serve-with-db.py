@@ -110,20 +110,43 @@ def install_search_fetcher(app, query: str, count: int) -> None:
     from companion.db.session import get_db
     from companion.integrations import spotify
 
+    # This account's search is capped at 10 results per request (a limit of 12
+    # already answers "Invalid limit", where Spotify documents 50), and an
+    # occasional page answers 502, so gathering more than ten means paging with
+    # a retry. Another symptom of the same restricted application.
+    page_size = 10
+
     def fetcher_override():
         db = next(get_db())
+        items: list = []
         try:
             with httpx.Client(timeout=20.0) as client:
                 token = spotify._get_valid_access_token(db, client)
-                response = client.get(
-                    "https://api.spotify.com/v1/search",
-                    headers={"Authorization": f"Bearer {token}"},
-                    params={"q": query, "type": "track", "limit": min(count, 50)},
-                )
-                response.raise_for_status()
-                items = response.json().get("tracks", {}).get("items", [])
+                headers = {"Authorization": f"Bearer {token}"}
+                offset = 0
+                while len(items) < count:
+                    page = None
+                    for _attempt in range(3):
+                        response = client.get(
+                            "https://api.spotify.com/v1/search",
+                            headers=headers,
+                            params={
+                                "q": query,
+                                "type": "track",
+                                "limit": page_size,
+                                "offset": offset,
+                            },
+                        )
+                        if response.status_code == 200:
+                            page = response.json().get("tracks", {}).get("items", [])
+                            break
+                    if not page:
+                        break
+                    items.extend(page)
+                    offset += page_size
         finally:
             db.close()
+        items = items[:count]
 
         tracks = [
             _FetchedTrack(

@@ -95,3 +95,17 @@ URL: it cannot be linked, bookmarked, or restored by a reload, and the browser's
 back button does nothing. That is defensible for a single-operator local tool and
 the delivered prototype does the same, but it is the kind of thing that gets
 noticed on the tenth reload rather than the first.
+
+## B12 — Decide whether the match report needs its own buy controls
+
+The delivered design puts a store cell on every row of Match-overzicht's
+"Ontbreekt in Rekordbox" group: store, price and a call to action per track. What
+shipped instead is the design's own hero action, "Ontbrekende naar wachtrij",
+which carries the DJ one click to the buy queue where FR-041's preview, the price
+and the store link all live. That satisfies seeing the result and acting on it,
+and it keeps one place that owns playback and purchase state.
+
+Building the inline cell as well would mean exposing each missing row's store
+fields on the sync-session detail and running a second preview player, so it is a
+question about duplication rather than a missing capability. Belongs with the
+owner after a few real playlists have gone through.
