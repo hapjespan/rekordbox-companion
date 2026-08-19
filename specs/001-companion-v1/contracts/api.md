@@ -20,12 +20,34 @@ stable English identifiers.
 | GET `/api/collection` | `?query=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | serves US5; 100ms budget (SC-005) |
 | POST `/api/collection/reindex` | – | `{indexed_count, took_ms}` | rebuilds in-memory index (R6) |
 | GET `/api/playlists` | – | `[PlaylistNode]` | read-only |
+| GET `/api/playlists/{rb_playlist_id}/tracks` | `?query=&sort=&limit=&offset=` | `{total, items: [CollectionTrack]}` | the Collection view filtered to one Rekordbox playlist; same row shape as `/api/collection` so the client reuses one table |
 | GET `/api/config` | – | `{key: value, ...}` | every row in `app_config` |
 | PUT `/api/config` | `{key: value, ...}` | `{key: value, ...}` | upserts the given keys, echoes the *whole* table back (not just the changed keys) |
 
 `CollectionTrack`: `{rb_content_id, artist, title, duration_ms, bpm,
-play_count, genres: [{genre, source}], format}` — genres come from
-enrichment, never from Rekordbox's genre field.
+play_count, genres: [{genre, source}], format, musical_key, label}` — genres
+come from enrichment, never from Rekordbox's genre field. `musical_key` and
+`label` are Rekordbox's own `KeyName`/`LabelName`, each independently `null`
+(both are absent for most tracks in a partly analysed library, and never
+assumed present). `musical_key` is verbatim as Rekordbox stores it: Camelot
+notation like `8m`/`2d`, occasionally a classical spelling like `G m`, never
+normalised or converted, because the DJ recognises their own notation and a
+lossy conversion is worse than none. Named `musical_key`, not `key`, so a row
+object never carries a field that reads as an identifier.
+
+`GET /api/playlists/{rb_playlist_id}/tracks` serves the same body from the
+same in-memory index: only the playlist's membership comes from `master.db`
+(that relation exists nowhere else), never a second per-request pass over the
+whole collection. Its `sort` accepts the four `/api/collection` fields plus
+`position`, Rekordbox's own playlist order, which is also the default since no
+index field can reconstruct it. Errors: `503 rekordbox_not_found` (no
+database, same as the other Rekordbox endpoints), `404
+rekordbox_playlist_not_found` for an unknown id, `409 collection_not_indexed`
+when no scan has run yet, because "scan first" and "this playlist is empty"
+must not look the same. A playlist that exists and holds nothing is a normal
+`{total: 0, items: []}`, and a member the index no longer knows (removed from
+Rekordbox since the last scan) is skipped rather than rendered as an empty
+row.
 
 `PlaylistNode`: `{rb_playlist_id, name, parent_id, is_folder, position}` —
 a flat list, not a nested tree; the client reconstructs hierarchy from
@@ -41,6 +63,37 @@ the shape was always flat per `rb/reader.py`'s `read_playlist_tree`, T012).
 | GET `/api/auth/spotify/status` | `{connected, display_name, product}` |
 | POST `/api/auth/spotify/disconnect` | deletes `spotify_auth` row — the PII deletion path |
 | GET `/api/auth/spotify/player-token` | short-lived token for the Web Playback SDK (R2) |
+
+## Spotify playlists
+
+| Method & path | Request | Response |
+|---|---|---|
+| GET `/api/spotify/playlists` | – | `[SpotifyPlaylist]`: the operator's own playlists, so a sync starts from a click instead of a pasted URL |
+
+`SpotifyPlaylist`: `{spotify_playlist_id, name, image_url, owner_display_name,
+sync}`. There is deliberately **no track count**: Spotify strips the `tracks`
+object from `/me/playlists` items for this application, so any count would be
+invented. `image_url` is the smallest of Spotify's three cover sizes still
+sharp enough for a sidebar thumbnail (>= 160px, falling back to the widest
+known size, `null` for a playlist without cover art); `owner_display_name` is
+`null` when Spotify gives none. The whole account is gathered by paginating
+Spotify's own `next` cursor (101 playlists for the owner's account).
+
+A Spotify refusal is never an empty list (phase 7 finding): `409
+spotify_not_connected`, `409 spotify_session_expired`, `503
+spotify_not_configured`, and `502 spotify_playlists_unavailable` for any other
+refusal (403/429/5xx): Spotify answered, and the answer was "no".
+
+`SpotifyPlaylist.sync` is the app's OWN status, derived from `playlist_link`
+and the latest `sync_session` of that link, never from Spotify:
+`{state, session_id, session_created_at, last_applied_at, totals}`. `state` is
+`not_scanned` when this app never synced the playlist, otherwise the latest
+session's `sync_session.status` verbatim (`fetching`, `matching`, `ready`,
+`applied`, `failed`). `totals` is the same
+`{matched, review, missing, rejected, unmatchable}` map as `SyncSession.totals`
+(all five keys always present), `null` while `not_scanned`. State and counts,
+never a rendered sentence: the sidebar's "gematcht · 12 ontbreken" is Dutch UI
+copy and belongs in the frontend.
 
 ## Sync sessions (US1-US3)
 

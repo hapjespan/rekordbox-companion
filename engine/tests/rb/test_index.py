@@ -18,6 +18,8 @@ def _track(**overrides):
         isrc="USRC17607839",
         play_count=42,
         location="/music/example.mp3",
+        musical_key="8m",
+        label="Loopmasters",
     )
     return CollectionTrack(**{**defaults, **overrides})
 
@@ -41,6 +43,19 @@ def test_rebuild_populates_entries_from_tracks():
     assert entry.isrc == "USRC17607839"
     assert entry.play_count == 42
     assert entry.location == "/music/example.mp3"
+    assert entry.musical_key == "8m"
+    assert entry.label == "Loopmasters"
+
+
+def test_rebuild_carries_an_absent_key_and_label_through_as_none():
+    # Both are optional in Rekordbox and absent for most tracks, so the index
+    # must never assume presence.
+    index = CollectionIndex()
+    index.rebuild([_track(musical_key=None, label=None)])
+
+    entry = index.entries[0]
+    assert entry.musical_key is None
+    assert entry.label is None
 
 
 def test_rebuild_replaces_the_index_wholesale():

@@ -27,6 +27,11 @@ class IndexEntry:
     isrc: str | None
     play_count: int
     location: str | None
+    # Rekordbox's own KeyName/LabelName, carried through verbatim and
+    # optional: absent for most tracks, and the key is never normalised or
+    # converted (see `CollectionTrack`).
+    musical_key: str | None = None
+    label: str | None = None
 
 
 def _build_entry(track: CollectionTrack) -> IndexEntry:
@@ -42,6 +47,8 @@ def _build_entry(track: CollectionTrack) -> IndexEntry:
         isrc=track.isrc,
         play_count=track.play_count,
         location=track.location,
+        musical_key=track.musical_key,
+        label=track.label,
     )
 
 

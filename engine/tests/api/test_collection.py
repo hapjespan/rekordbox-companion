@@ -1,5 +1,6 @@
 """T016: POST /api/collection/reindex -- rebuilds the in-memory index (R6).
 T062: GET /api/collection -- search/sort/paginate over it (FR-024, US5).
+GET /api/playlists/{rb_playlist_id}/tracks -- the same page, one playlist.
 """
 
 from datetime import datetime
@@ -10,7 +11,7 @@ from companion.api.collection import get_database
 from companion.db.models import EnrichedGenre
 from companion.db.session import Base, create_session_factory, get_db
 from companion.main import create_app
-from companion.rb.reader import CollectionTrack, PlaylistNode
+from companion.rb.reader import CollectionTrack, PlaylistNode, PlaylistTrackRef
 
 
 class _FakeDatabase:
@@ -167,6 +168,45 @@ def test_playlists_returns_the_tree_from_reader(monkeypatch):
     assert body[1]["parent_id"] == "root"
 
 
+# rb1 carries both a musical key and a label, rb2 neither, rb3 a key only:
+# both fields are optional in Rekordbox and absent for most tracks.
+_INDEXED_TRACKS = [
+    CollectionTrack(
+        rb_content_id="rb1",
+        artist="Daft Punk",
+        title="One More Time",
+        duration_ms=210_000,
+        bpm=123.0,
+        isrc=None,
+        play_count=50,
+        location="/music/one-more-time.mp3",
+        musical_key="8m",
+        label="Virgin",
+    ),
+    CollectionTrack(
+        rb_content_id="rb2",
+        artist="Daft Punk",
+        title="Get Lucky",
+        duration_ms=240_000,
+        bpm=116.0,
+        isrc=None,
+        play_count=10,
+        location="/music/get-lucky.M4A",
+    ),
+    CollectionTrack(
+        rb_content_id="rb3",
+        artist="Adele",
+        title="Rolling in the Deep",
+        duration_ms=228_000,
+        bpm=None,
+        isrc=None,
+        play_count=30,
+        location=None,
+        musical_key="G m",
+    ),
+]
+
+
 def _seeded_client(genre_rows=()):
     engine, session_local = create_session_factory("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -184,40 +224,7 @@ def _seeded_client(genre_rows=()):
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
-    app.state.collection_index.rebuild(
-        [
-            CollectionTrack(
-                rb_content_id="rb1",
-                artist="Daft Punk",
-                title="One More Time",
-                duration_ms=210_000,
-                bpm=123.0,
-                isrc=None,
-                play_count=50,
-                location="/music/one-more-time.mp3",
-            ),
-            CollectionTrack(
-                rb_content_id="rb2",
-                artist="Daft Punk",
-                title="Get Lucky",
-                duration_ms=240_000,
-                bpm=116.0,
-                isrc=None,
-                play_count=10,
-                location="/music/get-lucky.M4A",
-            ),
-            CollectionTrack(
-                rb_content_id="rb3",
-                artist="Adele",
-                title="Rolling in the Deep",
-                duration_ms=228_000,
-                bpm=None,
-                isrc=None,
-                play_count=30,
-                location=None,
-            ),
-        ]
-    )
+    app.state.collection_index.rebuild(_INDEXED_TRACKS)
     return TestClient(app)
 
 
@@ -308,7 +315,30 @@ def test_collection_item_shape_matches_the_contract():
         "play_count": 50,
         "genres": [],
         "format": "mp3",
+        "musical_key": "8m",
+        "label": "Virgin",
     }
+
+
+def test_collection_item_reports_an_absent_key_and_label_as_null():
+    # Both come straight from Rekordbox and are absent for most tracks, so
+    # null is the normal answer, never a reason to omit the field.
+    client = _seeded_client()
+
+    item = client.get("/api/collection", params={"query": "get lucky"}).json()["items"][0]
+
+    assert item["musical_key"] is None
+    assert item["label"] is None
+
+
+def test_collection_item_keeps_the_key_verbatim_including_classical_notation():
+    # No normalisation, no Camelot conversion: the DJ recognises their own
+    # notation and a lossy conversion is worse than none.
+    client = _seeded_client()
+
+    item = client.get("/api/collection", params={"query": "rolling"}).json()["items"][0]
+
+    assert item["musical_key"] == "G m"
 
 
 def test_collection_item_reports_real_enriched_genres():
@@ -414,3 +444,200 @@ def test_get_database_closes_the_connection_after_the_request(monkeypatch):
 
     assert response.status_code == 200
     assert closed == [True]
+
+
+# --- GET /api/playlists/{rb_playlist_id}/tracks ------------------------------
+#
+# The Collection view filtered to one Rekordbox playlist: the same
+# `{total, items: [CollectionTrack]}` body as GET /api/collection, so the
+# frontend reuses its table without a second row type. Membership comes from
+# master.db (the playlist-to-content relation lives there and nowhere else);
+# every track field comes from the in-memory index (ADR 0012), which is why an
+# unindexed collection is a documented refusal rather than an empty page.
+
+
+def _playlist_client(monkeypatch, refs_by_playlist, indexed_tracks=_INDEXED_TRACKS, genre_rows=()):
+    engine, session_local = create_session_factory("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    if genre_rows:
+        with session_local() as db:
+            db.add_all(genre_rows)
+            db.commit()
+
+    def override_get_db():
+        db = session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    monkeypatch.setattr(
+        "companion.api.collection.read_playlist_track_refs",
+        lambda db, rb_playlist_id: refs_by_playlist.get(rb_playlist_id),
+    )
+    app = create_app()
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_database] = lambda: _FakeDatabase()
+    app.state.collection_index.rebuild(indexed_tracks)
+    return TestClient(app)
+
+
+_DEMO_REFS = {
+    "pl1": [
+        PlaylistTrackRef(rb_content_id="rb3", position=1),
+        PlaylistTrackRef(rb_content_id="rb1", position=2),
+        PlaylistTrackRef(rb_content_id="rb2", position=3),
+    ],
+    "empty": [],
+}
+
+
+def test_playlist_tracks_returns_503_when_rekordbox_is_not_found():
+    # Real assertion, no mocking: same shared get_database dependency as
+    # reindex and /api/playlists, so it fails the same documented way.
+    client = TestClient(create_app())
+
+    response = client.get("/api/playlists/pl1/tracks")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "rekordbox_not_found"
+
+
+def test_playlist_tracks_returns_the_playlist_in_playlist_order(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    response = client.get("/api/playlists/pl1/tracks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    # Rekordbox's own playlist order, not the artist sort /api/collection
+    # defaults to: the DJ built that order on purpose.
+    assert [item["rb_content_id"] for item in body["items"]] == ["rb3", "rb1", "rb2"]
+
+
+def test_playlist_tracks_item_shape_is_identical_to_the_collection_item_shape(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    item = client.get("/api/playlists/pl1/tracks", params={"query": "one more time"}).json()[
+        "items"
+    ][0]
+
+    assert item == {
+        "rb_content_id": "rb1",
+        "artist": "Daft Punk",
+        "title": "One More Time",
+        "duration_ms": 210_000,
+        "bpm": 123.0,
+        "play_count": 50,
+        "genres": [],
+        "format": "mp3",
+        "musical_key": "8m",
+        "label": "Virgin",
+    }
+
+
+def test_playlist_tracks_reports_enriched_genres_like_the_collection_does(monkeypatch):
+    # Genres live in the app's own database, so they must be joined in here
+    # exactly as GET /api/collection joins them.
+    client = _playlist_client(
+        monkeypatch,
+        _DEMO_REFS,
+        genre_rows=[
+            EnrichedGenre(
+                rb_content_id="rb1",
+                genre="house",
+                source="musicbrainz",
+                updated_at=datetime(2026, 8, 18),
+            )
+        ],
+    )
+
+    item = client.get("/api/playlists/pl1/tracks", params={"query": "one more"}).json()["items"][0]
+
+    assert [(g["genre"], g["source"]) for g in item["genres"]] == [("house", "musicbrainz")]
+
+
+def test_playlist_tracks_supports_the_same_search_and_sort_as_the_collection(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    searched = client.get("/api/playlists/pl1/tracks", params={"query": "daft"}).json()
+    sorted_desc = client.get("/api/playlists/pl1/tracks", params={"sort": "-play_count"}).json()
+
+    assert {item["rb_content_id"] for item in searched["items"]} == {"rb1", "rb2"}
+    assert [item["rb_content_id"] for item in sorted_desc["items"]] == ["rb1", "rb3", "rb2"]
+
+
+def test_playlist_tracks_rejects_an_unknown_sort_field_by_name(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    response = client.get("/api/playlists/pl1/tracks", params={"sort": "genre"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "invalid_sort"
+    assert body["field"] == "sort"
+
+
+def test_playlist_tracks_paginates_within_the_same_bounds_as_the_collection(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    page = client.get("/api/playlists/pl1/tracks", params={"limit": 1, "offset": 1}).json()
+
+    assert page["total"] == 3
+    assert [item["rb_content_id"] for item in page["items"]] == ["rb1"]
+    assert client.get("/api/playlists/pl1/tracks", params={"offset": -1}).status_code == 422
+    assert client.get("/api/playlists/pl1/tracks", params={"limit": 0}).status_code == 422
+    assert client.get("/api/playlists/pl1/tracks", params={"limit": 100_000}).status_code == 422
+    assert client.get("/api/playlists/pl1/tracks", params={"limit": 200}).status_code == 200
+
+
+def test_playlist_tracks_returns_404_for_an_unknown_playlist_id(monkeypatch):
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    response = client.get("/api/playlists/does-not-exist/tracks")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "rekordbox_playlist_not_found"
+
+
+def test_playlist_tracks_returns_an_empty_page_for_an_empty_playlist(monkeypatch):
+    # A playlist that exists and holds nothing is not an error, the same
+    # distinction the Spotify fetch draws between "refused" and "empty".
+    client = _playlist_client(monkeypatch, _DEMO_REFS)
+
+    response = client.get("/api/playlists/empty/tracks")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "items": []}
+
+
+def test_playlist_tracks_refuses_when_the_collection_has_not_been_indexed(monkeypatch):
+    # Every track field comes from the in-memory index; without a scan the
+    # honest answer is "scan first", never an empty playlist (the phase 7
+    # lesson: a refusal must never look like no results).
+    client = _playlist_client(monkeypatch, _DEMO_REFS, indexed_tracks=[])
+
+    response = client.get("/api/playlists/pl1/tracks")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "collection_not_indexed"
+    assert "message" in body
+
+
+def test_playlist_tracks_skips_a_member_the_index_no_longer_knows(monkeypatch):
+    # A stale index (the DJ deleted a track in Rekordbox since the last scan)
+    # must not fabricate a row with empty artist/title.
+    refs = {
+        "pl1": [
+            PlaylistTrackRef(rb_content_id="rb1", position=1),
+            PlaylistTrackRef(rb_content_id="gone", position=2),
+        ]
+    }
+    client = _playlist_client(monkeypatch, refs)
+
+    body = client.get("/api/playlists/pl1/tracks").json()
+
+    assert body["total"] == 1
+    assert [item["rb_content_id"] for item in body["items"]] == ["rb1"]

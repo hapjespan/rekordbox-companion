@@ -567,3 +567,189 @@ def test_a_genuinely_empty_playlist_still_fetches_as_empty(session):
 
     assert result.tracks == []
     assert result.name == "Nog leeg"
+
+
+# --------------------------------------------------------------------------- #
+# The operator's own playlists (GET /v1/me/playlists)
+# --------------------------------------------------------------------------- #
+def _playlist_item(playlist_id, name, images=None, owner="DJ Test"):
+    """One `/v1/me/playlists` item as this account really receives it.
+
+    Verified against the live account: `id`, `name`, `images` (three sizes of
+    real cover art), `owner.display_name` and `description` are present, and
+    the `tracks` object is stripped for this application -- there is NO track
+    count to report, so nothing here invents one.
+    """
+    return {
+        "id": playlist_id,
+        "name": name,
+        "description": "",
+        "owner": {"display_name": owner},
+        "images": [
+            {"url": "https://i.scdn.co/image/large", "width": 640, "height": 640},
+            {"url": "https://i.scdn.co/image/medium", "width": 300, "height": 300},
+            {"url": "https://i.scdn.co/image/small", "width": 64, "height": 64},
+        ]
+        if images is None
+        else images,
+    }
+
+
+def test_list_my_playlists_paginates_over_spotifys_own_pagination(session):
+    _store_auth(session, expires_in_seconds=3600)
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if request.url.params.get("offset") == "50":
+            return httpx.Response(
+                200, json={"items": [_playlist_item("p3", "Prive")], "next": None}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [_playlist_item("p1", "Bruiloft"), _playlist_item("p2", "Horeca")],
+                "next": "https://api.spotify.com/v1/me/playlists?offset=50&limit=50",
+            },
+        )
+
+    playlists = spotify.list_my_playlists(session, _client(handler))
+
+    assert [p["spotify_playlist_id"] for p in playlists] == ["p1", "p2", "p3"]
+    assert [p["name"] for p in playlists] == ["Bruiloft", "Horeca", "Prive"]
+    assert len(calls) == 2  # first page + one follow of `next`
+
+
+def test_list_my_playlists_returns_only_fields_spotify_really_gives_this_app(session):
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(200, json={"items": [_playlist_item("p1", "Bruiloft")], "next": None})
+
+    playlist = spotify.list_my_playlists(session, _client(handler))[0]
+
+    # No track count: Spotify strips the `tracks` object for this application,
+    # so there is nothing honest to report and nothing is invented.
+    assert set(playlist) == {"spotify_playlist_id", "name", "image_url", "owner_display_name"}
+    assert playlist["owner_display_name"] == "DJ Test"
+
+
+def test_list_my_playlists_picks_a_sidebar_sized_cover_image(session):
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(200, json={"items": [_playlist_item("p1", "Bruiloft")], "next": None})
+
+    playlist = spotify.list_my_playlists(session, _client(handler))[0]
+
+    # The smallest image still wide enough for a sidebar thumbnail, not the
+    # 640px original: 101 playlists render at once.
+    assert playlist["image_url"] == "https://i.scdn.co/image/medium"
+
+
+def test_list_my_playlists_falls_back_to_the_largest_image_and_then_to_none(session):
+    _store_auth(session, expires_in_seconds=3600)
+    tiny = [{"url": "https://i.scdn.co/image/tiny", "width": 60, "height": 60}]
+    unsized = [{"url": "https://i.scdn.co/image/unsized", "width": None, "height": None}]
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    _playlist_item("p1", "Only tiny art", images=tiny),
+                    _playlist_item("p2", "Unsized art", images=unsized),
+                    _playlist_item("p3", "No art at all", images=[]),
+                ],
+                "next": None,
+            },
+        )
+
+    playlists = spotify.list_my_playlists(session, _client(handler))
+
+    assert [p["image_url"] for p in playlists] == [
+        "https://i.scdn.co/image/tiny",
+        "https://i.scdn.co/image/unsized",
+        None,
+    ]
+
+
+def test_list_my_playlists_reports_a_missing_owner_name_as_none(session):
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={"items": [{"id": "p1", "name": "Naamloos", "owner": {}}], "next": None},
+        )
+
+    playlist = spotify.list_my_playlists(session, _client(handler))[0]
+
+    assert playlist["owner_display_name"] is None
+    assert playlist["image_url"] is None
+
+
+@pytest.mark.parametrize("status_code", [403, 404, 429, 500])
+def test_a_refused_playlist_listing_is_a_typed_error_not_an_empty_list(session, status_code):
+    # The phase 7 lesson, applied to the listing: Spotify refusing to answer
+    # must never look like "this account owns no playlists".
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(status_code, json={"error": {"status": status_code}})
+
+    with pytest.raises(spotify.PlaylistsUnavailableError):
+        spotify.list_my_playlists(session, _client(handler))
+
+
+def test_a_refusal_halfway_through_pagination_is_an_error_not_a_partial_list(session):
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        if request.url.params.get("offset") == "50":
+            return httpx.Response(403, json={"error": {"status": 403}})
+        return httpx.Response(
+            200,
+            json={
+                "items": [_playlist_item("p1", "Bruiloft")],
+                "next": "https://api.spotify.com/v1/me/playlists?offset=50&limit=50",
+            },
+        )
+
+    with pytest.raises(spotify.PlaylistsUnavailableError):
+        spotify.list_my_playlists(session, _client(handler))
+
+
+def test_list_my_playlists_with_a_rejected_token_raises_session_expired(session):
+    _store_auth(session, expires_in_seconds=3600)
+
+    def handler(request):
+        return httpx.Response(401, json={"error": {"status": 401}})
+
+    with pytest.raises(SessionExpiredError):
+        spotify.list_my_playlists(session, _client(handler))
+
+
+def test_list_my_playlists_without_a_session_raises_not_connected(session):
+    def handler(request):  # pragma: no cover - must never be called
+        raise AssertionError("no HTTP call without a stored session")
+
+    with pytest.raises(NotConnectedError):
+        spotify.list_my_playlists(session, _client(handler))
+
+
+def test_list_my_playlists_refreshes_an_expired_token_first(session, monkeypatch):
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+    _store_auth(session, expires_in_seconds=-10, access_token="stale-access")
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/token":
+            return httpx.Response(200, json={"access_token": "fresh-access", "expires_in": 3600})
+        assert request.headers.get("Authorization") == "Bearer fresh-access"
+        return httpx.Response(200, json={"items": [], "next": None})
+
+    spotify.list_my_playlists(session, _client(handler))
+
+    assert calls == ["/api/token", "/v1/me/playlists"]

@@ -21,6 +21,7 @@ from companion.api import (
     missing,
     player,
     profiles,
+    spotify,
     structures,
     sync,
 )
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(collection.router, prefix="/api")
     app.include_router(config.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
+    app.include_router(spotify.router, prefix="/api")
     app.include_router(sync.router, prefix="/api")
     app.include_router(missing.router, prefix="/api")
     app.include_router(events.router, prefix="/api")

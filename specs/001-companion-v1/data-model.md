@@ -157,8 +157,19 @@ overrides if ever needed.
 
 - **Collection index** (R6/ADR 0012): list of `{rb_content_id, artist, title,
   norm_artist, norm_title, remix_tokens, duration_ms, bpm, isrc, play_count,
-  location}` rebuilt from `master.db` on demand; serves matching, search and
-  suggestions.
+  location, musical_key, label}` rebuilt from `master.db` on demand; serves
+  matching, search, suggestions and the per-playlist track view.
+  `musical_key`/`label` are Rekordbox's own `KeyName`/`LabelName`, both
+  optional and absent for most tracks (7 of the 119 fixture tracks carry a
+  key, 4 a label). `musical_key` is stored verbatim, Camelot (`8m`, `2d`) or
+  the occasional classical spelling (`G m`), never normalised or converted.
+  Rekordbox's `Rating` is deliberately NOT read: nothing asks for it.
+- **Rekordbox playlist membership**: read per request from `master.db` as
+  `{rb_content_id, position}` per row (`DjmdSongPlaylist`, ordered by its
+  `TrackNo`, which pyrekordbox returns unordered), never cached and never
+  duplicated into `app.sqlite`. It is the one thing the collection index
+  cannot answer, which is why `GET /api/playlists/{id}/tracks` reads it there
+  and serves every track field from the index.
 - **Suggestions** are computed, never stored: filter index by profile tags
   (against enriched_genre) and BPM, rank by play count, subtract current
   `structure_track` rows and `suggestion_dismissal` rows.

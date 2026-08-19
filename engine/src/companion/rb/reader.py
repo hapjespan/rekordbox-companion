@@ -96,6 +96,19 @@ def open_database(db_path: Path | None = None) -> Rekordbox6Database:
 
 @dataclass(frozen=True)
 class CollectionTrack:
+    """One track as Rekordbox holds it.
+
+    `musical_key` and `label` are Rekordbox's own `KeyName` and `LabelName`,
+    both optional and frequently absent (7 of the 119 fixture tracks carry a
+    key, 4 a label; a fully analysed library carries them nearly everywhere),
+    so they default to `None` and no caller may assume presence.
+
+    `musical_key` is kept VERBATIM, exactly as Rekordbox stores it -- Camelot
+    notation like `'8m'`/`'2d'`, and occasionally a classical spelling like
+    `'G m'`. Nothing normalises or converts it: the DJ recognises their own
+    notation, and a lossy conversion is worse than none.
+    """
+
     rb_content_id: str
     artist: str
     title: str
@@ -104,6 +117,8 @@ class CollectionTrack:
     isrc: str | None
     play_count: int
     location: str | None
+    musical_key: str | None = None
+    label: str | None = None
 
 
 class _ContentSource(Protocol):
@@ -127,6 +142,12 @@ def read_collection_snapshot(db: _ContentSource) -> list[CollectionTrack]:
                 isrc=content.ISRC or None,
                 play_count=int(content.DJPlayCount) if content.DJPlayCount else 0,
                 location=content.FolderPath or None,
+                # pyrekordbox resolves both through the related Key/Label rows;
+                # an unanalysed or untagged track answers None. `or None` also
+                # folds an empty string into absence -- "no key" and "the empty
+                # string" are the same thing to every consumer.
+                musical_key=content.KeyName or None,
+                label=content.LabelName or None,
             )
         )
     return tracks
@@ -167,4 +188,46 @@ def read_playlist_tree(db: _PlaylistSource) -> list[PlaylistNode]:
             position=playlist.Seq or 0,
         )
         for playlist in db.get_playlist()
+    ]
+
+
+@dataclass(frozen=True)
+class PlaylistTrackRef:
+    """One membership row of a Rekordbox playlist: which track, at which
+    position. `position` is Rekordbox's own `TrackNo` for the row, kept
+    verbatim; the list is what carries the order."""
+
+    rb_content_id: str
+    position: int | None
+
+
+class _PlaylistLookup(Protocol):
+    def get_playlist(self, **kwargs): ...
+
+
+def read_playlist_track_refs(
+    db: _PlaylistLookup, rb_playlist_id: str
+) -> list[PlaylistTrackRef] | None:
+    """The content ids of one playlist, in playlist order.
+
+    Returns `None` for a playlist id the database does not know, so a caller
+    can tell "no such playlist" (a 404) from "this playlist is empty" (an
+    empty page) -- a folder, and a genuinely empty playlist, both answer `[]`.
+
+    pyrekordbox hands back the `DjmdSongPlaylist` rows unordered (verified
+    against the fixture: TrackNo 76, 95, 86, ... for the first rows of its
+    107-track playlist), and `TrackNo` is the position inside the playlist, so
+    the ordering happens here rather than in every caller. A row without a
+    TrackNo sorts last instead of pretending to be position zero.
+
+    Only the membership relation is read here: the track fields themselves
+    come from the in-memory index (ADR 0012), never from a second per-request
+    pass over 30.000+ content rows.
+    """
+    playlist = db.get_playlist(ID=rb_playlist_id)
+    if playlist is None:
+        return None
+    songs = sorted(playlist.Songs, key=lambda song: (song.TrackNo is None, song.TrackNo or 0))
+    return [
+        PlaylistTrackRef(rb_content_id=str(song.ContentID), position=song.TrackNo) for song in songs
     ]

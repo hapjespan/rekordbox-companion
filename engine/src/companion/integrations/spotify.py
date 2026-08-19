@@ -67,6 +67,16 @@ PLAYLIST_TRACK_CAP = 999
 # Spotify's maximum page size for playlist items.
 _PAGE_LIMIT = 100
 
+# Spotify's maximum page size for `/me/playlists` (half the items limit; the
+# endpoint refuses anything above 50).
+_MY_PLAYLISTS_PAGE_LIMIT = 50
+
+# The narrowest cover art still sharp enough for a sidebar thumbnail on a
+# retina display. Spotify returns three sizes per playlist (typically 640/300/
+# 64 px); the smallest one at or above this width is picked, so a sidebar of
+# ~100 playlists does not pull 100 x 640px originals.
+_MIN_COVER_WIDTH = 160
+
 # Refresh a little before the token actually expires, so a call that starts
 # just under the wire does not race the expiry.
 _EXPIRY_SKEW = timedelta(seconds=60)
@@ -120,6 +130,17 @@ class PlaylistUnreachableError(SpotifyError):
     bubble up as an unhandled `httpx.HTTPStatusError`, surfacing as a raw
     500 with no `{code, message, field}` for a scenario spec.md itself
     names ("playlist is private")."""
+
+
+class PlaylistsUnavailableError(SpotifyError):
+    """Spotify would not list this account's own playlists (`/me/playlists`).
+
+    A separate type from `PlaylistUnreachableError`, which is about one named
+    playlist: this one says "the listing itself failed". It exists so a
+    refusal can never be mistaken for an account that owns no playlists --
+    the same phase 7 finding that made an unreadable playlist's contents an
+    error rather than an empty match report.
+    """
 
 
 class PlaylistTooLargeError(SpotifyError):
@@ -351,6 +372,95 @@ def disconnect(db) -> None:
         db.delete(row)
         db.commit()
         logger.info("spotify_disconnected", extra={"account_id": row.account_id})
+
+
+# --------------------------------------------------------------------------- #
+# The operator's own playlists
+# --------------------------------------------------------------------------- #
+def _cover_image_url(images: list | None) -> str | None:
+    """The best sidebar-sized cover URL among Spotify's three sizes, or None.
+
+    Spotify orders `images` widest first and can report a `width` of null, so
+    this picks the smallest image at or above `_MIN_COVER_WIDTH`, falls back to
+    the widest known size when every image is smaller, and to the first URL
+    when no width is given at all. A playlist without cover art has no image,
+    which is a normal state and not an error.
+    """
+    candidates = [
+        (image.get("width"), image.get("url")) for image in images or [] if image.get("url")
+    ]
+    if not candidates:
+        return None
+    sized = [(width, url) for width, url in candidates if isinstance(width, int)]
+    if not sized:
+        return candidates[0][1]
+    big_enough = sorted(pair for pair in sized if pair[0] >= _MIN_COVER_WIDTH)
+    return big_enough[0][1] if big_enough else max(sized)[1]
+
+
+def _my_playlists_page(client: httpx.Client, url: str, headers: dict, params: dict | None) -> dict:
+    """One `/me/playlists` page, with every refusal turned into a typed error.
+
+    No non-2xx may become an empty list here: a 403 (this app may not read the
+    account's playlists), a 429 (rate limited) and a 5xx all mean "we do not
+    know what you own", which the caller must be able to say out loud.
+    """
+    response = client.get(url, headers=headers, params=params)
+    if response.status_code == 401:
+        raise SessionExpiredError("Spotify rejected the access token; reconnect the account")
+    if not response.is_success:
+        raise PlaylistsUnavailableError(
+            "Spotify would not list this account's playlists "
+            f"(HTTP {response.status_code}); it did not say the account has none"
+        )
+    return response.json()
+
+
+def list_my_playlists(db, client: httpx.Client) -> list[dict]:
+    """Every playlist on the operator's own account, as
+    `{spotify_playlist_id, name, image_url, owner_display_name}` dicts.
+
+    Paginates over Spotify's own `next` cursor to gather the whole account
+    (101 playlists for the owner's), through the same allowlisted client and
+    refresh-if-needed token path as every other call in this module.
+
+    There is deliberately NO track count: Spotify strips the `tracks` object
+    from `/me/playlists` items for this application, so any count would be
+    invented. `description` is available but not returned -- nothing consumes
+    it, and an unused field is a field that drifts.
+    """
+    access_token = _get_valid_access_token(db, client)
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    playlists: list[dict] = []
+    body = _my_playlists_page(
+        client,
+        f"{API_BASE}/me/playlists",
+        headers,
+        {"limit": _MY_PLAYLISTS_PAGE_LIMIT},
+    )
+    while True:
+        for item in body.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            playlists.append(
+                {
+                    "spotify_playlist_id": item.get("id"),
+                    "name": item.get("name") or "",
+                    "image_url": _cover_image_url(item.get("images")),
+                    "owner_display_name": (item.get("owner") or {}).get("display_name") or None,
+                }
+            )
+        next_url = body.get("next")
+        if not next_url:
+            break
+        # `next` is a Spotify-issued absolute URL on api.spotify.com: the API's
+        # own cursor, never user input (and the allowlisted client refuses any
+        # other host regardless).
+        body = _my_playlists_page(client, next_url, headers, None)
+
+    logger.info("spotify_playlists_listed", extra={"count": len(playlists)})
+    return playlists
 
 
 # --------------------------------------------------------------------------- #

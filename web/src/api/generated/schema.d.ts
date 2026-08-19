@@ -72,6 +72,34 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/playlists/{rb_playlist_id}/tracks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Playlist Tracks
+     * @description The tracks of one Rekordbox playlist, in the same
+     *     `{total, items: [CollectionTrack]}` shape as `GET /api/collection`.
+     *
+     *     Only the playlist's membership comes from `master.db` (that relation exists
+     *     nowhere else); every track field is served from the in-memory index (ADR
+     *     0012), so this never re-reads 30.000+ content rows per request. That is
+     *     also why an unindexed collection is a documented refusal
+     *     (`collection_not_indexed`) rather than an empty page: "scan first" and
+     *     "this playlist is empty" must not look the same (phase 7 lesson).
+     */
+    get: operations["get_playlist_tracks_api_playlists__rb_playlist_id__tracks_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/config": {
     parameters: {
       query?: never;
@@ -184,6 +212,30 @@ export interface paths {
      * @description `{access_token, expires_in}` for the Web Playback SDK (T099, R2).
      */
     get: operations["player_token_api_auth_spotify_player_token_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/spotify/playlists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List Spotify Playlists
+     * @description `[{spotify_playlist_id, name, image_url, owner_display_name, sync}]`.
+     *
+     *     No track count: Spotify strips the `tracks` object from `/me/playlists`
+     *     items for this application, so there is none to report and none is
+     *     invented (contracts/api.md).
+     */
+    get: operations["list_spotify_playlists_api_spotify_playlists_get"];
     put?: never;
     post?: never;
     delete?: never;
@@ -921,6 +973,42 @@ export interface operations {
       };
     };
   };
+  get_playlist_tracks_api_playlists__rb_playlist_id__tracks_get: {
+    parameters: {
+      query?: {
+        query?: string | null;
+        sort?: string;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path: {
+        rb_playlist_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_config_api_config_get: {
     parameters: {
       query?: never;
@@ -1074,6 +1162,26 @@ export interface operations {
     };
   };
   player_token_api_auth_spotify_player_token_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+    };
+  };
+  list_spotify_playlists_api_spotify_playlists_get: {
     parameters: {
       query?: never;
       header?: never;
