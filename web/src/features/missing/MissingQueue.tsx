@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { apiClient } from "../../api/client";
 import { asApiResponse } from "../spotify-sync/types";
@@ -56,22 +56,78 @@ function refreshLinksErrorMessageFor(error: ApiError): string {
   return error.message || "Vernieuwen van links is mislukt. Probeer het opnieuw.";
 }
 
+// FR-041: the price is stored as an amount plus its ISO code, never as a
+// pre-formatted string, so it is formatted for the Dutch UI here. A row
+// without a price simply gets none (null), never a placeholder: a track can
+// be streaming-only or album-only, and inventing "0,00" would be a lie
+// about what the DJ would pay.
+function priceLabelFor(track: MissingTrackDto): string | null {
+  if (track.itunes_price === null) return null;
+  if (track.itunes_currency === null) return track.itunes_price.toFixed(2);
+  try {
+    return new Intl.NumberFormat("nl-NL", {
+      style: "currency",
+      currency: track.itunes_currency,
+    }).format(track.itunes_price);
+  } catch {
+    // An unknown currency code makes Intl throw rather than degrade; the
+    // amount plus the raw code still tells the DJ what the track costs.
+    return `${track.itunes_price.toFixed(2)} ${track.itunes_currency}`;
+  }
+}
+
 interface MissingTrackRowProps {
   track: MissingTrackDto;
   onStatusChange: (id: number, status: MissingTrackStatus) => void;
   onLinkOverride: (id: number, url: string) => Promise<ApiError | null>;
+  // Playback state is owned by the queue, not the row (FR-041: one preview
+  // at a time), so a row only reports what the DJ asked for and renders
+  // whether it is the row currently sounding.
+  isPreviewPlaying: boolean;
+  onPreviewChange: (id: number, playing: boolean) => void;
 }
 
 // T059 (FR-020..FR-022, WCAG): status conveyed in text (STATUS_LABELS),
 // never colour alone; the manual override input reports errors by naming
 // the field and the fix (spec.md's naming-input criterion, same pattern as
 // PlaylistUrlForm/T031).
-function MissingTrackRow({ track, onStatusChange, onLinkOverride }: MissingTrackRowProps) {
+function MissingTrackRow({
+  track,
+  onStatusChange,
+  onLinkOverride,
+  isPreviewPlaying,
+  onPreviewChange,
+}: MissingTrackRowProps) {
   const [draftUrl, setDraftUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const inputId = useId();
   const errorId = useId();
+  const priceLabel = priceLabelFor(track);
+
+  // The queue's `isPreviewPlaying` is the single source of truth, so
+  // starting another row's preview stops this one through the same path a
+  // click on this row's own button takes (FR-041: one preview at a time).
+  // The audio is fetched by the browser straight from Apple's preview host,
+  // never proxied through the backend (ADR 0021).
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!isPreviewPlaying) {
+      audio.pause();
+      return;
+    }
+    setPreviewError(null);
+    // A rejected play() (autoplay policy, an unreachable preview host, a
+    // withdrawn preview) must say so and release the control, never leave a
+    // button reading "Pauzeer fragment" over silence.
+    void Promise.resolve(audio.play()).catch(() => {
+      setPreviewError("Fragment kon niet worden afgespeeld.");
+      onPreviewChange(track.id, false);
+    });
+  }, [isPreviewPlaying, onPreviewChange, track.id]);
 
   async function handleOverrideSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,6 +179,41 @@ function MissingTrackRow({ track, onStatusChange, onLinkOverride }: MissingTrack
         ))}
       </div>
 
+      {/* FR-041: hear it before buying it. The accessible name names the
+          track (so a screen-reader user knows which row's preview this is)
+          while the visible label stays short, and the playing/stopped state
+          is carried by that label AND aria-pressed -- never by colour or an
+          icon alone. */}
+      <div className="flex flex-wrap items-center gap-8">
+        {track.itunes_preview_url ? (
+          <>
+            <button
+              type="button"
+              aria-pressed={isPreviewPlaying}
+              aria-label={`${isPreviewPlaying ? "Pauzeer" : "Speel"} fragment van ${track.artist} – ${track.title}`}
+              onClick={() => onPreviewChange(track.id, !isPreviewPlaying)}
+              className="min-h-24 min-w-24 rounded-full-2 border border-iron bg-transparent px-12 py-8 text-body-lg font-bold text-pure-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+            >
+              {isPreviewPlaying ? "Pauzeer fragment" : "Speel fragment"}
+            </button>
+            <audio
+              ref={audioRef}
+              src={track.itunes_preview_url}
+              onPlay={() => onPreviewChange(track.id, true)}
+              onPause={() => onPreviewChange(track.id, false)}
+              onEnded={() => onPreviewChange(track.id, false)}
+            />
+          </>
+        ) : (
+          <p className="text-body-lg text-mist">Geen fragment beschikbaar.</p>
+        )}
+        {previewError && (
+          <p role="alert" className="text-body-lg font-semibold text-pure-white">
+            {previewError}
+          </p>
+        )}
+      </div>
+
       {track.effective_url ? (
         <div className="flex flex-wrap items-center gap-8">
           <a
@@ -133,6 +224,10 @@ function MissingTrackRow({ track, onStatusChange, onLinkOverride }: MissingTrack
           >
             Open in Apple Music
           </a>
+          {/* FR-041: what it costs, beside the link that sells it. Absent
+              for a track the store does not sell on its own, and then
+              nothing is shown rather than a placeholder amount. */}
+          {priceLabel && <span className="text-body-lg text-bone">Prijs: {priceLabel}</span>}
           <button
             type="button"
             onClick={() => void handleCopy()}
@@ -186,6 +281,22 @@ export function MissingQueue() {
   // makes the other two statuses reachable.
   const [statusFilter, setStatusFilter] = useState<MissingTrackStatus>("open");
   const [actionError, setActionError] = useState<string | null>(null);
+  // FR-041: at most one preview sounds at a time, so the id of the playing
+  // row lives here rather than as per-row playing state -- starting one
+  // preview is what stops the previous one.
+  const [playingPreviewId, setPlayingPreviewId] = useState<number | null>(null);
+
+  // Stable across renders, so the row effect that starts/stops the audio
+  // element runs on a real state change instead of on every render.
+  const handlePreviewChange = useCallback((id: number, playing: boolean) => {
+    setPlayingPreviewId((current) => {
+      if (playing) return id;
+      // Only the row that is actually sounding may clear the field: a stop
+      // arriving from the row that was just superseded must not silence the
+      // one that superseded it.
+      return current === id ? null : current;
+    });
+  }, []);
 
   async function refresh(status: MissingTrackStatus) {
     // A network-level failure (not an HTTP error response, which
@@ -207,6 +318,9 @@ export function MissingQueue() {
   }
 
   useEffect(() => {
+    // Switching view unmounts the playing row's audio element, so the
+    // remembered id would otherwise outlive the sound it stands for.
+    setPlayingPreviewId(null);
     void refresh(statusFilter);
   }, [statusFilter]);
 
@@ -303,6 +417,8 @@ export function MissingQueue() {
               track={track}
               onStatusChange={(id, status) => void handleStatusChange(id, status)}
               onLinkOverride={handleLinkOverride}
+              isPreviewPlaying={playingPreviewId === track.id}
+              onPreviewChange={handlePreviewChange}
             />
           ))}
         </ul>

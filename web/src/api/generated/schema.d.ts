@@ -372,6 +372,11 @@ export interface paths {
      * @description Re-runs the iTunes lookup for up to `REFRESH_BATCH_SIZE` OPEN rows
      *     (SC-004), throttled to ADR 0011's free-tier rate limit.
      *
+     *     This is also what fills FR-041's preview and price: they come from the
+     *     same response as the link (`_store_store_link`), so a refresh is the one
+     *     call that backfills rows created before those columns existed -- no
+     *     extra request, no extra outbound host.
+     *
      *     `acquired`/`ignored` rows are left alone: a resolved or dismissed
      *     Missing Track has no remaining use for a fresher auto-pick.
      *

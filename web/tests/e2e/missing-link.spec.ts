@@ -105,10 +105,20 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
           itunes_url_chosen: null,
           effective_url: "https://music.apple.com/nl/album/nothing-similar/1",
           no_link_found: false,
+          // FR-041: the row also carries the store's own preview and price.
+          itunes_preview_url: "https://audio-ssl.itunes.apple.com/itunes-assets/nothing.m4a",
+          itunes_price: 1.29,
+          itunes_currency: "EUR",
         },
       ],
     });
   });
+
+  // The preview element resolves its src as soon as the row renders; answered
+  // locally so this suite stays offline (playwright.config comment).
+  await page.route("https://audio-ssl.itunes.apple.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "audio/mp4", body: "" }),
+  );
 
   await page.route("**/api/missing/1/status", async (route) => {
     const body = route.request().postDataJSON() as { status: string };
@@ -135,6 +145,17 @@ test("a completed sync with Missing Tracks shows the queue, and a Store Link res
   await nav.getByRole("button", { name: /Koop-wachtrij/ }).click();
   await expect(page.getByText("Nobody At All – Nothing Similar")).toBeVisible();
   await expect(page.getByText("Status: Open")).toBeVisible();
+
+  // FR-041: the buy decision's two new facts are on the row itself -- a
+  // preview control that names the track it previews (and is keyboard
+  // focusable), and the price beside the link that sells it.
+  const previewButton = page.getByRole("button", {
+    name: "Speel fragment van Nobody At All – Nothing Similar",
+  });
+  await expect(previewButton).toBeVisible();
+  await previewButton.focus();
+  await expect(previewButton).toBeFocused();
+  await expect(page.getByText(/Prijs:/)).toContainText("1,29");
 
   const copyButton = page.getByRole("button", { name: "Kopieer link" });
   await copyButton.click();

@@ -23,6 +23,9 @@ const TRACK_WITH_LINK = {
   itunes_url_chosen: null,
   effective_url: "https://music.apple.com/nl/album/one-more-time/1",
   no_link_found: false,
+  itunes_preview_url: "https://audio-ssl.itunes.apple.com/itunes-assets/one-more-time.m4a",
+  itunes_price: 1.29,
+  itunes_currency: "EUR",
 };
 
 const TRACK_NO_LINK = {
@@ -34,10 +37,29 @@ const TRACK_NO_LINK = {
   itunes_url_chosen: null,
   effective_url: null,
   no_link_found: true,
+  itunes_preview_url: null,
+  itunes_price: null,
+  itunes_currency: null,
+};
+
+// A real store page that sells nothing on its own: a link, but no preview
+// and no single-track price (FR-041's documented gaps).
+const TRACK_LINK_WITHOUT_PREVIEW_OR_PRICE = {
+  ...TRACK_WITH_LINK,
+  id: 4,
+  artist: "Album Only",
+  title: "Not Sold Separately",
+  itunes_preview_url: null,
+  itunes_price: null,
+  itunes_currency: null,
 };
 
 beforeEach(() => {
   Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  // jsdom implements neither, so both are stubbed the same way
+  // DualPlayback.test.tsx does.
+  HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+  HTMLMediaElement.prototype.pause = vi.fn();
 });
 
 afterEach(() => {
@@ -89,6 +111,132 @@ describe("MissingQueue", () => {
       ),
     );
     expect(await screen.findByRole("button", { name: "Gekopieerd" })).toBeInTheDocument();
+  });
+
+  // FR-041 (ADR 0021): hear it and see the price before buying.
+  it("plays the store preview and names the track in the control's accessible name", async () => {
+    mockList([TRACK_WITH_LINK]);
+    const { container } = render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    const play = screen.getByRole("button", {
+      name: "Speel fragment van Daft Punk – One More Time",
+    });
+    expect(play).toHaveAttribute("aria-pressed", "false");
+    expect(container.querySelector("audio")).toHaveAttribute(
+      "src",
+      "https://audio-ssl.itunes.apple.com/itunes-assets/one-more-time.m4a",
+    );
+
+    fireEvent.click(play);
+
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1));
+    // State in text AND in an accessible attribute, never colour alone.
+    const pause = await screen.findByRole("button", {
+      name: "Pauzeer fragment van Daft Punk – One More Time",
+    });
+    expect(pause).toHaveAttribute("aria-pressed", "true");
+    expect(pause).toHaveTextContent("Pauzeer fragment");
+  });
+
+  it("pauses the preview again on a second press", async () => {
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Pauzeer fragment van Daft Punk – One More Time",
+      }),
+    );
+
+    await waitFor(() => expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled());
+    expect(
+      await screen.findByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("plays only one preview at a time: starting the second stops the first", async () => {
+    const SECOND = {
+      ...TRACK_WITH_LINK,
+      id: 3,
+      artist: "Stardust",
+      title: "Music Sounds Better with You",
+      itunes_preview_url: "https://audio-ssl.itunes.apple.com/itunes-assets/music-sounds.m4a",
+    };
+    mockList([TRACK_WITH_LINK, SECOND]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    );
+    await screen.findByRole("button", { name: "Pauzeer fragment van Daft Punk – One More Time" });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Speel fragment van Stardust – Music Sounds Better with You",
+      }),
+    );
+
+    // The second row is the only one still pressed.
+    expect(
+      await screen.findByRole("button", {
+        name: "Pauzeer fragment van Stardust – Music Sounds Better with You",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled());
+  });
+
+  it("says a row has no preview instead of offering a dead control", async () => {
+    mockList([TRACK_LINK_WITHOUT_PREVIEW_OR_PRICE]);
+    render(<MissingQueue />);
+
+    expect(await screen.findByText("Geen fragment beschikbaar.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Speel fragment/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the price beside the Store Link, formatted for the Dutch locale", async () => {
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(screen.getByText(/Prijs:/)).toHaveTextContent(/1,29/);
+    expect(screen.getByText(/Prijs:/)).toHaveTextContent(/€/);
+  });
+
+  it("shows no price at all for a track the store does not sell separately", async () => {
+    mockList([TRACK_LINK_WITHOUT_PREVIEW_OR_PRICE]);
+    render(<MissingQueue />);
+    await screen.findByText("Album Only – Not Sold Separately");
+
+    // A link to open, but no invented amount beside it.
+    expect(screen.getByRole("link", { name: "Open in Apple Music" })).toBeInTheDocument();
+    expect(screen.queryByText(/Prijs:/)).not.toBeInTheDocument();
+  });
+
+  it("reports a preview that will not play and releases the control", async () => {
+    HTMLMediaElement.prototype.play = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Fragment kon niet worden afgespeeld.");
+    // Never a button reading "Pauzeer fragment" over silence.
+    expect(
+      await screen.findByRole("button", { name: "Speel fragment van Daft Punk – One More Time" }),
+    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("changing status posts the new status and refreshes the list", async () => {

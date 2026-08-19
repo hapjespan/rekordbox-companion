@@ -67,8 +67,25 @@ class StoreLookupError(Exception):
 
 @dataclass(frozen=True)
 class StoreLinkResult:
+    """One auto-picked store result: the page to buy from, plus what FR-041
+    needs to decide whether to buy at all.
+
+    `preview_url`, `price` and `currency` are all optional and default to
+    absent: a search result can carry no `previewUrl` at all, and a track
+    that is streaming-only or sold album-only carries no usable
+    `trackPrice` (see `_optional_price`). A caller must therefore treat
+    every one of the three as "may not be there", never as guaranteed
+    company to a resolved `url`.
+    """
+
     itunes_track_id: str | None
     url: str | None
+    preview_url: str | None = None
+    # A plain amount plus its ISO currency code, exactly as the storefront
+    # reports it -- never a pre-formatted string, so the presentation layer
+    # stays free to format it for its own locale (the UI is Dutch).
+    price: float | None = None
+    currency: str | None = None
 
 
 def find_store_link(client: httpx.Client, artist: str, title: str) -> StoreLinkResult:
@@ -79,6 +96,11 @@ def find_store_link(client: httpx.Client, artist: str, title: str) -> StoreLinkR
     outcome for an obscure or mistagged track, never raised as an
     exception. A failed REQUEST (rate limit, network error) raises
     `StoreLookupError` instead, distinct from "found nothing".
+
+    The same response also carries the picked track's 30 second preview and
+    its storefront price (FR-041, ADR 0021), so both come back on the
+    result rather than costing a second request: the preview the DJ hears
+    is by construction the preview of the exact page `url` leads to.
     """
     try:
         response = client.get(
@@ -101,7 +123,41 @@ def find_store_link(client: httpx.Client, artist: str, title: str) -> StoreLinkR
     best = _pick_best(artist, title, results)
     if best is None:
         return StoreLinkResult(itunes_track_id=None, url=None)
-    return StoreLinkResult(itunes_track_id=str(best["trackId"]), url=best["trackViewUrl"])
+    price = _optional_price(best.get("trackPrice"))
+    return StoreLinkResult(
+        itunes_track_id=str(best["trackId"]),
+        url=best["trackViewUrl"],
+        # `.get`, not `[...]`: a result without a preview is normal (rights
+        # holders can withhold one), and FR-041's answer to that is a row
+        # that says so, not a KeyError on the whole lookup.
+        preview_url=best.get("previewUrl"),
+        price=price,
+        # A currency without an amount says nothing, so it travels only
+        # alongside a usable price.
+        currency=best.get("currency") if price is not None else None,
+    )
+
+
+def _optional_price(raw: object) -> float | None:
+    """The purchasable price, or None when this track cannot be bought
+    individually.
+
+    Verified live against the NL storefront: iTunes signals "not for sale as
+    a single track" in two different ways -- it omits `trackPrice` entirely
+    (streaming-only or album-only releases, e.g. several "Shape of You"
+    remixes) or it returns the sentinel `-1.00` (e.g. a live "Purple Rain"
+    remaster). Both collapse to None here, because FR-041 shows a price only
+    where the DJ can actually pay it; a "-1,00 EUR" row would be worse than
+    no price at all. Anything non-numeric is treated the same way rather
+    than trusted into the database.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        price = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return price if price >= 0 else None
 
 
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9\s]")

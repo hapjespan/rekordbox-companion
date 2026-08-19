@@ -122,6 +122,15 @@ class MissingTrack(Base):
     itunes_track_id: Mapped[str | None]
     itunes_url_auto: Mapped[str | None]  # best-effort pick (FR-022 keeps it)
     itunes_url_chosen: Mapped[str | None]  # manual override wins when set
+    # FR-041/ADR 0021: what the automatic pick costs and what it sounds
+    # like, so the DJ can judge a purchase instead of guessing from artist
+    # and title. All three arrive in the same lookup that resolves
+    # `itunes_url_auto` and describe that same store page, and all three are
+    # independently nullable: a track can have no preview, and a
+    # streaming-only or album-only track has no single-track price.
+    itunes_preview_url: Mapped[str | None]
+    itunes_price: Mapped[float | None]
+    itunes_currency: Mapped[str | None]  # ISO code, only ever set with a price
     # open -> acquired / ignored; open -> closed via FR-023 auto-match.
     # `ignored` is sticky across re-syncs of the same playlist (US4 scenario 3).
     status: Mapped[str] = mapped_column(default="open")

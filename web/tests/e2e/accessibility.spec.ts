@@ -24,7 +24,33 @@ async function mockCommonEndpoints(page: import("@playwright/test").Page) {
   await page.route("**/api/auth/spotify/status", (route) =>
     route.fulfill({ json: { connected: true, display_name: "DJ Test", product: "premium" } }),
   );
-  await page.route("**/api/missing*", (route) => route.fulfill({ json: [] }));
+  // One real row, not an empty queue: FR-041's preview control and price
+  // only exist on a row, and the WCAG 2.2 AA claim covers them too.
+  await page.route("**/api/missing*", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 1,
+          artist: "Daft Punk",
+          title: "One More Time",
+          status: "open",
+          itunes_url_auto: "https://music.apple.com/nl/album/one-more-time/1",
+          itunes_url_chosen: null,
+          effective_url: "https://music.apple.com/nl/album/one-more-time/1",
+          no_link_found: false,
+          itunes_preview_url: "https://audio-ssl.itunes.apple.com/itunes-assets/preview.m4a",
+          itunes_price: 1.29,
+          itunes_currency: "EUR",
+        },
+      ],
+    }),
+  );
+  // The sweep never plays anything, but the <audio> element still resolves
+  // its src: answered locally so this suite stays offline (playwright.config
+  // comment) instead of reaching Apple's preview host.
+  await page.route("https://audio-ssl.itunes.apple.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "audio/mp4", body: "" }),
+  );
   await page.route("**/api/enrichment/status", (route) =>
     route.fulfill({ json: { pending: 0, done: 0, none_found: 0, failed: 0, coverage_pct: 0 } }),
   );

@@ -72,7 +72,14 @@ exactly one status per track (FR-003).
 | POST `/api/missing/refresh-links` | – | re-runs iTunes lookups for open rows, at most 20 per call and throttled to the free-tier rate (ADR 0011); `{refreshed, skipped, remaining}`, so the caller can resume. A row that fails is skipped, never fatal: the links already fetched are kept (phase 7 finding: one failure rolled the whole batch back) |
 
 `MissingTrack`: `{id, artist, title, status, itunes_url_auto,
-itunes_url_chosen, effective_url, no_link_found: bool}`.
+itunes_url_chosen, effective_url, no_link_found: bool, itunes_preview_url,
+itunes_price, itunes_currency}`. The last three are the automatic pick's own
+store preview and price (FR-041, ADR 0021), filled by the same lookup that
+resolves `itunes_url_auto` and each independently `null`: a track can have no
+preview, and a streaming-only or album-only track has no single-track price
+(iTunes signals that by omitting `trackPrice` or returning `-1.00`, both of
+which become `null` here). The preview is played by the browser straight from
+Apple's preview host, never proxied through the backend.
 
 ## Enrichment (US6)
 

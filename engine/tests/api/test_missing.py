@@ -288,6 +288,102 @@ def test_refresh_links_keeps_already_fetched_links_when_a_later_row_fails():
         assert rows["Artist Two"].itunes_url_auto is None
 
 
+# FR-041 (ADR 0021): the preview and the price ride along on the same
+# lookup, so refresh-links must persist them and the queue must return them.
+def test_refresh_links_persists_the_preview_url_price_and_currency():
+    client, app, session_local = _client_and_app(collection_entries=())
+    _set_fetch(app, [_FakeTrack("sp1", "Artist One", "Track One", 200_000)])
+    client.post("/api/sync/sessions", json={"playlist_url": PLAYLIST_URL})
+
+    def lookup(artist: str, title: str) -> itunes.StoreLinkResult:
+        return itunes.StoreLinkResult(
+            itunes_track_id="1",
+            url="https://music.apple.com/nl/album/track-one/1",
+            preview_url="https://audio-ssl.itunes.apple.com/itunes-assets/preview.m4a",
+            price=1.29,
+            currency="EUR",
+        )
+
+    app.dependency_overrides[get_store_link_lookup] = lambda: lookup
+    app.dependency_overrides[get_itunes_sleep] = lambda: lambda seconds: None
+
+    assert client.post("/api/missing/refresh-links").status_code == 200
+
+    with session_local() as db:
+        row = db.query(MissingTrack).one()
+        assert row.itunes_preview_url == (
+            "https://audio-ssl.itunes.apple.com/itunes-assets/preview.m4a"
+        )
+        assert row.itunes_price == 1.29
+        assert row.itunes_currency == "EUR"
+
+    listed = client.get("/api/missing", params={"status": "open"}).json()
+    assert listed[0]["itunes_preview_url"] == (
+        "https://audio-ssl.itunes.apple.com/itunes-assets/preview.m4a"
+    )
+    assert listed[0]["itunes_price"] == 1.29
+    assert listed[0]["itunes_currency"] == "EUR"
+
+
+def test_the_queue_reports_an_absent_preview_and_price_as_null():
+    # A store page with no preview and no single-track price is a normal
+    # outcome (streaming-only or album-only releases), never an error: the
+    # row still carries its link, and the UI says the preview is missing
+    # instead of offering a dead control.
+    client, app, session_local = _client_and_app(collection_entries=())
+    _set_fetch(app, [_FakeTrack("sp1", "Artist One", "Track One", 200_000)])
+    client.post("/api/sync/sessions", json={"playlist_url": PLAYLIST_URL})
+
+    def lookup(artist: str, title: str) -> itunes.StoreLinkResult:
+        return itunes.StoreLinkResult(
+            itunes_track_id="1", url="https://music.apple.com/nl/album/track-one/1"
+        )
+
+    app.dependency_overrides[get_store_link_lookup] = lambda: lookup
+    app.dependency_overrides[get_itunes_sleep] = lambda: lambda seconds: None
+    client.post("/api/missing/refresh-links")
+
+    row = client.get("/api/missing", params={"status": "open"}).json()[0]
+    assert row["effective_url"] == "https://music.apple.com/nl/album/track-one/1"
+    assert row["itunes_preview_url"] is None
+    assert row["itunes_price"] is None
+    assert row["itunes_currency"] is None
+
+
+def test_a_refresh_that_now_finds_nothing_clears_a_stale_preview_and_price():
+    # Yesterday's price must never stay beside today's absent link.
+    client, app, session_local = _client_and_app(collection_entries=())
+    _set_fetch(app, [_FakeTrack("sp1", "Artist One", "Track One", 200_000)])
+    client.post("/api/sync/sessions", json={"playlist_url": PLAYLIST_URL})
+
+    results = [
+        itunes.StoreLinkResult(
+            itunes_track_id="1",
+            url="https://music.apple.com/nl/album/track-one/1",
+            preview_url="https://audio-ssl.itunes.apple.com/itunes-assets/preview.m4a",
+            price=1.29,
+            currency="EUR",
+        ),
+        itunes.StoreLinkResult(itunes_track_id=None, url=None),
+    ]
+
+    def lookup(artist: str, title: str) -> itunes.StoreLinkResult:
+        return results.pop(0)
+
+    app.dependency_overrides[get_store_link_lookup] = lambda: lookup
+    app.dependency_overrides[get_itunes_sleep] = lambda: lambda seconds: None
+
+    client.post("/api/missing/refresh-links")
+    client.post("/api/missing/refresh-links")
+
+    with session_local() as db:
+        row = db.query(MissingTrack).one()
+        assert row.itunes_url_auto is None
+        assert row.itunes_preview_url is None
+        assert row.itunes_price is None
+        assert row.itunes_currency is None
+
+
 def test_at_least_90_percent_of_well_known_tracks_resolve_a_real_store_link():
     # SC-004. Real network call to the live iTunes Search API via
     # POST /api/missing/refresh-links.

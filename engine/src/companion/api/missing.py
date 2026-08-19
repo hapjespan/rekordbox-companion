@@ -1,4 +1,4 @@
-"""GET/POST /api/missing* (US4, FR-020..FR-022, contracts/api.md).
+"""GET/POST /api/missing* (US4, FR-020..FR-022, FR-041, contracts/api.md).
 
 Every route joins through `SyncTrack` for `artist`/`title`: `MissingTrack`
 itself only carries the Store Link/status columns (data-model.md), the
@@ -75,7 +75,31 @@ def _missing_dict(missing: MissingTrack, track: SyncTrack) -> dict:
         "itunes_url_chosen": missing.itunes_url_chosen,
         "effective_url": effective_url,
         "no_link_found": effective_url is None,
+        # FR-041: the preview and the price of the automatically picked
+        # store page, each independently nullable -- a track can have no
+        # preview, and a streaming-only or album-only track has no
+        # single-track price. The UI renders "no preview available" and
+        # simply no price rather than a dead control or a fake amount.
+        "itunes_preview_url": missing.itunes_preview_url,
+        "itunes_price": missing.itunes_price,
+        "itunes_currency": missing.itunes_currency,
     }
+
+
+def _store_store_link(missing: MissingTrack, result: itunes.StoreLinkResult) -> None:
+    """Persist one resolved lookup onto the row.
+
+    The single place a `StoreLinkResult` becomes columns, so the link and
+    FR-041's preview/price can never drift apart: every field is written
+    from the same result, including when that result is empty (a re-lookup
+    that now finds nothing must clear a stale preview and price, not leave
+    yesterday's price beside today's absent link).
+    """
+    missing.itunes_track_id = result.itunes_track_id
+    missing.itunes_url_auto = result.url
+    missing.itunes_preview_url = result.preview_url
+    missing.itunes_price = result.price
+    missing.itunes_currency = result.currency
 
 
 @router.get("/missing")
@@ -162,6 +186,11 @@ def refresh_links(
     """Re-runs the iTunes lookup for up to `REFRESH_BATCH_SIZE` OPEN rows
     (SC-004), throttled to ADR 0011's free-tier rate limit.
 
+    This is also what fills FR-041's preview and price: they come from the
+    same response as the link (`_store_store_link`), so a refresh is the one
+    call that backfills rows created before those columns existed -- no
+    extra request, no extra outbound host.
+
     `acquired`/`ignored` rows are left alone: a resolved or dismissed
     Missing Track has no remaining use for a fresher auto-pick.
 
@@ -194,8 +223,7 @@ def refresh_links(
         except itunes.StoreLookupError:
             skipped += 1
             continue
-        missing.itunes_track_id = result.itunes_track_id
-        missing.itunes_url_auto = result.url
+        _store_store_link(missing, result)
         db.commit()
         refreshed += 1
 

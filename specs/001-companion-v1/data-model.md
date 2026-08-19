@@ -81,6 +81,9 @@ accept/reject transition listed above at all (T036 build finding).
 | itunes_track_id | text NULL | |
 | itunes_url_auto | text NULL | best-effort pick (FR-022 keeps it) |
 | itunes_url_chosen | text NULL | manual override wins when set |
+| itunes_preview_url | text NULL | the automatic pick's 30s store preview (FR-041, ADR 0021) |
+| itunes_price | real NULL | single-track price of the automatic pick; NULL when the store sells it album-only or streaming-only |
+| itunes_currency | text NULL | ISO code, only ever set alongside a price |
 | status | enum | `open` → `acquired` / `ignored`; `open → closed` via FR-023 auto-match |
 | resolved_at | datetime NULL | |
 
