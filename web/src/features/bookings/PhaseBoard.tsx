@@ -209,14 +209,30 @@ export function PhaseBoard({ phases, onMove }: PhaseBoardProps) {
                 <h3 className="min-w-0 truncate text-body-lg font-bold text-pure-white">
                   {phase.label}
                 </h3>
-                <span className="shrink-0 text-caption text-mist">{phaseDurationText(phase)}</span>
+                <span className="shrink-0 text-caption text-mist">
+                  {phase.error ? "–" : phaseDurationText(phase)}
+                </span>
               </div>
+              {/* An unreadable phase's meta line would otherwise still say
+                  "0 nummers" and "BPM onbekend" right above the alert
+                  below -- both true only because the read failed, and
+                  exactly the look this fix removes. */}
               <p className="text-caption text-mist">
-                {`${phase.node_name} · ${phaseBpmRangeText(phase)} · ${phase.tracks.length} ${phase.tracks.length === 1 ? "nummer" : "nummers"}`}
-                {phase.applied ? " · toegepast in Rekordbox" : ""}
+                {phase.error
+                  ? phase.node_name
+                  : `${phase.node_name} · ${phaseBpmRangeText(phase)} · ${phase.tracks.length} ${phase.tracks.length === 1 ? "nummer" : "nummers"}`}
+                {!phase.error && phase.applied ? " · toegepast in Rekordbox" : ""}
               </p>
             </div>
-            {phase.tracks.length === 0 ? (
+            {phase.error ? (
+              // Review finding (third occurrence of this defect): a 409
+              // collection_not_indexed, or a deleted structure/node, used to
+              // render exactly like a phase that genuinely holds nothing.
+              // This alert says the read failed and names the fix instead.
+              <p role="alert" className="px-14 py-9 text-caption font-semibold text-pure-white">
+                {phase.error}
+              </p>
+            ) : phase.tracks.length === 0 ? (
               <p className="px-14 py-9 text-caption text-mist">Nog geen nummers in deze fase.</p>
             ) : (
               <ul>

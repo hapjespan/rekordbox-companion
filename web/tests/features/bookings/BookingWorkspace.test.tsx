@@ -425,9 +425,26 @@ function mockPhaseTree(
     nodes?: unknown[];
     missing?: { artist: string; title: string; status: string }[];
     nodeTracks?: (offset: number) => { total: number; items: unknown[] };
+    // Keyed by node_id; when set, that node's tracks request answers with
+    // this error instead of a page, on every offset.
+    nodeTracksErrors?: Record<number, { code: string; message: string }>;
   } = {},
 ) {
   vi.mocked(apiClient.GET).mockImplementation(((path: string, options?: GetOptions) => {
+    if (path === "/api/structures/{structure_id}/nodes/{node_id}/tracks") {
+      const nodeId = options?.params?.path?.node_id;
+      const failure = nodeId !== undefined ? overrides.nodeTracksErrors?.[nodeId] : undefined;
+      if (failure) return Promise.resolve({ data: undefined, error: failure });
+      const offset = Number(options?.params?.query?.offset ?? 0);
+      const data = overrides.nodeTracks
+        ? overrides.nodeTracks(offset)
+        : // Only the first phase holds anything, so the sweep covers a
+          // populated and an empty column at once.
+          nodeId === 2
+          ? { total: 1, items: [NODE_TRACK] }
+          : { total: 0, items: [] };
+      return Promise.resolve({ data, error: undefined });
+    }
     const data = (() => {
       switch (path) {
         case "/api/structures":
@@ -436,15 +453,6 @@ function mockPhaseTree(
           return [PROFILE];
         case "/api/structures/{structure_id}/nodes":
           return overrides.nodes ?? [PHASE_A, PHASE_B];
-        case "/api/structures/{structure_id}/nodes/{node_id}/tracks": {
-          const offset = Number(options?.params?.query?.offset ?? 0);
-          if (overrides.nodeTracks) return overrides.nodeTracks(offset);
-          // Only the first phase holds anything, so the sweep covers a
-          // populated and an empty column at once.
-          return options?.params?.path?.node_id === 2
-            ? { total: 1, items: [NODE_TRACK] }
-            : { total: 0, items: [] };
-        }
         case "/api/structures/{structure_id}/nodes/{node_id}/suggestions":
           return [SUGGESTION];
         case "/api/missing":
@@ -565,6 +573,59 @@ describe("BookingWorkspace playlist builder", () => {
     await waitFor(() => expect(within(column).getByText("geen BPM")).toBeInTheDocument());
     expect(within(column).getByText("geen toonaard")).toBeInTheDocument();
     expect(within(column).queryByText("0 BPM")).not.toBeInTheDocument();
+  });
+
+  // Review finding (third occurrence of this defect): the endpoint's
+  // documented 409 collection_not_indexed used to disappear into an empty
+  // "Nog geen nummers in deze fase." column, identical to a phase that
+  // genuinely holds nothing.
+  it("says a phase could not be read when the collection is not indexed, instead of showing it as empty", async () => {
+    mockPhaseTree({
+      nodeTracksErrors: {
+        2: {
+          code: "collection_not_indexed",
+          message:
+            "the collection has not been indexed yet; run POST /api/collection/reindex first",
+        },
+      },
+    });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    const column = (await screen.findByRole("heading", { name: "vooravond" })).closest(
+      "li",
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(within(column).getByRole("alert")).toHaveTextContent(
+        "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin.",
+      );
+    });
+    expect(within(column).queryByText("Nog geen nummers in deze fase.")).not.toBeInTheDocument();
+    // The other phase's own (successful) read must still show its real state.
+    const primeColumn = screen.getByRole("heading", { name: "prime" }).closest("li") as HTMLElement;
+    expect(within(primeColumn).getByText("Nog geen nummers in deze fase.")).toBeInTheDocument();
+  });
+
+  it("names a deleted structure or node instead of showing an empty phase for either 404", async () => {
+    mockPhaseTree({
+      nodeTracksErrors: {
+        2: { code: "structure_not_found", message: "no Structure with id 1" },
+        3: { code: "node_not_found", message: "no node 3 in Structure 1" },
+      },
+    });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    const vooravond = (await screen.findByRole("heading", { name: "vooravond" })).closest(
+      "li",
+    ) as HTMLElement;
+    const prime = screen.getByRole("heading", { name: "prime" }).closest("li") as HTMLElement;
+    await waitFor(() => {
+      expect(within(vooravond).getByRole("alert")).toHaveTextContent(
+        "Deze structuur bestaat niet meer.",
+      );
+    });
+    expect(within(prime).getByRole("alert")).toHaveTextContent("Deze fase bestaat niet meer.");
   });
 
   it("moves a track to the next phase as an add plus a remove", async () => {

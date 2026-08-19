@@ -193,4 +193,21 @@ describe("PhaseBoard", () => {
 
     expect(screen.getByText(/Deze structuur heeft nog geen fases/)).toBeInTheDocument();
   });
+
+  // Review finding: a phase whose own tracks endpoint failed (409
+  // collection_not_indexed, or a deleted structure/node) used to render
+  // exactly like a phase that genuinely has zero tracks.
+  it("says a phase could not be read instead of rendering it as empty", () => {
+    const phases = buildPhases(NODES, { 1: [] }, { 1: "De collectie is nog niet ingelezen." });
+
+    render(<PhaseBoard phases={phases} onMove={async () => null} />);
+
+    const column = screen.getByRole("heading", { name: "vooravond" }).closest("li") as HTMLElement;
+    expect(within(column).getByRole("alert")).toHaveTextContent(
+      "De collectie is nog niet ingelezen.",
+    );
+    expect(within(column).queryByText("Nog geen nummers in deze fase.")).not.toBeInTheDocument();
+    // The meta line must not still claim "0 nummers" beside that alert.
+    expect(within(column).queryByText(/0 nummers/)).not.toBeInTheDocument();
+  });
 });

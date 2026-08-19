@@ -111,6 +111,22 @@ describe("buildPhases", () => {
 
     expect(buildPhases(nodes, {})[0].applied).toBe(true);
   });
+
+  it("carries a phase's own read error separately from having no tracks", () => {
+    const nodes = [node({ id: 1, set_phase: "vooravond" }), node({ id: 2, set_phase: "prime" })];
+
+    const phases = buildPhases(
+      nodes,
+      { 1: [], 2: [track("a")] },
+      { 1: "De collectie is nog niet ingelezen." },
+    );
+
+    expect(phases[0].error).toBe("De collectie is nog niet ingelezen.");
+    expect(phases[0].tracks).toEqual([]);
+    // A phase with no error entry at all (the default, everyday case) reads
+    // as null, never as an empty-string false negative.
+    expect(phases[1].error).toBeNull();
+  });
 });
 
 describe("bpmBars", () => {

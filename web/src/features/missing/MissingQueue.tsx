@@ -56,6 +56,34 @@ function refreshLinksErrorMessageFor(error: ApiError): string {
   return error.message || "Vernieuwen van links is mislukt. Probeer het opnieuw.";
 }
 
+// FR-042: on macOS, swapping the `https` scheme for `itmss` on the same
+// music.apple.com/itunes.apple.com URL hands that store page to the Music
+// application instead of the browser -- the browser only offers excerpts of
+// what the Music app plays and sells in full. Only rewritten when the URL
+// actually is an `https` URL on one of those two hosts: `effective_url` can
+// be the DJ's own pasted override (a free-text field, FR-020), which could
+// point anywhere, and turning an arbitrary host into `itmss://` would
+// produce a link that silently does nothing.
+//
+// This cannot be verified anywhere but a Mac: this container has no Music
+// application to open the link in. The scheme swap itself is confirmed
+// against Apple's own documentation for `itmss`, the iTunes Music Store
+// Secure scheme; the Dutch UI copy below spells out that this is the app
+// destination so the two links never look interchangeable.
+function musicAppUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+  if (parsed.hostname !== "music.apple.com" && parsed.hostname !== "itunes.apple.com") {
+    return null;
+  }
+  return `itmss:${url.slice("https:".length)}`;
+}
+
 // FR-041: the price is stored as an amount plus its ISO code, never as a
 // pre-formatted string, so it is formatted for the Dutch UI here. A row
 // without a price simply gets none (null), never a placeholder: a track can
@@ -138,6 +166,7 @@ function MissingTrackRow({
   const inputId = useId();
   const errorId = useId();
   const priceLabel = priceLabelFor(track);
+  const musicAppHref = track.effective_url ? musicAppUrl(track.effective_url) : null;
 
   // The queue's `isPreviewPlaying` is the single source of truth, so
   // starting another row's preview stops this one through the same path a
@@ -270,13 +299,28 @@ function MissingTrackRow({
 
       {track.effective_url ? (
         <div className="flex flex-wrap items-center gap-8">
+          {/* FR-042: the Music app is the primary destination, because the
+              app "ultimately runs on the DJ's Mac" -- the browser link stays
+              as a fallback for machines with no Music application (this
+              container included), and never disappears just because the
+              scheme swap succeeded. The two link texts name their own
+              destination outright, so the difference reads without a
+              tooltip. */}
+          {musicAppHref && (
+            <a
+              href={musicAppHref}
+              className="text-body-lg text-spotify-green underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+            >
+              Open in Muziek-app
+            </a>
+          )}
           <a
             href={track.effective_url}
             target="_blank"
             rel="noreferrer"
-            className="text-body-lg text-spotify-green underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
+            className="text-body-lg text-bone underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spotify-green"
           >
-            Open in Apple Music
+            Open in browser
           </a>
           {/* FR-041: what it costs, beside the link that sells it. Absent
               for a track the store does not sell on its own, and then

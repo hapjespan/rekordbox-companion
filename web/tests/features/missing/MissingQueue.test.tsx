@@ -73,9 +73,40 @@ describe("MissingQueue", () => {
 
     expect(await screen.findByText("Daft Punk – One More Time")).toBeInTheDocument();
     expect(screen.getByText("Status: Open")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open in Apple Music" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
       "href",
       "https://music.apple.com/nl/album/one-more-time/1",
+    );
+  });
+
+  // FR-042: on macOS, the Music app plays and sells the full track, the
+  // browser only an excerpt -- so a music.apple.com/itunes.apple.com link
+  // gets a Music-app destination too, named apart from the browser one by
+  // its own link text rather than a tooltip.
+  it("offers the Music app as well as the browser for a music.apple.com Store Link (FR-042)", async () => {
+    mockList([TRACK_WITH_LINK]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(screen.getByRole("link", { name: "Open in Muziek-app" })).toHaveAttribute(
+      "href",
+      "itmss://music.apple.com/nl/album/one-more-time/1",
+    );
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://music.apple.com/nl/album/one-more-time/1",
+    );
+  });
+
+  it("does not invent a Music-app link for a manual override that is not an Apple Music URL", async () => {
+    mockList([{ ...TRACK_WITH_LINK, effective_url: "https://example.com/not-apple-music" }]);
+    render(<MissingQueue />);
+    await screen.findByText("Daft Punk – One More Time");
+
+    expect(screen.queryByRole("link", { name: "Open in Muziek-app" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://example.com/not-apple-music",
     );
   });
 
@@ -217,7 +248,7 @@ describe("MissingQueue", () => {
     await screen.findByText("Album Only – Not Sold Separately");
 
     // A link to open, but no invented amount beside it.
-    expect(screen.getByRole("link", { name: "Open in Apple Music" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in browser" })).toBeInTheDocument();
     expect(screen.queryByText(/Prijs:/)).not.toBeInTheDocument();
   });
 

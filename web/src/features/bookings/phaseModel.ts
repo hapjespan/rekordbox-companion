@@ -39,6 +39,14 @@ export interface Phase {
   node_name: string;
   applied: boolean;
   tracks: PhaseTrack[];
+  // Set when the node's own tracks endpoint could not be read (most commonly
+  // `409 collection_not_indexed`, but also a deleted structure/node or a
+  // network failure). `tracks` is then always `[]`, and PhaseBoard must show
+  // this message instead of treating that `[]` as "this phase holds nothing"
+  // -- those are different facts and used to render identically (review
+  // finding, the same defect already fixed for a withheld Spotify playlist,
+  // a failed collection load and a failed status change).
+  error: string | null;
 }
 
 export interface BpmBar {
@@ -82,6 +90,7 @@ export function isPhaseNode(node: TreeNodeDto): boolean {
 export function buildPhases(
   nodes: TreeNodeDto[],
   tracksByNode: Record<number, PhaseTrack[]>,
+  errorsByNode: Record<number, string | null> = {},
 ): Phase[] {
   return nodes
     .filter(isPhaseNode)
@@ -93,6 +102,7 @@ export function buildPhases(
       node_name: node.name,
       applied: node.rb_ref !== null,
       tracks: tracksByNode[node.id] ?? [],
+      error: errorsByNode[node.id] ?? null,
     }));
 }
 

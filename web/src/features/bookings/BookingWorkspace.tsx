@@ -26,6 +26,28 @@ function applyErrorMessageFor(error: ApiError): string {
   }
 }
 
+// GET .../nodes/{nid}/tracks documents three failure codes (structures.py):
+// `409 collection_not_indexed` (the common one -- nothing has been scanned
+// into the in-memory index yet), and `404 structure_not_found` /
+// `404 node_not_found` for a structure or node deleted out from under this
+// view. All three used to collapse into an empty phase column indistinguishable
+// from one that genuinely holds no tracks (this project's third occurrence of
+// that defect, after a withheld Spotify playlist and a failed collection
+// load), so each gets its own Dutch message here, same convention as
+// TrackTable.tsx's own `collection_not_indexed` copy.
+function nodeTracksErrorMessageFor(error: ApiError): string {
+  switch (error.code) {
+    case "collection_not_indexed":
+      return "De collectie is nog niet ingelezen. Kies Opnieuw scannen in de kaart Collectie-scan links onderin.";
+    case "structure_not_found":
+      return "Deze structuur bestaat niet meer.";
+    case "node_not_found":
+      return "Deze fase bestaat niet meer.";
+    default:
+      return error.message || "Kon deze fase niet laden. Probeer het opnieuw.";
+  }
+}
+
 // One page of Suggestions per request: the endpoint's `limit` is not
 // optional in practice -- an unfiltered call returns the whole Collection
 // (tens of thousands of rows at the project's sizing envelope), which is a
@@ -341,6 +363,9 @@ export function BookingWorkspace() {
   const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const [phaseTracks, setPhaseTracks] = useState<Record<number, PhaseTrack[]>>({});
+  // Keyed the same as phaseTracks; null means the phase's own tracks read
+  // succeeded (whether or not it holds anything).
+  const [phaseErrors, setPhaseErrors] = useState<Record<number, string | null>>({});
   const [openBuyQueue, setOpenBuyQueue] = useState<{ artist: string; title: string }[]>([]);
   const structureProfileSelectId = useId();
   // Tree.tsx's move/nest/lift actions each fire two independent onMove
@@ -400,11 +425,19 @@ export function BookingWorkspace() {
     void refreshOpenBuyQueue();
   }, []);
 
+  interface NodeTracksResult {
+    tracks: PhaseTrack[];
+    // Set on any of the endpoint's documented failures or a network-level
+    // failure; `tracks` is `[]` in that case, and the caller must not treat
+    // that as "this phase has no tracks" (see nodeTracksErrorMessageFor).
+    error: string | null;
+  }
+
   // The node's stored tracks, in their stored order. One request per phase
   // playlist for anything up to a full page; only a phase holding more than
   // NODE_TRACK_PAGE_SIZE tracks costs a second one, and then it is because the
   // endpoint said there are more, never a guess.
-  async function fetchNodeTracks(structureId: number, nodeId: number): Promise<PhaseTrack[]> {
+  async function fetchNodeTracks(structureId: number, nodeId: number): Promise<NodeTracksResult> {
     const rows: PhaseTrack[] = [];
     let total = 0;
     do {
@@ -419,13 +452,16 @@ export function BookingWorkspace() {
             },
           },
         );
-        if (error) break;
+        if (error) {
+          return { tracks: [], error: nodeTracksErrorMessageFor(asApiResponse<ApiError>(error)) };
+        }
         body = asApiResponse<NodeTrackPageDto | undefined>(data);
       } catch {
-        // A phase whose tracks could not be read stays empty rather than
-        // taking the whole builder down; the request is retried on the next
-        // refresh.
-        break;
+        // A network-level failure (not an HTTP error response) rejects the
+        // fetch call itself; the phase must say it could not be read rather
+        // than look like an empty one -- same silent-failure ban as the rest
+        // of this file's error handling.
+        return { tracks: [], error: "Kon deze fase niet laden. Probeer het opnieuw." };
       }
       if (!body) break;
       total = body.total;
@@ -433,15 +469,19 @@ export function BookingWorkspace() {
       if (items.length === 0) break;
       rows.push(...items);
     } while (rows.length < total);
-    return rows;
+    return { tracks: rows, error: null };
   }
 
   async function refreshPhaseData(structureId: number, currentNodes: TreeNodeDto[]) {
     const tracksByNode: Record<number, PhaseTrack[]> = {};
+    const errorsByNode: Record<number, string | null> = {};
     for (const node of currentNodes.filter(isPhaseNode)) {
-      tracksByNode[node.id] = await fetchNodeTracks(structureId, node.id);
+      const result = await fetchNodeTracks(structureId, node.id);
+      tracksByNode[node.id] = result.tracks;
+      errorsByNode[node.id] = result.error;
     }
     setPhaseTracks(tracksByNode);
+    setPhaseErrors(errorsByNode);
   }
 
   async function refreshNodes(structureId: number) {
@@ -707,7 +747,7 @@ export function BookingWorkspace() {
     );
   }
 
-  const phases = buildPhases(nodes, phaseTracks);
+  const phases = buildPhases(nodes, phaseTracks, phaseErrors);
   const checks = computeChecks(phases, openBuyQueue);
 
   return (
