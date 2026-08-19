@@ -21,13 +21,25 @@ the orchestrator. Deferred out of phase 7 because it refactors code that is
 correct: the invariant holds today, it is just convention rather than structure.
 That conformance test also closes B3 mechanically.
 
-## B2 — Decide whether backups must include the SQLite sidecars
+## B2 — Backups must include the SQLite sidecars — ANSWERED, and it is a defect
 
-`rb/backup.py` zips `master.db` and `masterPlaylists6.xml` but not the
-`-wal`/`-shm` sidecars. If Rekordbox 7.2.17 runs `master.db` in WAL mode and
-exits uncleanly, a backup verifies readable while missing the newest
-transactions. Verify WAL usage on the Mac against the real install; if WAL is in
-use, include or checkpoint the sidecars. Cannot be answered in the dev container.
+No longer an open question. `master.db` demonstrably uses a write-ahead log: a
+`master.db-wal` appeared beside the owner's own fixture copy carrying committed
+data, and SQLite replayed it onto a freshly copied base file, resurrecting a
+playlist an earlier apply had written. That was observed in the dev container, so
+it did not need the Mac after all.
+
+Consequence for the product: `rb/backup.py` zips `master.db` and
+`masterPlaylists6.xml` and nothing else, so a backup taken while a `-wal` holds
+committed frames verifies readable while missing the newest transactions. That
+undercuts SC-006's "verified Backup" for precisely the case backups exist for.
+The fix is to checkpoint before copying, or to include both sidecars in the zip
+and restore them together; checkpointing is the safer of the two because a base
+file plus a foreign sidecar is what caused the surprise in the first place.
+
+Raised from a question to a defect on 2026-08-19. Not fixed in the same breath
+because it changes the write path's most safety-critical helper, which deserves
+its own change with its own tests rather than riding along with UI work.
 
 ## B3 — Reconcile ADR 0017 with the test-side pyrekordbox imports
 

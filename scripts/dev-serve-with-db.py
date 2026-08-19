@@ -73,6 +73,14 @@ def build_fake_install(source_db: Path) -> Path:
         path.mkdir(parents=True, exist_ok=True)
 
     db_copy = db_dir / "master.db"
+    # Delete the SQLite sidecars before copying, or the copy is not fresh. Found
+    # the hard way: a `-wal` left by yesterday's run sat beside a newly copied
+    # base file, SQLite replayed it, and a playlist an earlier apply had written
+    # reappeared in what was supposed to be a clean database. Copying only
+    # `master.db` is exactly the mistake `rb/backup.py` makes on the way out,
+    # which is what makes this worth a comment rather than a silent unlink.
+    for sidecar in ("master.db-wal", "master.db-shm"):
+        (db_dir / sidecar).unlink(missing_ok=True)
     shutil.copy(source_db, db_copy)
 
     (app_dir / "rekordbox6" / "rekordbox3.settings").write_text(
