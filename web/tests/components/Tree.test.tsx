@@ -427,3 +427,363 @@ describe("Tree, compact variant", () => {
     expect(style).not.toMatch(/\d+px/);
   });
 });
+
+// ARIA APG treeview keyboard interaction (blocking accessibility finding):
+// role="tree"/"treeitem" without arrow-key handling and a roving tabindex is
+// semantics the widget doesn't back up. Both variants share the fixture
+// shape below: a root folder with a leaf child and a nested folder that
+// itself has a child, plus a second, sibling root -- enough depth to exercise
+// every branch of ArrowRight/ArrowLeft (expand-vs-descend, collapse-vs-
+// ascend) and a real "last visible row" for End that isn't just the root.
+const NAV_ROOT_FOLDER: TreeNodeDto = {
+  id: 201,
+  parent_id: null,
+  kind: "folder",
+  name: "Hoofdmap",
+  position: 0,
+  set_phase: null,
+  rb_ref: null,
+};
+const NAV_FIRST_CHILD: TreeNodeDto = {
+  id: 202,
+  parent_id: 201,
+  kind: "playlist",
+  name: "Eerste",
+  position: 0,
+  set_phase: null,
+  rb_ref: null,
+};
+const NAV_SUB_FOLDER: TreeNodeDto = {
+  id: 203,
+  parent_id: 201,
+  kind: "folder",
+  name: "Submap",
+  position: 1,
+  set_phase: null,
+  rb_ref: null,
+};
+const NAV_DEEP_CHILD: TreeNodeDto = {
+  id: 204,
+  parent_id: 203,
+  kind: "playlist",
+  name: "Diep",
+  position: 0,
+  set_phase: null,
+  rb_ref: null,
+};
+const NAV_SECOND_ROOT: TreeNodeDto = {
+  id: 205,
+  parent_id: null,
+  kind: "playlist",
+  name: "Los",
+  position: 1,
+  set_phase: null,
+  rb_ref: null,
+};
+const NAV_NODES = [
+  NAV_ROOT_FOLDER,
+  NAV_FIRST_CHILD,
+  NAV_SUB_FOLDER,
+  NAV_DEEP_CHILD,
+  NAV_SECOND_ROOT,
+];
+
+function renderNavTree(onSelect = noop) {
+  render(
+    <Tree
+      nodes={NAV_NODES}
+      onCreate={noop}
+      onRename={vi.fn()}
+      onMove={noop}
+      onDelete={noop}
+      onSelect={onSelect}
+    />,
+  );
+}
+
+describe("Tree keyboard navigation, editor variant (ARIA APG treeview)", () => {
+  it("keeps exactly one treeitem in the tab order at a time", () => {
+    renderNavTree();
+
+    const zeroTabStops = screen
+      .getAllByRole("treeitem")
+      .filter((row) => row.getAttribute("tabindex") === "0");
+
+    expect(zeroTabStops).toHaveLength(1);
+    expect(zeroTabStops[0]).toHaveAccessibleName("Hoofdmap");
+  });
+
+  it("ArrowDown moves the roving tab stop to the next visible row", () => {
+    renderNavTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "ArrowDown" });
+
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    expect(document.activeElement).toBe(eerste);
+    expect(eerste).toHaveAttribute("tabindex", "0");
+    expect(hoofdmap).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("ArrowUp moves the roving tab stop to the previous visible row", () => {
+    renderNavTree();
+
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    fireEvent.keyDown(eerste, { key: "ArrowUp" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Hoofdmap" }));
+  });
+
+  it("Home moves the roving tab stop to the first visible row", () => {
+    renderNavTree();
+
+    const diep = screen.getByRole("treeitem", { name: "Diep" });
+    fireEvent.keyDown(diep, { key: "Home" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Hoofdmap" }));
+  });
+
+  it("End moves the roving tab stop to the last visible row", () => {
+    renderNavTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "End" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Los" }));
+  });
+
+  it("ArrowRight expands a collapsed folder in place, then descends into an expanded one", () => {
+    renderNavTree();
+
+    const submap = screen.getByRole("treeitem", { name: "Submap" });
+    fireEvent.click(screen.getByRole("button", { name: "Vouw in: Submap" }));
+    expect(submap).toHaveAttribute("aria-expanded", "false");
+
+    submap.focus(); // simulates the row already having the roving tab stop
+    fireEvent.keyDown(submap, { key: "ArrowRight" });
+    expect(submap).toHaveAttribute("aria-expanded", "true");
+    // The editor's own "Selecteer ..." button (onSelect is passed here) means
+    // "Diep" never appears as bare text -- the treeitem itself is the
+    // reliable way to assert it became visible.
+    expect(screen.getByRole("treeitem", { name: "Diep" })).toBeInTheDocument();
+    expect(document.activeElement).toBe(submap); // expanding does not move focus
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Eerste" }));
+  });
+
+  it("ArrowLeft collapses an expanded folder in place, then climbs a leaf or collapsed folder to its parent", () => {
+    renderNavTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    hoofdmap.focus(); // simulates the row already having the roving tab stop
+    fireEvent.keyDown(hoofdmap, { key: "ArrowLeft" });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Eerste")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(hoofdmap); // collapsing does not move focus
+
+    fireEvent.click(screen.getByRole("button", { name: "Vouw uit: Hoofdmap" }));
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    fireEvent.keyDown(eerste, { key: "ArrowLeft" }); // leaf -> parent
+    expect(document.activeElement).toBe(hoofdmap);
+
+    fireEvent.click(screen.getByRole("button", { name: "Vouw in: Submap" }));
+    const submap = screen.getByRole("treeitem", { name: "Submap" });
+    fireEvent.keyDown(submap, { key: "ArrowLeft" }); // collapsed folder -> parent
+    expect(document.activeElement).toBe(hoofdmap);
+  });
+
+  it("Enter toggles a foldable row and selects a playlist row, matching what a click does", () => {
+    const onSelect = vi.fn();
+    renderNavTree(onSelect);
+
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Eerste" }), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(202);
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "Enter" });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Space toggles a foldable row and selects a playlist row, matching what a click does", () => {
+    const onSelect = vi.fn();
+    renderNavTree(onSelect);
+
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Eerste" }), { key: " " });
+    expect(onSelect).toHaveBeenCalledWith(202);
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: " " });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+const NAV_C_ROOT_FOLDER = {
+  id: "301",
+  parent_id: null,
+  kind: "folder" as const,
+  name: "Hoofdmap",
+  position: 0,
+};
+const NAV_C_FIRST_CHILD = {
+  id: "302",
+  parent_id: "301",
+  kind: "playlist" as const,
+  name: "Eerste",
+  position: 0,
+};
+const NAV_C_SUB_FOLDER = {
+  id: "303",
+  parent_id: "301",
+  kind: "folder" as const,
+  name: "Submap",
+  position: 1,
+};
+const NAV_C_DEEP_CHILD = {
+  id: "304",
+  parent_id: "303",
+  kind: "playlist" as const,
+  name: "Diep",
+  position: 0,
+};
+const NAV_C_SECOND_ROOT = {
+  id: "305",
+  parent_id: null,
+  kind: "playlist" as const,
+  name: "Los",
+  position: 1,
+};
+const NAV_C_NODES = [
+  NAV_C_ROOT_FOLDER,
+  NAV_C_FIRST_CHILD,
+  NAV_C_SUB_FOLDER,
+  NAV_C_DEEP_CHILD,
+  NAV_C_SECOND_ROOT,
+];
+
+function renderNavCompactTree(onSelect = noop) {
+  render(
+    <Tree
+      variant="compact"
+      label="Rekordbox-bibliotheek"
+      nodes={NAV_C_NODES}
+      onSelect={onSelect}
+    />,
+  );
+}
+
+describe("Tree keyboard navigation, compact variant (ARIA APG treeview)", () => {
+  it("keeps exactly one treeitem in the tab order at a time", () => {
+    renderNavCompactTree();
+
+    const zeroTabStops = screen
+      .getAllByRole("treeitem")
+      .filter((row) => row.getAttribute("tabindex") === "0");
+
+    expect(zeroTabStops).toHaveLength(1);
+    expect(zeroTabStops[0]).toHaveAccessibleName("Hoofdmap");
+  });
+
+  it("ArrowDown moves the roving tab stop to the next visible row", () => {
+    renderNavCompactTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "ArrowDown" });
+
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    expect(document.activeElement).toBe(eerste);
+    expect(eerste).toHaveAttribute("tabindex", "0");
+    expect(hoofdmap).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("ArrowUp moves the roving tab stop to the previous visible row", () => {
+    renderNavCompactTree();
+
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    fireEvent.keyDown(eerste, { key: "ArrowUp" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Hoofdmap" }));
+  });
+
+  it("Home moves the roving tab stop to the first visible row", () => {
+    renderNavCompactTree();
+
+    const diep = screen.getByRole("treeitem", { name: "Diep" });
+    fireEvent.keyDown(diep, { key: "Home" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Hoofdmap" }));
+  });
+
+  it("End moves the roving tab stop to the last visible row", () => {
+    renderNavCompactTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "End" });
+
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Los" }));
+  });
+
+  it("ArrowRight expands a collapsed folder in place, then descends into an expanded one", () => {
+    renderNavCompactTree();
+
+    const submap = screen.getByRole("treeitem", { name: "Submap" });
+    fireEvent.click(screen.getByRole("button", { name: "Submap" }));
+    expect(submap).toHaveAttribute("aria-expanded", "false");
+
+    submap.focus(); // simulates the row already having the roving tab stop
+    fireEvent.keyDown(submap, { key: "ArrowRight" });
+    expect(submap).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Diep")).toBeInTheDocument();
+    expect(document.activeElement).toBe(submap);
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Eerste" }));
+  });
+
+  it("ArrowLeft collapses an expanded folder in place, then climbs a leaf or collapsed folder to its parent", () => {
+    renderNavCompactTree();
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    hoofdmap.focus(); // simulates the row already having the roving tab stop
+    fireEvent.keyDown(hoofdmap, { key: "ArrowLeft" });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Eerste")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(hoofdmap);
+
+    fireEvent.click(screen.getByRole("button", { name: "Hoofdmap" }));
+    const eerste = screen.getByRole("treeitem", { name: "Eerste" });
+    fireEvent.keyDown(eerste, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(hoofdmap);
+
+    fireEvent.click(screen.getByRole("button", { name: "Submap" }));
+    const submap = screen.getByRole("treeitem", { name: "Submap" });
+    fireEvent.keyDown(submap, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(hoofdmap);
+  });
+
+  it("Enter toggles a foldable row and selects a playlist row, matching what a click does", () => {
+    const onSelect = vi.fn();
+    renderNavCompactTree(onSelect);
+
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Eerste" }), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("302");
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: "Enter" });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Space toggles a foldable row and selects a playlist row, matching what a click does", () => {
+    const onSelect = vi.fn();
+    renderNavCompactTree(onSelect);
+
+    fireEvent.keyDown(screen.getByRole("treeitem", { name: "Eerste" }), { key: " " });
+    expect(onSelect).toHaveBeenCalledWith("302");
+
+    const hoofdmap = screen.getByRole("treeitem", { name: "Hoofdmap" });
+    fireEvent.keyDown(hoofdmap, { key: " " });
+    expect(hoofdmap).toHaveAttribute("aria-expanded", "false");
+  });
+});

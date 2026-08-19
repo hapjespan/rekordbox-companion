@@ -9,14 +9,11 @@ GET /api/collection.
 """
 
 import time
-from collections import defaultdict
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from companion.db.models import EnrichedGenre
+from companion.api.pagination import MAX_LIMIT, page_body
 from companion.db.session import get_db
 from companion.matching.normalize import normalize
 from companion.rb.index import IndexEntry
@@ -29,22 +26,15 @@ from companion.rb.reader import (
 
 router = APIRouter()
 
-# Review finding: an unbounded `limit` lets a page of ~40k rows reach
-# `_genres_by_track`'s `IN` clause, past SQLite's default bound-variable limit
-# (SQLITE_MAX_VARIABLE_NUMBER, historically 999) -- an unhandled 500, not a
-# documented error. This cap is well above any real page size the UI ever
-# requests (TrackTable's PAGE_SIZE is 50) but far below that limit.
-_MAX_LIMIT = 200
-
 # Same defect, same fix, for `?ids=`: a caller resolving a batch of known
 # rb_content_ids (the Structure builder's phase rows, the review queue's
 # candidate cards) must not be able to hand this endpoint an unbounded id
-# list that then feeds `_genres_by_track`'s `IN` clause past SQLite's
-# bound-variable limit. Kept equal to `_MAX_LIMIT`: neither caller needs more
-# than a page's worth of ids resolved in one call, and it lets a caller
-# always fetch every id it sent back in a single page by setting `limit` to
-# match.
-_MAX_IDS = _MAX_LIMIT
+# list that then feeds `page_body`'s (pagination.py) genre lookup `IN` clause
+# past SQLite's bound-variable limit. Kept equal to `MAX_LIMIT`: neither
+# caller needs more than a page's worth of ids resolved in one call, and it
+# lets a caller always fetch every id it sent back in a single page by
+# setting `limit` to match.
+_MAX_IDS = MAX_LIMIT
 
 
 def get_database():
@@ -119,42 +109,6 @@ def _sort_entries(entries: list[IndexEntry], sort_param: str) -> list[IndexEntry
     return sorted(entries, key=key_fn, reverse=descending)
 
 
-def _format_from_location(location: str | None) -> str | None:
-    if not location:
-        return None
-    return Path(location).suffix.lstrip(".").lower() or None
-
-
-def _entry_to_collection_track(entry: IndexEntry, genres: list[dict]) -> dict:
-    return {
-        "rb_content_id": entry.rb_content_id,
-        "artist": entry.artist,
-        "title": entry.title,
-        "duration_ms": entry.duration_ms,
-        "bpm": entry.bpm,
-        "play_count": entry.play_count,
-        "genres": genres,
-        "format": _format_from_location(entry.location),
-        # Rekordbox's own key and label, verbatim and independently nullable:
-        # `musical_key` (not `key`, which reads as an identifier in a row
-        # object) carries Camelot notation like "8m" exactly as the DJ's
-        # Rekordbox shows it, never normalised or converted.
-        "musical_key": entry.musical_key,
-        "label": entry.label,
-    }
-
-
-def _genres_by_track(db: Session, entries: list[IndexEntry]) -> dict[str, list[dict]]:
-    """One batched query for the whole page, not one per track (US5's
-    100ms/page budget, contracts/api.md)."""
-    ids = [e.rb_content_id for e in entries]
-    rows = db.execute(select(EnrichedGenre).where(EnrichedGenre.rb_content_id.in_(ids))).scalars()
-    genres_by_id: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
-        genres_by_id[row.rb_content_id].append({"genre": row.genre, "source": row.source})
-    return genres_by_id
-
-
 def _too_many_ids(count: int) -> HTTPException:
     return HTTPException(
         status_code=422,
@@ -187,30 +141,13 @@ def _filter_by_query(entries: list[IndexEntry], query: str | None) -> list[Index
     ]
 
 
-def _page_body(db: Session, entries: list[IndexEntry], limit: int, offset: int) -> dict:
-    """`{total, items: [CollectionTrack]}` for one page of `entries`.
-
-    Shared by `GET /api/collection` and `GET /api/playlists/{id}/tracks` so the
-    two can never drift into two different row shapes -- the frontend reuses
-    one table for both."""
-    total = len(entries)
-    page = entries[offset : offset + limit]
-    genres_by_id = _genres_by_track(db, page)
-    return {
-        "total": total,
-        "items": [
-            _entry_to_collection_track(e, genres_by_id.get(e.rb_content_id, [])) for e in page
-        ],
-    }
-
-
 @router.get("/collection")
 def get_collection(
     request: Request,
     query: str | None = None,
     ids: list[str] | None = Query(default=None),
     sort: str = "artist",
-    limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
+    limit: int = Query(default=50, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
@@ -219,7 +156,7 @@ def get_collection(
     entries = _filter_by_ids(request.app.state.collection_index.entries, ids)
     entries = _filter_by_query(entries, query)
     entries = _sort_entries(entries, sort)
-    return _page_body(db, entries, limit, offset)
+    return page_body(db, entries, limit, offset)
 
 
 @router.get("/playlists")
@@ -251,7 +188,7 @@ def get_playlist_tracks(
     request: Request,
     query: str | None = None,
     sort: str = "position",
-    limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
+    limit: int = Query(default=50, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     rekordbox=Depends(get_database),
@@ -295,4 +232,4 @@ def get_playlist_tracks(
     ]
     entries = _filter_by_query(entries, query)
     entries = _sort_playlist_entries(entries, sort)
-    return _page_body(db, entries, limit, offset)
+    return page_body(db, entries, limit, offset)

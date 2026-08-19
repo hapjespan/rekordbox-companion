@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import type { ApiError } from "../features/spotify-sync/types";
 
@@ -167,6 +167,14 @@ interface TreeItemProps<TId extends TreeNodeId> {
   onDelete?: TreeProps<TId>["onDelete"];
   onSelect?: TreeProps<TId>["onSelect"];
   selectedId?: TId | null;
+  // ARIA APG treeview: exactly one treeitem is ever part of the page's Tab
+  // order (this one, when its id matches). Arrow/Home/End move which one
+  // that is; Tree.tsx owns the computation (it needs the whole visible
+  // list), TreeItem only renders what it is told.
+  activeId: TId | null;
+  registerItemRef: (id: TId, el: HTMLLIElement | null) => void;
+  onItemKeyDown: (event: React.KeyboardEvent<HTMLLIElement>, node: TreeNode<TId>) => void;
+  onItemFocus: (id: TId) => void;
 }
 
 const ACTION_BUTTON_CLASSES =
@@ -191,6 +199,10 @@ function TreeItem<TId extends TreeNodeId>({
   onDelete,
   onSelect,
   selectedId,
+  activeId,
+  registerItemRef,
+  onItemKeyDown,
+  onItemFocus,
 }: TreeItemProps<TId>) {
   const [renaming, setRenaming] = useState(false);
   const siblings = siblingsOf(nodes, node);
@@ -202,6 +214,12 @@ function TreeItem<TId extends TreeNodeId>({
   const foldable = children.length > 0;
   const expanded = foldable && !collapsedKeys.has(String(node.id));
   const isSelected = selectedId === node.id;
+  const isActive = activeId !== null && activeId === node.id;
+  // Every pill button below is pulled out of the page's Tab order while its
+  // row isn't the active one -- `undefined` (not 0) on the active row so a
+  // real DOM tabindex attribute is only ever written for the -1 case, same
+  // as leaving it off entirely.
+  const pillTabIndex = isActive ? undefined : -1;
 
   function moveUp() {
     if (!previousSibling || !onMove) return;
@@ -233,6 +251,22 @@ function TreeItem<TId extends TreeNodeId>({
       // Real state, not a constant: a collapsed folder reports itself as
       // collapsed, and a folder with nothing in it is a leaf (ARIA APG).
       aria-expanded={foldable ? expanded : undefined}
+      // Roving tabindex (ARIA APG treeview): the active row is the tree's
+      // one Tab stop, every other row is skipped entirely.
+      tabIndex={isActive ? 0 : -1}
+      ref={(el) => registerItemRef(node.id, el)}
+      // A child's own <li> is nested INSIDE its parent's <li> (the real,
+      // structural nesting this tree is built on), so a keydown/focus fired
+      // on a child bubbles straight through every ancestor treeitem too.
+      // Without the target check below, pressing Enter on a child would also
+      // fire the ancestor folder's own handler and toggle it -- a real
+      // double-activation, not just a test artifact.
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget) onItemKeyDown(event, node);
+      }}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) onItemFocus(node.id);
+      }}
     >
       <div
         className={variant === "compact" ? "py-2" : "flex flex-wrap items-center gap-8 py-4"}
@@ -253,6 +287,7 @@ function TreeItem<TId extends TreeNodeId>({
               <button
                 type="button"
                 aria-expanded={expanded}
+                tabIndex={pillTabIndex}
                 onClick={() => onToggle(node.id)}
                 className={ACTION_BUTTON_CLASSES}
               >
@@ -262,6 +297,7 @@ function TreeItem<TId extends TreeNodeId>({
             {node.kind === "playlist" && onSelect ? (
               <button
                 type="button"
+                tabIndex={pillTabIndex}
                 onClick={() => onSelect(node.id)}
                 className={ACTION_BUTTON_CLASSES}
               >
@@ -278,6 +314,7 @@ function TreeItem<TId extends TreeNodeId>({
             {onRename && (
               <button
                 type="button"
+                tabIndex={pillTabIndex}
                 onClick={() => setRenaming((current) => !current)}
                 className={ACTION_BUTTON_CLASSES}
               >
@@ -285,22 +322,42 @@ function TreeItem<TId extends TreeNodeId>({
               </button>
             )}
             {onMove && previousSibling && (
-              <button type="button" onClick={moveUp} className={ACTION_BUTTON_CLASSES}>
+              <button
+                type="button"
+                tabIndex={pillTabIndex}
+                onClick={moveUp}
+                className={ACTION_BUTTON_CLASSES}
+              >
                 {`Verplaats omhoog: ${node.name}`}
               </button>
             )}
             {onMove && nextSibling && (
-              <button type="button" onClick={moveDown} className={ACTION_BUTTON_CLASSES}>
+              <button
+                type="button"
+                tabIndex={pillTabIndex}
+                onClick={moveDown}
+                className={ACTION_BUTTON_CLASSES}
+              >
                 {`Verplaats omlaag: ${node.name}`}
               </button>
             )}
             {onMove && previousSibling && (
-              <button type="button" onClick={nestUnderPrevious} className={ACTION_BUTTON_CLASSES}>
+              <button
+                type="button"
+                tabIndex={pillTabIndex}
+                onClick={nestUnderPrevious}
+                className={ACTION_BUTTON_CLASSES}
+              >
                 {`Nest onder vorige: ${node.name}`}
               </button>
             )}
             {onMove && parent && (
-              <button type="button" onClick={liftOut} className={ACTION_BUTTON_CLASSES}>
+              <button
+                type="button"
+                tabIndex={pillTabIndex}
+                onClick={liftOut}
+                className={ACTION_BUTTON_CLASSES}
+              >
                 {`Til uit map: ${node.name}`}
               </button>
             )}
@@ -308,6 +365,7 @@ function TreeItem<TId extends TreeNodeId>({
               <>
                 <button
                   type="button"
+                  tabIndex={pillTabIndex}
                   onClick={() => onCreate(node.id, "folder")}
                   className={ACTION_BUTTON_CLASSES}
                 >
@@ -315,6 +373,7 @@ function TreeItem<TId extends TreeNodeId>({
                 </button>
                 <button
                   type="button"
+                  tabIndex={pillTabIndex}
                   onClick={() => onCreate(node.id, "playlist")}
                   className={ACTION_BUTTON_CLASSES}
                 >
@@ -325,6 +384,7 @@ function TreeItem<TId extends TreeNodeId>({
             {onDelete && (
               <button
                 type="button"
+                tabIndex={pillTabIndex}
                 onClick={() => onDelete(node.id)}
                 className={ACTION_BUTTON_CLASSES}
               >
@@ -358,6 +418,10 @@ function TreeItem<TId extends TreeNodeId>({
               onDelete={onDelete}
               onSelect={onSelect}
               selectedId={selectedId}
+              activeId={activeId}
+              registerItemRef={registerItemRef}
+              onItemKeyDown={onItemKeyDown}
+              onItemFocus={onItemFocus}
             />
           ))}
         </ul>
@@ -375,10 +439,13 @@ interface CompactRowProps<TId extends TreeNodeId> {
   onSelect?: (id: TId) => void;
 }
 
-// One sidebar row. A folder row IS its fold control (biggest target, one tab
-// stop per row); a playlist row selects. Both are real buttons, so the tree is
-// keyboard-operable without a custom key handler, and the fold state rides on
-// aria-expanded plus the glyph's shape -- never on colour.
+// One sidebar row. A folder row IS its fold control (biggest target); a
+// playlist row selects. Both are real buttons for the mouse and for a
+// screen reader's own element list, but neither is a Tab stop of its own
+// (`tabIndex={-1}`): the wrapping `<li role="treeitem">` is the tree's roving
+// tab stop and its Enter/Space handling already reproduces this exact click,
+// so there is nothing left for a second, separate stop to do. The fold state
+// rides on aria-expanded plus the glyph's shape -- never on colour.
 function CompactRow<TId extends TreeNodeId>({
   node,
   foldable,
@@ -402,6 +469,7 @@ function CompactRow<TId extends TreeNodeId>({
       <button
         type="button"
         aria-expanded={expanded}
+        tabIndex={-1}
         onClick={() => onToggle(node.id)}
         className={`${COMPACT_ROW_CLASSES} font-semibold text-pure-white hover:bg-graphite`}
       >
@@ -420,6 +488,7 @@ function CompactRow<TId extends TreeNodeId>({
       // not merely shaded (WCAG 1.4.1 / 4.1.2) -- same pattern as the
       // WORKSPACE nav items.
       aria-current={isSelected ? "true" : undefined}
+      tabIndex={-1}
       onClick={() => onSelect?.(node.id)}
       className={`${COMPACT_ROW_CLASSES} ${
         isSelected
@@ -472,6 +541,132 @@ export function Tree<TId extends TreeNodeId>({
   }
 
   const roots = rootsOf(nodes);
+
+  // ARIA APG treeview: the roving tab stop, and the DOM nodes it moves
+  // between. A ref map rather than one ref per row, because the number of
+  // rows is dynamic and every row already unmounts/remounts on fold.
+  const [activeId, setActiveId] = useState<TId | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLLIElement>());
+
+  function registerItemRef(id: TId, el: HTMLLIElement | null) {
+    const key = String(id);
+    if (el) itemRefs.current.set(key, el);
+    else itemRefs.current.delete(key);
+  }
+
+  function focusNode(id: TId) {
+    itemRefs.current.get(String(id))?.focus();
+  }
+
+  // Every VISIBLE row, in document order, depth-first, skipping a collapsed
+  // folder's children entirely -- recomputed whenever the tree's shape or its
+  // fold state changes. ArrowUp/Down/Home/End just step through this list
+  // instead of walking sibling/parent pointers node by node.
+  const visible = useMemo(() => {
+    const acc: { node: TreeNode<TId>; depth: number }[] = [];
+    function walk(level: TreeNode<TId>[], depth: number) {
+      for (const n of level) {
+        acc.push({ node: n, depth });
+        const kids = n.kind === "folder" ? childrenOf(nodes, n.id) : [];
+        const isExpanded = kids.length > 0 && !collapsedKeys.has(String(n.id));
+        if (isExpanded) walk(kids, depth + 1);
+      }
+    }
+    // `rootsOf(nodes)` recomputed here rather than closing over the outer
+    // `roots` -- that one is a fresh array every render, so using it as a
+    // useMemo dependency would defeat the memoisation it's declared in.
+    walk(rootsOf(nodes), 0);
+    return acc;
+  }, [nodes, collapsedKeys]);
+
+  const activeIndex = activeId !== null ? visible.findIndex((v) => v.node.id === activeId) : -1;
+  // A stale id (its node was deleted, or nothing has been focused yet) falls
+  // back to the first visible row -- the tree always has exactly one roving
+  // tab stop, never zero.
+  const effectiveActiveId = activeIndex >= 0 ? activeId : (visible[0]?.node.id ?? null);
+
+  function moveTo(id: TId) {
+    setActiveId(id);
+    focusNode(id);
+  }
+
+  // What Enter/Space does, matching each variant's own primary click: a
+  // foldable row toggles (the fold button's/compact row's own action), a
+  // playlist row with a select handler selects (the "Selecteer ..." button/
+  // compact row's own action) -- a leaf folder with neither has nothing to
+  // activate, same as clicking its plain-text row today.
+  function activatePrimary(node: TreeNode<TId>) {
+    const kids = node.kind === "folder" ? childrenOf(nodes, node.id) : [];
+    if (kids.length > 0) {
+      handleToggle(node.id);
+      return;
+    }
+    if (node.kind === "playlist" && onSelect) onSelect(node.id);
+  }
+
+  function handleItemKeyDown(event: React.KeyboardEvent<HTMLLIElement>, node: TreeNode<TId>) {
+    const index = visible.findIndex((v) => v.node.id === node.id);
+    const kids = node.kind === "folder" ? childrenOf(nodes, node.id) : [];
+    const foldable = kids.length > 0;
+    const expanded = foldable && !collapsedKeys.has(String(node.id));
+
+    switch (event.key) {
+      case "ArrowDown": {
+        event.preventDefault();
+        const next = visible[Math.min(index + 1, visible.length - 1)];
+        if (next) moveTo(next.node.id);
+        break;
+      }
+      case "ArrowUp": {
+        event.preventDefault();
+        const previous = visible[Math.max(index - 1, 0)];
+        if (previous) moveTo(previous.node.id);
+        break;
+      }
+      case "Home": {
+        event.preventDefault();
+        if (visible[0]) moveTo(visible[0].node.id);
+        break;
+      }
+      case "End": {
+        event.preventDefault();
+        const last = visible[visible.length - 1];
+        if (last) moveTo(last.node.id);
+        break;
+      }
+      case "ArrowRight": {
+        event.preventDefault();
+        if (foldable && !expanded) {
+          handleToggle(node.id);
+        } else if (foldable && expanded && kids[0]) {
+          moveTo(kids[0].id);
+        }
+        break;
+      }
+      case "ArrowLeft": {
+        event.preventDefault();
+        if (foldable && expanded) {
+          handleToggle(node.id);
+        } else if (node.parent_id !== null) {
+          moveTo(node.parent_id);
+        }
+        break;
+      }
+      case "Enter":
+      case " ": {
+        event.preventDefault();
+        activatePrimary(node);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function handleItemFocus(id: TId) {
+    setActiveId(id);
+  }
+
   const items = (
     <ul role="tree" aria-label={label} className={variant === "compact" ? "flex flex-col" : ""}>
       {roots.map((node) => (
@@ -489,6 +684,10 @@ export function Tree<TId extends TreeNodeId>({
           onDelete={onDelete}
           onSelect={onSelect}
           selectedId={selectedId}
+          activeId={effectiveActiveId}
+          registerItemRef={registerItemRef}
+          onItemKeyDown={handleItemKeyDown}
+          onItemFocus={handleItemFocus}
         />
       ))}
     </ul>

@@ -17,7 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from companion.api import events
-from companion.api.collection import _MAX_LIMIT, _page_body
+from companion.api.pagination import MAX_LIMIT, page_body
 from companion.bookings.models import suggestions_for_node
 from companion.config import BACKUP_DIR
 from companion.db.models import (
@@ -313,7 +313,7 @@ def get_node_tracks(
     structure_id: int,
     node_id: int,
     request: Request,
-    limit: int = Query(default=50, ge=1, le=_MAX_LIMIT),
+    limit: int = Query(default=50, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
@@ -355,7 +355,7 @@ def get_node_tracks(
     entries = [
         entries_by_id[row.rb_content_id] for row in track_rows if row.rb_content_id in entries_by_id
     ]
-    return _page_body(db, entries, limit, offset)
+    return page_body(db, entries, limit, offset)
 
 
 class TrackBody(BaseModel):

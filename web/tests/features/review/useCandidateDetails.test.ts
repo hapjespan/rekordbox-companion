@@ -106,13 +106,22 @@ describe("useCandidateDetails", () => {
     expect(idsOfCall(1)).toEqual(["rb-new"]);
   });
 
-  it("resolves nothing and stays usable when the request fails", async () => {
+  it("resolves nothing and stays usable when the request fails, without retrying on its own", async () => {
     vi.mocked(apiClient.GET).mockRejectedValue(new Error("offline") as never);
 
-    const { result } = renderHook(() => useCandidateDetails(itemsFor(["rb-a"])));
+    const { result, rerender } = renderHook(
+      ({ ids }: { ids: string[] }) => useCandidateDetails(itemsFor(ids)),
+      { initialProps: { ids: ["rb-a"] } },
+    );
 
     await waitFor(() => expect(apiClient.GET).toHaveBeenCalledTimes(1));
     expect(result.current.size).toBe(0);
+
+    // A failed batch is never marked "answered", so it stays pending -- but
+    // nothing here re-runs the effect on its own (no new id, no state
+    // change), so a same-ids rerender must not fire a second request.
+    rerender({ ids: ["rb-a"] });
+    expect(apiClient.GET).toHaveBeenCalledTimes(1);
   });
 
   it("makes no request at all for a queue without candidates", () => {

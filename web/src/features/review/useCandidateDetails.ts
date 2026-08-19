@@ -73,8 +73,15 @@ export function useCandidateDetails(
     let cancelled = false;
 
     // null means the request itself failed (offline, backend down), which is
-    // not an answer about these ids: they stay pending and are retried, while
-    // an empty array is the endpoint saying it does not have them.
+    // not an answer about these ids: they are left out of `answeredIds`
+    // below. An empty array is different -- the endpoint saying it does not
+    // have them -- and those ids ARE marked answered. Note that "left
+    // pending" is not automatically retried: a retry needs `pendingSignature`
+    // to change, which needs a re-render with `found.size > 0` (see
+    // `resolve()`), and a wholly failed batch never sets that. In practice
+    // the ids only get another attempt if a later render adds a new,
+    // still-unresolved id to the queue (which changes `pendingSignature` on
+    // its own) -- never on their own account.
     async function fetchBatch(batch: string[]): Promise<CollectionTrackDetail[] | null> {
       try {
         const { data, error } = await apiClient.GET("/api/collection", {
