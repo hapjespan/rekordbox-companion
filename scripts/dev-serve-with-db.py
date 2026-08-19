@@ -21,8 +21,23 @@ write here is the real write path, not a simulation.
     python scripts/dev-serve-with-db.py engine/tests/fixtures/master.db
 
 Run `make build` first, so there is an SPA to serve. Set DEV_HOST=0.0.0.0 to
-make the process reachable through a container's published port; the default
-stays 127.0.0.1, matching every other entry point in this repo (FR-037).
+make the process reachable from outside the container; the default stays
+127.0.0.1, matching every other entry point in this repo (FR-037).
+
+Reaching it from a laptop: the container sits on a Docker bridge the host is
+also on, so the SSH tunnel can target the container directly and does not need
+the port to be published at all.
+
+    # on the host, to read the container's address
+    docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \\
+        rekordbox-companion-dev
+
+    # from the laptop
+    ssh -L 8787:<that address>:8787 root@<host>
+
+Then open http://127.0.0.1:8787. Tunnelling to 127.0.0.1 on the host only works
+if the port happens to be published (`docker port rekordbox-companion-dev`); the
+container address always works, but changes when the container is recreated.
 """
 
 import argparse
