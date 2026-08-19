@@ -75,14 +75,10 @@ export function ReviewView({ session, onResolved, sort = "score" }: ReviewViewPr
     session.tracks.filter((track) => track.status === "review"),
     sort,
   );
-  const lookupItems = reviewTracks.map((track) => ({
-    spotify_artist: track.artist,
-    spotify_title: track.title,
-    candidates: track.candidates,
-  }));
   // The Rekordbox side of every card: title, duration, BPM and musical key,
-  // which the session's candidate rows do not carry (useCandidateDetails).
-  const candidateDetails = useCandidateDetails(lookupItems);
+  // which the session's candidate rows do not carry (useCandidateDetails
+  // resolves them by id, in one request for the whole queue).
+  const candidateDetails = useCandidateDetails(reviewTracks);
 
   const items = reviewTracks.map((track) => ({
     sync_track_id: track.id,

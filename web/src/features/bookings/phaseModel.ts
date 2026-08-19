@@ -10,40 +10,27 @@
 //   bar rather than an invented one.
 // - BPM, key and duration are absent for most of the collection (34 of 119
 //   tracks carry a BPM, 7 a key in the owner's fixture), so "absent" is the
-//   normal case and every formatter has to say so in words.
+//   normal case and every formatter has to say so in words. An unanalysed
+//   track's BPM is null, never 0.
 
 import type { TreeNodeDto } from "../../components/Tree";
 
-// What the app can read about a track that sits in a phase playlist.
-// `GET /api/structures/{id}/nodes/{nid}/suggestions` is the only endpoint
-// that reports membership (its `already_in_playlist` flag), and it carries
-// artist, title and BPM but no musical key -- hence the split between the
-// member row and the collection facts resolved for it.
-export interface PhaseMember {
-  rb_content_id: string;
-  artist: string;
-  title: string;
-  bpm: number | null;
-}
-
-export interface TrackFacts {
-  bpm: number | null;
-  musical_key: string | null;
-  duration_ms: number | null;
-}
-
+// One track a phase playlist holds, exactly as
+// `GET /api/structures/{id}/nodes/{nid}/tracks` reports it: the node's stored
+// `structure_track` rows in their stored order, every field served from the
+// collection index. So a phase row needs no second lookup and no
+// "facts unknown" state -- a row that reaches here IS a collection row.
 export interface PhaseTrack {
   rb_content_id: string;
   artist: string;
   title: string;
+  // null means Rekordbox has not analysed this track. Never 0: that would be
+  // an absence rendered as a measurement.
   bpm: number | null;
   // Verbatim Rekordbox notation ("8m", "2d", occasionally "G m"), never
   // normalised or converted.
   musical_key: string | null;
   duration_ms: number | null;
-  // false when no collection row was resolved for this id: "unknown", which
-  // is a different thing from "this track has no BPM/key in Rekordbox".
-  facts_resolved: boolean;
 }
 
 export interface Phase {
@@ -78,7 +65,6 @@ export interface ChecksResult {
   uncomparable_seams: number;
   without_bpm: number;
   without_key: number;
-  unresolved: number;
   in_buy_queue: { artist: string; title: string }[];
 }
 
@@ -90,10 +76,12 @@ export function isPhaseNode(node: TreeNodeDto): boolean {
   return node.kind === "playlist" && (node.set_phase ?? "").trim().length > 0;
 }
 
+// `tracksByNode` is what each phase node's own tracks endpoint returned, in
+// the order it returned them: the DJ's stored set order, which is why nothing
+// here re-sorts a phase's rows.
 export function buildPhases(
   nodes: TreeNodeDto[],
-  membersByNode: Record<number, PhaseMember[]>,
-  facts: Map<string, TrackFacts>,
+  tracksByNode: Record<number, PhaseTrack[]>,
 ): Phase[] {
   return nodes
     .filter(isPhaseNode)
@@ -104,18 +92,7 @@ export function buildPhases(
       label: (node.set_phase ?? "").trim(),
       node_name: node.name,
       applied: node.rb_ref !== null,
-      tracks: (membersByNode[node.id] ?? []).map((member) => {
-        const resolved = facts.get(member.rb_content_id);
-        return {
-          rb_content_id: member.rb_content_id,
-          artist: member.artist,
-          title: member.title,
-          bpm: resolved ? resolved.bpm : member.bpm,
-          musical_key: resolved ? resolved.musical_key : null,
-          duration_ms: resolved ? resolved.duration_ms : null,
-          facts_resolved: resolved !== undefined,
-        };
-      }),
+      tracks: tracksByNode[node.id] ?? [],
     }));
 }
 
@@ -221,10 +198,8 @@ export function computeChecks(
     track_count: tracks.length,
     key_conflicts: keyConflicts,
     uncomparable_seams: uncomparableSeams,
-    without_bpm: tracks.filter((track) => track.facts_resolved && track.bpm === null).length,
-    without_key: tracks.filter((track) => track.facts_resolved && track.musical_key === null)
-      .length,
-    unresolved: tracks.filter((track) => !track.facts_resolved).length,
+    without_bpm: tracks.filter((track) => track.bpm === null).length,
+    without_key: tracks.filter((track) => track.musical_key === null).length,
     in_buy_queue: tracks
       .filter((track) =>
         queueKeys.has(`${normalizeForMatch(track.artist)}|${normalizeForMatch(track.title)}`),

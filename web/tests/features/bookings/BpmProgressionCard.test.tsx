@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { BpmProgressionCard } from "../../../src/features/bookings/BpmProgressionCard";
 import { buildPhases } from "../../../src/features/bookings/phaseModel";
-import type { PhaseMember, TrackFacts } from "../../../src/features/bookings/phaseModel";
+import type { PhaseTrack } from "../../../src/features/bookings/phaseModel";
 import type { TreeNodeDto } from "../../../src/components/Tree";
 
 const NODES: TreeNodeDto[] = [
@@ -31,24 +31,29 @@ const NODES: TreeNodeDto[] = [
   },
 ];
 
-const FACTS = new Map<string, TrackFacts>([
-  ["a", { bpm: 122, musical_key: "8m", duration_ms: 300_000 }],
-  ["b", { bpm: null, musical_key: null, duration_ms: 300_000 }],
-  ["c", { bpm: 138, musical_key: "9m", duration_ms: 300_000 }],
-]);
-
-function member(id: string, title: string): PhaseMember {
-  return { rb_content_id: id, artist: "Artiest", title, bpm: null };
+function track(id: string, title: string, overrides: Partial<PhaseTrack> = {}): PhaseTrack {
+  return {
+    rb_content_id: id,
+    artist: "Artiest",
+    title,
+    bpm: null,
+    musical_key: null,
+    duration_ms: 300_000,
+    ...overrides,
+  };
 }
 
 function renderCard() {
   return render(
     <BpmProgressionCard
-      phases={buildPhases(
-        NODES,
-        { 1: [member("a", "Laag"), member("b", "Onbekend")], 2: [member("c", "Hoog")] },
-        FACTS,
-      )}
+      phases={buildPhases(NODES, {
+        1: [
+          track("a", "Laag", { bpm: 122, musical_key: "8m" }),
+          // Rekordbox has not analysed this one: null, not 0.
+          track("b", "Onbekend"),
+        ],
+        2: [track("c", "Hoog", { bpm: 138, musical_key: "9m" })],
+      })}
     />,
   );
 }

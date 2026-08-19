@@ -42,8 +42,14 @@ export function BpmProgressionCard({ phases }: BpmProgressionCardProps) {
         ) : (
           <>
             <div aria-hidden="true" className="flex h-120 items-end gap-3">
-              {bars.map((bar) => (
-                <div key={bar.rb_content_id} className="flex h-full flex-1 items-end">
+              {/* Keyed by position, not by rb_content_id: nothing stops the
+                  same track from sitting in two phase playlists, and two bars
+                  sharing a key is a React identity bug. */}
+              {bars.map((bar, index) => (
+                <div
+                  key={`${bar.phase_label}-${bar.rb_content_id}-${index}`}
+                  className="flex h-full flex-1 items-end"
+                >
                   {bar.height_percent !== null && (
                     <div
                       className={`w-full rounded-sm ${bar.is_peak ? "bg-spotify-green" : "bg-steel"}`}
@@ -102,7 +108,10 @@ export function BpmProgressionCard({ phases }: BpmProgressionCardProps) {
                 </thead>
                 <tbody>
                   {bars.map((bar, index) => (
-                    <tr key={bar.rb_content_id} className="text-body-sm text-pure-white">
+                    <tr
+                      key={`${bar.phase_label}-${bar.rb_content_id}-${index}`}
+                      className="text-body-sm text-pure-white"
+                    >
                       <td className="py-4 pr-12">{index + 1}</td>
                       <td className="py-4 pr-12">{bar.phase_label}</td>
                       <td className="py-4 pr-12">{`${bar.artist} – ${bar.title}`}</td>

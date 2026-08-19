@@ -83,19 +83,13 @@ function TrackRow({
         <span className="block truncate text-caption text-mist">{track.artist}</span>
       </span>
       <span className="shrink-0 text-right">
+        {/* A null BPM or key is Rekordbox not having analysed the track, said
+            in words. Never a 0, and never a blank cell. */}
         <span className="block text-caption text-pure-white">
-          {track.bpm === null
-            ? track.facts_resolved
-              ? "geen BPM"
-              : "BPM ?"
-            : `${Math.round(track.bpm)} BPM`}
+          {track.bpm === null ? "geen BPM" : `${Math.round(track.bpm)} BPM`}
         </span>
         <span className="block text-micro text-spotify-green">
-          {track.musical_key === null
-            ? track.facts_resolved
-              ? "geen toonaard"
-              : "toonaard ?"
-            : track.musical_key}
+          {track.musical_key === null ? "geen toonaard" : track.musical_key}
         </span>
       </span>
       <span className="flex shrink-0 gap-4">
@@ -249,13 +243,6 @@ export function PhaseBoard({ phases, onMove }: PhaseBoardProps) {
           </li>
         ))}
       </ul>
-      {/* Honest about what the API can tell us: there is no endpoint that
-          returns a node's stored track order, so the rows are in the order the
-          suggestions endpoint reports them (play count), not the set order. */}
-      <p className="text-caption text-mist">
-        De volgorde binnen een fase is de afspeelfrequentie uit de collectie: de API levert de
-        opgeslagen volgorde van een fase-playlist nog niet.
-      </p>
     </div>
   );
 }

@@ -13,7 +13,6 @@ const EMPTY: ChecksResult = {
   uncomparable_seams: 0,
   without_bpm: 0,
   without_key: 0,
-  unresolved: 0,
   in_buy_queue: [],
 };
 
@@ -37,14 +36,15 @@ describe("ChecksBar", () => {
     ).toBeInTheDocument();
   });
 
-  it("states the counts of missing BPM, missing key and unresolved tracks in words", () => {
-    render(<ChecksBar checks={{ ...EMPTY, without_bpm: 3, without_key: 5, unresolved: 2 }} />);
+  it("states the counts of missing BPM and missing key in words", () => {
+    render(<ChecksBar checks={{ ...EMPTY, without_bpm: 3, without_key: 5 }} />);
 
     expect(screen.getByText("3 nummer(s) zonder BPM in Rekordbox")).toBeInTheDocument();
     expect(screen.getByText("5 nummer(s) zonder toonaard in Rekordbox")).toBeInTheDocument();
-    expect(
-      screen.getByText("2 nummer(s) waarvan BPM en toonaard niet opgehaald konden worden"),
-    ).toBeInTheDocument();
+    // A phase row now comes from the node's own tracks endpoint, which serves
+    // every field from the collection index: there is no "could not fetch the
+    // BPM and key" state left to report.
+    expect(screen.queryByText(/niet opgehaald/)).not.toBeInTheDocument();
   });
 
   it("lists the tracks that still sit in the buy queue", () => {

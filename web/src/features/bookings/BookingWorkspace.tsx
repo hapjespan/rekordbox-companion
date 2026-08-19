@@ -9,9 +9,8 @@ import { BpmProgressionCard } from "./BpmProgressionCard";
 import { ChecksBar } from "./ChecksBar";
 import { PhaseBoard } from "./PhaseBoard";
 import { SetPhaseEditor } from "./SetPhaseEditor";
-import { resolveTrackFacts } from "./collectionFacts";
 import { buildPhases, computeChecks, isPhaseNode } from "./phaseModel";
-import type { PhaseMember, TrackFacts } from "./phaseModel";
+import type { PhaseTrack } from "./phaseModel";
 import type { ApplyResultDto, ProfileDto, StructureDto, SuggestionDto } from "./types";
 
 // Same code-keyed-switch convention as MissingQueue.tsx/Tree.tsx's error
@@ -33,13 +32,22 @@ function applyErrorMessageFor(error: ApiError): string {
 // multi-MB response and a list item with two buttons per track in the DOM.
 const SUGGESTION_PAGE_SIZE = 50;
 
-// Which tracks a phase playlist holds can only be read from the Suggestions
-// endpoint's `already_in_playlist` flag: there is no GET for a node's tracks
-// (contracts/api.md lists POST and DELETE only), so this is the whole read
-// path. A member outside the page this asks for stays invisible, hence a page
-// far larger than the suggestion list's own -- and hence the note in the
-// report that a GET for node tracks is genuinely missing.
-const PHASE_MEMBER_SCAN_LIMIT = 200;
+// What a phase playlist holds comes from the node's own tracks endpoint
+// (`GET .../nodes/{nid}/tracks`): real membership, in the stored
+// `structure_track.position` order, with every row already carrying artist,
+// title, BPM, key and duration. Deliberately NOT the Suggestions endpoint's
+// `already_in_playlist` flag, which is filtered by the profile and ranked by
+// play count and therefore shows a wrongly ordered subset.
+//
+// The endpoint's own maximum page size, so a phase of up to 200 tracks costs
+// exactly one request; a longer one is paged out in full rather than silently
+// truncated.
+const NODE_TRACK_PAGE_SIZE = 200;
+
+interface NodeTrackPageDto {
+  total: number;
+  items: PhaseTrack[];
+}
 
 // A missing track that is still `open` has not been bought yet (FR-021).
 interface MissingTrackRefDto {
@@ -332,14 +340,9 @@ export function BookingWorkspace() {
   const [suggestions, setSuggestions] = useState<SuggestionDto[]>([]);
   const [suggestionLimit, setSuggestionLimit] = useState(SUGGESTION_PAGE_SIZE);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
-  const [phaseMembers, setPhaseMembers] = useState<Record<number, PhaseMember[]>>({});
-  const [trackFacts, setTrackFacts] = useState<Map<string, TrackFacts>>(new Map());
+  const [phaseTracks, setPhaseTracks] = useState<Record<number, PhaseTrack[]>>({});
   const [openBuyQueue, setOpenBuyQueue] = useState<{ artist: string; title: string }[]>([]);
   const structureProfileSelectId = useId();
-  // BPM/key/duration per rb_content_id, kept for the whole session: the
-  // collection has no per-id endpoint, so every page this ever walked is worth
-  // holding on to rather than sweeping again for the next phase.
-  const factsCacheRef = useRef(new Map<string, TrackFacts>());
   // Tree.tsx's move/nest/lift actions each fire two independent onMove
   // calls (a position swap, or a re-parent) in the same click. Each call
   // triggers its own PUT + refreshNodes; without sequencing, the two
@@ -397,43 +400,48 @@ export function BookingWorkspace() {
     void refreshOpenBuyQueue();
   }, []);
 
-  // One request per phase playlist, then one bounded sweep of the collection
-  // for the BPM/key/duration of every id those phases hold together (never one
-  // request per row, and never the whole collection per row).
-  async function refreshPhaseData(structureId: number, currentNodes: TreeNodeDto[]) {
-    const phaseNodes = currentNodes.filter(isPhaseNode);
-    const membersByNode: Record<number, PhaseMember[]> = {};
-    for (const node of phaseNodes) {
-      const { data } = await apiClient.GET(
-        "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
-        {
-          params: {
-            path: { structure_id: structureId, node_id: node.id },
-            query: { limit: PHASE_MEMBER_SCAN_LIMIT },
+  // The node's stored tracks, in their stored order. One request per phase
+  // playlist for anything up to a full page; only a phase holding more than
+  // NODE_TRACK_PAGE_SIZE tracks costs a second one, and then it is because the
+  // endpoint said there are more, never a guess.
+  async function fetchNodeTracks(structureId: number, nodeId: number): Promise<PhaseTrack[]> {
+    const rows: PhaseTrack[] = [];
+    let total = 0;
+    do {
+      let body: NodeTrackPageDto | undefined;
+      try {
+        const { data, error } = await apiClient.GET(
+          "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+          {
+            params: {
+              path: { structure_id: structureId, node_id: nodeId },
+              query: { limit: NODE_TRACK_PAGE_SIZE, offset: rows.length },
+            },
           },
-        },
-      );
-      const rows = asApiResponse<SuggestionDto[]>(data) ?? [];
-      membersByNode[node.id] = rows
-        .filter((row) => row.already_in_playlist)
-        .map((row) => ({
-          rb_content_id: row.rb_content_id,
-          artist: row.artist,
-          title: row.title,
-          bpm: row.bpm,
-        }));
-    }
-    setPhaseMembers(membersByNode);
+        );
+        if (error) break;
+        body = asApiResponse<NodeTrackPageDto | undefined>(data);
+      } catch {
+        // A phase whose tracks could not be read stays empty rather than
+        // taking the whole builder down; the request is retried on the next
+        // refresh.
+        break;
+      }
+      if (!body) break;
+      total = body.total;
+      const items = body.items ?? [];
+      if (items.length === 0) break;
+      rows.push(...items);
+    } while (rows.length < total);
+    return rows;
+  }
 
-    const ids = [
-      ...new Set(Object.values(membersByNode).flatMap((rows) => rows.map((r) => r.rb_content_id))),
-    ];
-    if (ids.length === 0) {
-      setTrackFacts(new Map(factsCacheRef.current));
-      return;
+  async function refreshPhaseData(structureId: number, currentNodes: TreeNodeDto[]) {
+    const tracksByNode: Record<number, PhaseTrack[]> = {};
+    for (const node of currentNodes.filter(isPhaseNode)) {
+      tracksByNode[node.id] = await fetchNodeTracks(structureId, node.id);
     }
-    const { facts } = await resolveTrackFacts(ids, factsCacheRef.current);
-    setTrackFacts(new Map(facts));
+    setPhaseTracks(tracksByNode);
   }
 
   async function refreshNodes(structureId: number) {
@@ -699,7 +707,7 @@ export function BookingWorkspace() {
     );
   }
 
-  const phases = buildPhases(nodes, phaseMembers, trackFacts);
+  const phases = buildPhases(nodes, phaseTracks);
   const checks = computeChecks(phases, openBuyQueue);
 
   return (

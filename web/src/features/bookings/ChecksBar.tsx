@@ -6,8 +6,9 @@ import type { ChecksResult } from "./phaseModel";
 //
 // - musical-key conflicts on the seam between two adjacent phases, from the
 //   verbatim Rekordbox Camelot notation;
-// - tracks missing a BPM or a key, which in this collection is the normal case
-//   and therefore worth counting rather than hiding;
+// - tracks missing a BPM or a key (Rekordbox has not analysed them), which in
+//   this collection is the normal case and therefore worth counting rather
+//   than hiding;
 // - tracks that still sit in the buy queue as an open item.
 //
 // Every item states its count in words, so nothing here is conveyed by colour.
@@ -37,9 +38,6 @@ export function ChecksBar({ checks }: ChecksBarProps) {
       : null,
     `${checks.without_bpm} nummer(s) zonder BPM in Rekordbox`,
     `${checks.without_key} nummer(s) zonder toonaard in Rekordbox`,
-    checks.unresolved > 0
-      ? `${checks.unresolved} nummer(s) waarvan BPM en toonaard niet opgehaald konden worden`
-      : null,
     checks.in_buy_queue.length === 0
       ? "Geen nummers meer in de koop-wachtrij"
       : `${checks.in_buy_queue.length} nummer(s) staan nog in de koop-wachtrij: ${checks.in_buy_queue

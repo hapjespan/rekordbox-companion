@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PhaseBoard } from "../../../src/features/bookings/PhaseBoard";
 import { buildPhases } from "../../../src/features/bookings/phaseModel";
-import type { PhaseMember, TrackFacts } from "../../../src/features/bookings/phaseModel";
+import type { PhaseTrack } from "../../../src/features/bookings/phaseModel";
 import type { TreeNodeDto } from "../../../src/components/Tree";
 
 const NODES: TreeNodeDto[] = [
@@ -32,26 +32,33 @@ const NODES: TreeNodeDto[] = [
   },
 ];
 
-const FACTS = new Map<string, TrackFacts>([
-  ["a", { bpm: 124, musical_key: "8m", duration_ms: 300_000 }],
-  ["b", { bpm: null, musical_key: null, duration_ms: null }],
-]);
-
-function member(id: string, title: string): PhaseMember {
-  return { rb_content_id: id, artist: "Artiest", title, bpm: null };
+// The two rows GET .../nodes/{nid}/tracks returns for the first phase: one
+// analysed by Rekordbox, one not (null BPM and null key, never a 0).
+function track(id: string, title: string, overrides: Partial<PhaseTrack> = {}): PhaseTrack {
+  return {
+    rb_content_id: id,
+    artist: "Artiest",
+    title,
+    bpm: null,
+    musical_key: null,
+    duration_ms: null,
+    ...overrides,
+  };
 }
+
+const ANALYSED = { bpm: 124, musical_key: "8m", duration_ms: 300_000 };
 
 // A harness that owns the membership, the way BookingWorkspace does: the move
 // has to land in the rendered tree for the focus assertion to mean anything.
 function Harness({ onMove }: { onMove?: () => void }) {
-  const [members, setMembers] = useState<Record<number, PhaseMember[]>>({
-    1: [member("a", "One More Time"), member("b", "Digital Love")],
+  const [members, setMembers] = useState<Record<number, PhaseTrack[]>>({
+    1: [track("a", "One More Time", ANALYSED), track("b", "Digital Love")],
     2: [],
   });
 
   return (
     <PhaseBoard
-      phases={buildPhases(NODES, members, FACTS)}
+      phases={buildPhases(NODES, members)}
       onMove={async (rbContentId, fromNodeId, toNodeId) => {
         onMove?.();
         setMembers((current) => {
@@ -81,6 +88,21 @@ describe("PhaseBoard", () => {
     ).toBeInTheDocument();
     expect(within(column as HTMLElement).getByText("124 BPM")).toBeInTheDocument();
     expect(within(column as HTMLElement).getByText("8m")).toBeInTheDocument();
+  });
+
+  it("renders a phase's rows in the order it was given, and claims nothing else about it", () => {
+    // The board used to carry a caveat line: its rows came from the
+    // Suggestions endpoint's play-count ranking, not from the phase's stored
+    // order. They now come from the node's own tracks endpoint, in stored
+    // order, so the caveat is gone and must not come back.
+    render(<Harness />);
+
+    const column = screen.getByRole("heading", { name: "vooravond" }).closest("li") as HTMLElement;
+    const text = column.textContent ?? "";
+    expect(text.indexOf("One More Time")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("One More Time")).toBeLessThan(text.indexOf("Digital Love"));
+    expect(screen.queryByText(/De volgorde binnen een fase/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/afspeelfrequentie/)).not.toBeInTheDocument();
   });
 
   it("says a track has no BPM and no key instead of leaving the cells blank", () => {
@@ -152,7 +174,7 @@ describe("PhaseBoard", () => {
   it("shows the move refusal without moving anything", async () => {
     render(
       <PhaseBoard
-        phases={buildPhases(NODES, { 1: [member("a", "One More Time")], 2: [] }, FACTS)}
+        phases={buildPhases(NODES, { 1: [track("a", "One More Time", ANALYSED)], 2: [] })}
         onMove={async () => "Deze fase is al toegepast in Rekordbox; verplaats het nummer daar."}
       />,
     );

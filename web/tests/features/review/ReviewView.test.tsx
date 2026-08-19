@@ -218,10 +218,10 @@ describe("ReviewView", () => {
 
   // The Rekordbox side of the delivered design's card needs the candidate's
   // title, duration, BPM and musical key, none of which a session's candidate
-  // rows carry. GET /api/collection is the only endpoint that returns them and
-  // it has no per-id lookup, so the ids are resolved through its `query`
-  // filter and cached per session.
-  it("resolves the candidate's Rekordbox detail through the collection search", async () => {
+  // rows carry. They are resolved exactly, through GET /api/collection's
+  // `?ids=` filter: one request for every candidate in the queue, cached for
+  // the session.
+  it("resolves every candidate's Rekordbox detail by id, in one request for the queue", async () => {
     vi.mocked(apiClient.GET).mockImplementation((path: string) => {
       if (path === "/api/collection") {
         return Promise.resolve({
@@ -248,18 +248,21 @@ describe("ReviewView", () => {
       }) as never;
     });
 
-    renderView([REVIEW_TRACK_1]);
+    renderView();
 
     expect(await screen.findByText("One More Time (Club Edit)")).toBeInTheDocument();
     expect(screen.getByText("6:48 · 123 BPM · 8m")).toBeInTheDocument();
-    // The Spotify artist is the query, the endpoint's own maximum page size
-    // the limit, and one call is enough for every candidate of that track.
+    // Every candidate of every card in one request, by id -- no artist or
+    // title query, and nothing guessed from the Spotify side.
     expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
-      params: { query: { query: "Daft Punk", limit: 200 } },
+      params: { query: { ids: ["rb-a", "rb-b", "rb-c"], limit: 200 } },
     });
+    expect(
+      vi.mocked(apiClient.GET).mock.calls.filter((call) => call[0] === "/api/collection"),
+    ).toHaveLength(1);
   });
 
-  it("keeps the Rekordbox id as the label when the collection lookup finds nothing", async () => {
+  it("keeps the Rekordbox id as the label for an id the collection does not know", async () => {
     vi.mocked(apiClient.GET).mockImplementation((path: string) => {
       if (path === "/api/collection") {
         return Promise.resolve({ data: { total: 0, items: [] }, error: undefined }) as never;
@@ -274,7 +277,7 @@ describe("ReviewView", () => {
 
     await waitFor(() =>
       expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
-        params: { query: { query: "Daft Punk", limit: 200 } },
+        params: { query: { ids: ["rb-a", "rb-b"], limit: 200 } },
       }),
     );
     expect(screen.getByText("Rekordbox-id rb-a")).toBeInTheDocument();

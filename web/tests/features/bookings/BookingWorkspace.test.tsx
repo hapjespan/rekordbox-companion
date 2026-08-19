@@ -381,11 +381,12 @@ describe("BookingWorkspace", () => {
   });
 });
 
-// The Playlist builder's own blocks (HANDOFF.md "3. Playlist builder"), wired
-// to the endpoints that actually exist: phase membership comes from the
-// Suggestions endpoint's `already_in_playlist` flag (there is no GET for a
-// node's tracks), and BPM/key come from a bounded sweep of GET /api/collection
-// (which has no per-id lookup).
+// The Playlist builder's own blocks (HANDOFF.md "3. Playlist builder"). A
+// phase's membership comes from the node's own tracks endpoint
+// (GET .../nodes/{nid}/tracks): the stored rows in their stored order, each
+// already carrying artist, title, BPM, key and duration. The Suggestions
+// endpoint is for suggestions only -- it is filtered by the profile and ranked
+// by play count, so it can never state what a phase holds.
 const PHASE_A = {
   ...PLAYLIST_NODE,
   id: 2,
@@ -405,11 +406,25 @@ interface GetOptions {
   params?: { path?: { node_id?: number }; query?: Record<string, unknown> };
 }
 
+// One stored row of GET .../nodes/{nid}/tracks, in the CollectionTrack shape.
+const NODE_TRACK = {
+  rb_content_id: "1",
+  artist: "Daft Punk",
+  title: "One More Time",
+  duration_ms: 320_000,
+  bpm: 123,
+  play_count: 50,
+  genres: [],
+  format: "mp3",
+  musical_key: "8m",
+  label: "Virgin",
+};
+
 function mockPhaseTree(
   overrides: {
     nodes?: unknown[];
     missing?: { artist: string; title: string; status: string }[];
-    collection?: { total: number; items: unknown[] };
+    nodeTracks?: (offset: number) => { total: number; items: unknown[] };
   } = {},
 ) {
   vi.mocked(apiClient.GET).mockImplementation(((path: string, options?: GetOptions) => {
@@ -421,26 +436,17 @@ function mockPhaseTree(
           return [PROFILE];
         case "/api/structures/{structure_id}/nodes":
           return overrides.nodes ?? [PHASE_A, PHASE_B];
-        case "/api/structures/{structure_id}/nodes/{node_id}/suggestions":
+        case "/api/structures/{structure_id}/nodes/{node_id}/tracks": {
+          const offset = Number(options?.params?.query?.offset ?? 0);
+          if (overrides.nodeTracks) return overrides.nodeTracks(offset);
+          // Only the first phase holds anything, so the sweep covers a
+          // populated and an empty column at once.
           return options?.params?.path?.node_id === 2
-            ? [{ ...SUGGESTION, already_in_playlist: true }]
-            : [];
-        case "/api/collection":
-          return (
-            overrides.collection ?? {
-              total: 1,
-              items: [
-                {
-                  rb_content_id: "1",
-                  artist: "Daft Punk",
-                  title: "One More Time",
-                  bpm: 123,
-                  musical_key: "8m",
-                  duration_ms: 320_000,
-                },
-              ],
-            }
-          );
+            ? { total: 1, items: [NODE_TRACK] }
+            : { total: 0, items: [] };
+        }
+        case "/api/structures/{structure_id}/nodes/{node_id}/suggestions":
+          return [SUGGESTION];
         case "/api/missing":
           return overrides.missing ?? [];
         default:
@@ -462,7 +468,7 @@ describe("BookingWorkspace playlist builder", () => {
     expect(screen.getByText("Nog geen nummers in deze fase.")).toBeInTheDocument();
   });
 
-  it("resolves BPM and key for the phase rows from one bounded collection page", async () => {
+  it("reads a phase's membership from the node's own tracks endpoint, one request per phase", async () => {
     mockPhaseTree();
     render(<BookingWorkspace />);
     fireEvent.click(await screen.findByText("Bruiloft Jansen"));
@@ -474,9 +480,91 @@ describe("BookingWorkspace playlist builder", () => {
       expect(within(column).getByText("8m")).toBeInTheDocument();
     });
     expect(within(column).getByText("123 BPM")).toBeInTheDocument();
-    expect(apiClient.GET).toHaveBeenCalledWith("/api/collection", {
-      params: { query: { limit: 200, offset: 0 } },
+    for (const nodeId of [2, 3]) {
+      expect(apiClient.GET).toHaveBeenCalledWith(
+        "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+        {
+          params: {
+            path: { structure_id: 1, node_id: nodeId },
+            query: { limit: 200, offset: 0 },
+          },
+        },
+      );
+    }
+    const trackCalls = vi
+      .mocked(apiClient.GET)
+      .mock.calls.filter(
+        (call) => call[0] === "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+      );
+    expect(trackCalls).toHaveLength(2);
+    // No suggestions request and no collection sweep is needed to know what a
+    // phase holds any more: both were workarounds for the missing endpoint.
+    expect(apiClient.GET).not.toHaveBeenCalledWith(
+      "/api/structures/{structure_id}/nodes/{node_id}/suggestions",
+      expect.anything(),
+    );
+    expect(apiClient.GET).not.toHaveBeenCalledWith("/api/collection", expect.anything());
+  });
+
+  it("keeps the stored order of a phase's rows instead of a play-count ranking", async () => {
+    mockPhaseTree({
+      nodes: [PHASE_A],
+      nodeTracks: () => ({
+        total: 2,
+        items: [
+          { ...NODE_TRACK, rb_content_id: "9", title: "Eerst", play_count: 1 },
+          { ...NODE_TRACK, rb_content_id: "8", title: "Daarna", play_count: 900 },
+        ],
+      }),
     });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    const column = (await screen.findByRole("heading", { name: "vooravond" })).closest(
+      "li",
+    ) as HTMLElement;
+    await waitFor(() => expect(within(column).getByText("Eerst")).toBeInTheDocument());
+    const text = column.textContent ?? "";
+    expect(text.indexOf("Eerst")).toBeLessThan(text.indexOf("Daarna"));
+  });
+
+  it("pages out a phase that holds more than one page of tracks instead of truncating it", async () => {
+    const page = (offset: number) => ({
+      total: 201,
+      items: Array.from({ length: offset === 0 ? 200 : 1 }, (_, index) => ({
+        ...NODE_TRACK,
+        rb_content_id: String(offset + index),
+        title: `Track ${offset + index}`,
+      })),
+    });
+    mockPhaseTree({ nodes: [PHASE_A], nodeTracks: page });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    expect(await screen.findByText("Track 200")).toBeInTheDocument();
+    expect(apiClient.GET).toHaveBeenCalledWith(
+      "/api/structures/{structure_id}/nodes/{node_id}/tracks",
+      { params: { path: { structure_id: 1, node_id: 2 }, query: { limit: 200, offset: 200 } } },
+    );
+  });
+
+  it("says a phase track has no BPM instead of reporting a zero", async () => {
+    mockPhaseTree({
+      nodes: [PHASE_A],
+      nodeTracks: () => ({
+        total: 1,
+        items: [{ ...NODE_TRACK, bpm: null, musical_key: null }],
+      }),
+    });
+    render(<BookingWorkspace />);
+    fireEvent.click(await screen.findByText("Bruiloft Jansen"));
+
+    const column = (await screen.findByRole("heading", { name: "vooravond" })).closest(
+      "li",
+    ) as HTMLElement;
+    await waitFor(() => expect(within(column).getByText("geen BPM")).toBeInTheDocument());
+    expect(within(column).getByText("geen toonaard")).toBeInTheDocument();
+    expect(within(column).queryByText("0 BPM")).not.toBeInTheDocument();
   });
 
   it("moves a track to the next phase as an add plus a remove", async () => {

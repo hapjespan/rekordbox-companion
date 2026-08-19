@@ -67,8 +67,15 @@ amend the plan. Recorded as the one deviation under the A09 verdict in
 
 ## B6 — Drive the keyboard through the densest interactive states
 
-Narrowed by the shell revision: `web/tests/e2e/accessibility.spec.ts` now loops
-all five workspace views, so the review queue and the booking tree are scanned.
+Narrowed twice. The shell revision made
+`web/tests/e2e/accessibility.spec.ts` loop all five workspace views, but its
+mocked session had `review: 0` and its `/api/structures` answered `[]`, so the
+two densest surfaces still rendered empty. A third test now scans them
+populated: a review card with two resolved candidates and one the collection
+does not know, and a structure with two phase columns holding tracks with and
+without a BPM and a musical key, plus the BPM chart's text alternative folded
+open. That closes the coverage half.
+
 What remains is depth rather than coverage. axe scans a rendered state; it does
 not tab through a roving-tabindex table, resolve a review item by keyboard, or
 re-parent a node in the tree, and those are the interactions where a focus trap
