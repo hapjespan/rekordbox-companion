@@ -1,5 +1,5 @@
 ---
-model: claude-fable-5
+model: claude-opus-5
 ---
 
 # Phase 7 — Review and validate
