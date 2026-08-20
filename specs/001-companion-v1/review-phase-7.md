@@ -15,7 +15,7 @@ statement, the reconciled PII inventory, and validation against the scope note i
 |---|---|
 | Phase 6 complete | Yes, `.workflow/state.json` records phase 6 |
 | Every task merged into `release` | **Deviation**: phase 6 landed on `phase-6-implementation` and is under review as PR #165 into `release`. Reviewing the branch rather than the merged `release` reviews the same content the release PR contains, which is what the phase file asks for; the merge was deliberately held until this report's blocking findings were closed, which they now are. |
-| Test suite green | Yes. At review start: 429 pytest, 111 vitest, CI green on `c8de14a` including the Playwright suite. After this phase's fixes: 458 pytest, 156 vitest, `pnpm build` clean, lint and typecheck clean. |
+| Test suite green | Yes, locally. At review start: 429 pytest, 111 vitest, CI green on `c8de14a`. After the first revision: 458 pytest, 175 vitest. After the second: 534 pytest, 346 vitest, 7 Playwright with three axe sweeps, `pnpm build`, `tsc --noEmit`, ESLint and Prettier clean. CI itself stopped running mid-phase and is not evidence; the second revision explains why and what replaced it. |
 | Spec, constraints, PII inventory, scope note available | Yes |
 | Session runs the routed model | Yes, phase 7 is pinned to `claude-fable-5` and the review ran there |
 
@@ -183,12 +183,31 @@ OAuth PKCE.
 | A09 | Security logging and monitoring failures | Pass, with one deviation | Guard refusals, backup creation and rotation, writes with their readback verdict, and run summaries are all logged as structured JSON, with credential redaction enforced in the formatter rather than at call sites. Deviation: `constraints.md` says logs are local files rotated by size, while `configure_logging()` installs a `StreamHandler`, so logs go to the terminal that runs the app and are not rotated files. For a single operator watching the terminal this still satisfies the NIS2 line below, but the plan and the implementation disagree; tracked as backlog item B5. |
 | A10 | Server-side request forgery | Pass | Outbound HTTP is confined to a documented host allowlist enforced at transport level in both client factories, and refused before any network IO for a disallowed host, including hosts crafted to look allowed. No user-supplied URL is ever fetched: a playlist URL is parsed to an id, and store links are built from a fixed host. Covered by `engine/tests/security/test_asvs_boundaries.py`. |
 
+These ten verdicts were reached before the second revision added four endpoints and
+an `ids` filter, so they were held against that new surface rather than assumed to
+carry over. All five additions are read-only and none of them widens the attack
+surface the verdicts describe. A01 is unchanged: still one operator, one role, and
+loopback as the access control; none of the new endpoints takes an identifier that
+selects between users, and the collection ids they accept address the operator's
+own library. A03 is unchanged: the `ids` filter binds parameters through SQLAlchemy
+like everything else and is capped, so it cannot become an unbounded IN clause,
+which is the shape a phase 7 finding already caught once on this endpoint. A10 is
+unchanged: the Spotify playlists endpoint calls a fixed allowlisted host through
+the existing client and follows only Spotify's own pagination cursor, never a
+user-supplied URL. The one genuinely new outbound destination is Apple's preview
+host, and it is fetched by the browser rather than by the backend, so it does not
+touch the server-side allowlist at all. A08 gained rather than lost: the backup
+that a write is preceded by now captures the write-ahead log's committed frames,
+which it did not before.
+
 ## WCAG 2.2 AA conformance statement
 
 Every user-facing story carries accessibility acceptance criteria from phase 2.
-The automated evidence is an axe-core sweep in `web/tests/e2e/accessibility.spec.ts`,
-running in CI, and the component suites assert keyboard operability, focus
-visibility, text-not-colour status conveyance and 24x24 minimum targets.
+The automated evidence is an axe-core sweep in `web/tests/e2e/accessibility.spec.ts`
+and the component suites, which assert keyboard operability, focus visibility,
+text-not-colour status conveyance and 24x24 minimum targets. That sweep used to run
+in CI; see the second revision below for why CI is no longer evidence and what
+replaced it.
 
 Conformance is claimed for the delivered SPA at AA, with these recorded
 deviations:
@@ -403,6 +422,191 @@ mechanical checks above exist to compensate for exactly that: contrast computed,
 rule 5 grepped, the reachability guard broken on purpose to prove it bites. Worth
 re-running when the window clears if the owner wants the belt and braces.
 
+## Second revision: the delivered design, the owner's changes, and a safety fix
+
+The first revision covered the shell. Everything below landed after it, on the
+owner's instruction as they walked the delivered design point by point and then
+used the result. It is reviewed here because the phase cannot sign off what it has
+not looked at, and because two things in it changed decisions this report already
+recorded.
+
+Range: `28f476b..9ecc5a0`. Two independent passes reviewed it, one over the four
+rebuilt views and the safety fix, one over the four backend commits the first pass
+correctly noticed nobody had covered.
+
+### What changed
+
+Four views were rebuilt to the delivered design. The sidebar carries both playlist
+sources: the operator's own Spotify playlists with their real cover art and a
+status line derived from this app's sessions, and the Rekordbox library as the
+expandable tree Rekordbox itself shows, where selecting a playlist filters the
+collection to it. The match report gained the design's filter chips, its sort
+control and its two groups, with the uncertain card showing the Rekordbox
+candidate's duration, BPM and musical key. The buy queue became the design's two
+columns with a store card and a summary. The builder gained phase columns, a
+checks bar, and a curve card that plots BPM.
+
+Three endpoints and a filter were added because four views needed data the API
+could not answer: the operator's Spotify playlists, a Rekordbox playlist's tracks,
+a structure node's stored tracks, and an `ids` filter on the collection. The last
+two closed real gaps rather than conveniences: a phase's membership had only been
+readable through the suggestions endpoint, which is filtered by profile and ranked
+by play count, so the builder had been showing a wrongly ordered subset of what a
+phase held, and it said so on screen.
+
+Musical key and label are read from Rekordbox, verbatim in the DJ's own notation.
+BPM zero now means absent, because Rekordbox stores zero for a track it has not
+analysed and 85 of the 119 tracks in the owner's fixture report it: carrying it
+through as a tempo had put "0 BPM" in the collection table, plotted those tracks
+at the foot of the builder's chart, made a set's range read "0-120 BPM", and let
+the checks bar report nothing missing a BPM while most of the set had none.
+
+Two requirements are new and one decision was reversed, all three on the owner's
+instruction. FR-041 lets the DJ hear a Missing Track before buying it and shows
+its price; FR-042 opens the store link in the Music application on a Mac, at the
+iTunes Store view rather than the Apple Music page. ADR 0022 supersedes ADR 0021:
+playback runs through Spotify, the source the track came from, rather than the
+store's own clip. That reversal cost the review queue and the buy queue their
+separate players, since the SDK allows one per page, so they now share a
+ref-counted singleton.
+
+And a defect this report had listed as an open question turned out to be real. A
+`master.db-wal` appeared beside the owner's fixture carrying committed data and
+SQLite replayed it onto a freshly copied base file, resurrecting a playlist an
+earlier apply had written. `backup.create()` zipped the base file alone, so a
+backup could verify as readable while missing the newest transactions, which is
+the one case backups exist for and what SC-006 claims cannot happen. It now
+checkpoints a disposable staging copy and zips the self-contained result.
+
+### Two axes
+
+Correctness holds, and the parts that do not hold are named on screen rather than
+hidden. The reviewers checked the places the implementers themselves had flagged as
+approximate, and found the honesty matched by the code: the columns the design puts
+on a missing track stay absent because Spotify's audio-features endpoint answers
+403 for this application and the store returns no BPM or key; the curve is titled
+as a BPM progression and says on the card that it is not an energy value; a track
+without a BPM gets no bar rather than a fabricated one; and the key check refuses
+to guess at classical notation instead of pretending to compare it.
+
+The recurring failure mode of this codebase was hunted specifically, and four more
+instances were found and fixed during this revision. A Spotify playlist whose
+tracks Spotify withholds had read as an empty playlist, so a session went `ready`
+with zero tracks and no message: that was the owner's first bug report, and the
+cause was a `{}` default where a withheld object and an empty one were
+indistinguishable. A phase whose tracks could not be read rendered as a phase
+holding nothing, for all three of its documented errors. An unindexed collection
+looked like an empty one. And the collection index, which is a cache rebuilt on
+demand, had nothing in the app demanding it, so every fresh start showed an empty
+collection with no way to fix it from the UI.
+
+Design holds. The four views share one row type across the three endpoints that
+return it, the workaround machinery that existed only because those endpoints were
+missing was deleted rather than left dangling, and no state ended up owned by two
+components at once. The pagination helpers three routers share moved out of one
+router's private names into their own module.
+
+Rule 5 was checked mechanically rather than by eye: `web/src` contains no hex
+colour, no arbitrary pixel value in a class name and no inline style attribute, and
+the tokens added trace to values the handoff actually names, including the two
+stacking widths that are now tokens so the buy queue and the phase grid cannot
+drift apart. Rules 1 and 2 hold across the whole tree, not only the touched files.
+
+### The blocking finding, and why it was fixed rather than deferred
+
+One finding was blocking, and it was the kind axe cannot see. `Tree.tsx` put
+`role="tree"` and `role="treeitem"` on its rows with no key handling anywhere in
+the file: no arrow keys, no roving tabindex, and no test touching either. So it
+told assistive technology it was a treeview, and a screen-reader user who heard
+"tree, N items" and reached for the arrow keys got nothing, while every row sat in
+the page's Tab order separately. That was already true of the booking editor, and
+this revision handed the same component to the sidebar's Rekordbox library, which
+doubled its exposure.
+
+This project's habit with that class of gap has been to carry it as a dated backlog
+item, and the reviewer said recording it would also have closed it for the gate.
+It was implemented instead: one Tab stop with a roving tabindex, arrows between
+visible rows, Home and End, ArrowRight to expand or descend, ArrowLeft to collapse
+or climb, Enter and Space for each variant's own action, and focus on the treeitem
+itself so the role and expansion state are announced. Implementing it also
+surfaced a real bug: child treeitems are genuinely nested inside their parent's
+list item, so keystrokes bubbled through every ancestor and Enter on a child also
+toggled the folder above it.
+
+It was then verified in a real browser rather than only in jsdom, because the
+finding was about interaction and jsdom is not that: one tab stop, arrows walking
+the visible rows without wrapping, Home and End, and on a folder ArrowLeft
+collapsing it, ArrowRight reopening it and ArrowRight again descending into its
+first child, with `aria-expanded` following throughout.
+
+### WCAG 2.2 AA, restated again
+
+The claim is renewed for the surfaces this revision added: the sidebar's two lists
+and its tree, the filter chips, the uncertain cards, the playback controls, the
+store links, the phase columns with their keyboard move, and the BPM chart.
+
+Contrast was computed for every new foreground and surface pair rather than
+assumed, by the reviewer independently of the implementers, and every pair in use
+passes AA with margin. No small text uses `--color-fog`, which fails AA on these
+surfaces and is the deviation the first revision recorded.
+
+State is never conveyed by colour alone. The move-between-phases interaction is
+keyboard-operable with an announcement and focus following the moved row, which is
+a genuine WCAG 2.5.7 dragging alternative rather than drag with a keyboard
+afterthought. The BPM chart's bars are decoration with a real table as their text
+alternative, because a row of coloured bars is not otherwise readable. The
+permanent axe sweep now scans the populated review card and the populated builder,
+not only their empty states, which closes the coverage half of backlog item B6.
+
+The three deviations recorded above stand, with B6 narrowed to interaction depth:
+axe scans a rendered state and does not tab through a roving-tabindex table,
+resolve a review item by keyboard, or re-parent a node.
+
+### Verification, and why CI is not part of it
+
+CI stopped running during this revision and is not evidence any more. Both jobs
+fail within seconds with zero executed steps and zero billable runner time, on
+every commit and on a re-run, while the same workflow file succeeded earlier the
+same day and the commits do not touch it. That is GitHub refusing to start the
+jobs, most likely exhausted Actions minutes on a private repository. It is a
+billing matter on the owner's account and nothing the code can fix.
+
+So local runs are the evidence, and they were run at every step and independently
+re-run by the reviewers: 534 pytest, 346 vitest, 7 Playwright specs including
+three axe sweeps, plus `tsc --noEmit`, ESLint, Prettier and `pnpm build`. The two
+tests that exercise the owner's real fixture were confirmed to run rather than
+skip, so that count includes evidence against the real `master.db`.
+
+Test quality was checked adversarially rather than trusted, which matters here
+because this report already records a case where a test could not fail. The
+reviewer checked out the commit before the backup fix and ran the new backup tests
+against it: exactly the two safety-relevant tests failed, including the one that
+asserts the real database is never opened for writing. The tests deleted as
+workaround-pinning were checked for load-bearing coverage going with them, and
+none did.
+
+### What this revision could not verify
+
+Three things, all stated in the code where a reader would otherwise assume
+otherwise. That audio actually comes out of the Spotify path: headless Chromium
+loads the SDK but cannot connect it, having no Widevine, and this container has no
+Premium session and no audio output. That the `itmss` scheme opens the Music
+application and lands on the Store view. And whether a live Rekordbox 7.2.17
+process holds a lock or cache that would make a snapshot differ from the
+checkpointed copy. All three need the Mac.
+
+### Scope round 2, closed
+
+Three features of the delivered design were put back on the table knowing it would
+reopen phases 2 and 4: XML export, per-store checkout with purchase tracking, and
+a watch folder importing purchases. The owner answered all three the same day and
+none survives, so no requirement reopened and no ADR was contradicted. XML export
+was dropped, which also settles its collision with ADR 0006 and SC-006. "Only
+iTunes" settles per-store checkout, since grouping and totals per store only mean
+something with several stores. The watch folder, the one feature that would have
+had the app moving files inside the DJ's music library, the owner will handle their
+own way.
+
 ## Open items the owner must close
 
 These cannot be closed by review; they need the owner, the real Mac, or the real
@@ -415,18 +619,33 @@ Rekordbox install. Each is tracked in `tasks.md` and left unchecked there.
   the matching thresholds are unvalidated against real data.
 - **T103**: the SC-009 booking-prep judgement, on the first real booking
   prepared with the app.
-- The two WCAG deviations above, plus the extended axe sweep.
-- **B2** is closed: Rekordbox does run `master.db` in WAL mode, and a backup now
-  checkpoints a disposable copy so committed frames cannot be missing from the
-  zip. What still needs the Mac is only whether the real Rekordbox process holds a
-  lock or cache that would make a live snapshot differ from the checkpointed one.
+- The two WCAG deviations above: the manual keyboard-and-target pass (B7) and the
+  interaction depth axe cannot reach (B6).
+- **On the Mac, three things this container cannot answer**: whether Spotify
+  playback actually produces audio, whether the `itmss` link opens the Music
+  application at the Store view, and whether a live Rekordbox process holds a lock
+  or cache that makes a snapshot differ from the checkpointed copy. B2 itself is
+  closed: Rekordbox does run `master.db` in WAL mode and the backup now
+  checkpoints, so committed frames can no longer be missing from the zip.
+- **The Spotify application's own permissions**, which are the hard blocker on
+  proving US1 to US4 with real data. Verified against the owner's account: search
+  and listing playlists work, but playlist tracks, saved tracks, audio features
+  and audio analysis all answer a bare 403, the playlist response arrives with its
+  tracks object stripped, and search is capped at ten results where Spotify
+  documents fifty. No real playlist can reach the matcher until that is raised in
+  the Spotify developer dashboard. The app now says so instead of presenting an
+  empty report.
+- **GitHub Actions**, so CI can be evidence again rather than local runs alone.
+- **B14**, whether the buy queue should group by track. It lists a track once per
+  playlist, which is right for FR-023 and useless as a shopping list past a few
+  playlists: the development queue reached 158 rows for 11 distinct tracks.
 
 ## Exit criteria
 
 | Criterion | Status |
 |---|---|
 | Every OWASP Top 10 item has an explicit verdict | Yes, ten verdicts above with evidence |
-| WCAG 2.2 AA met, or each deviation has an owner and a date | Yes, three deviations recorded with owner and date |
+| WCAG 2.2 AA met, or each deviation has an owner and a date | Yes. Three deviations carry an owner and a date, and the second revision's one blocking finding, a tree claiming treeview semantics it did not implement, was fixed and verified in a real browser rather than deferred. |
 | PII inventory matches what the code stores and logs, both directions | Yes, reconciled above |
-| Result matches the scope note, drift written down | Yes, no drift; two in-scope cuts recorded |
+| Result matches the scope note, drift written down | Yes, no drift. Two in-scope cuts recorded, and scope round 2 closed without reopening a requirement: the three design features that would have collided with ADR 0006, FR-020..023 and the library itself were all dropped by the owner. |
 | `routing.py check 7` passes, every task reviewed by a non-builder | Yes |
