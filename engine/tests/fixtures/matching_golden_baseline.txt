@@ -1,0 +1,22 @@
+# One "<id> <sha256-hex>" pair per line: the floor of
+# engine/tests/fixtures/matching_golden.yaml. The hash covers each case's
+# `spotify`, `collection` and `expected_status` fields (sha256 of their
+# json.dumps(sort_keys=True) encoding) -- everything that actually drives the
+# matching engine and the pass/fail assertion, not free-text fields like
+# `description`.
+#
+# FR-009 / project rule 7: the Golden Set is only ever extended, never
+# weakened. Every id below must always still exist in matching_golden.yaml
+# with the SAME hash; a case can be added to that file without touching this
+# one, but removing or renaming a case id, or editing its spotify/collection/
+# expected_status fields in place, fails test_golden_set_only_ever_grows in
+# engine/tests/test_matching_golden.py -- an in-place edit is indistinguishable
+# from silently weakening the set otherwise (phase-7 review finding: an id
+# check alone missed exactly this, and the fixture history shows it already
+# happened once for stub-fuzzy-review-tier's title, before this hash existed).
+# Append new "<id> <hash>" pairs here in the SAME commit that adds the case to
+# matching_golden.yaml, never before or separately.
+stub-isrc-exact-match 4c39c98984a11bd0b3b844dd1c758e7a6c96546510cb91c9477759416c974e72
+stub-fuzzy-review-tier 1c45e9104557298543e87c16f09cbddc46c4130cdcdce609273aef1382430d3e
+stub-remix-marker-veto c0c082adbd1e16e6b514225e548f004f7312534f4d1e9244dae2454bb58d42ef
+stub-below-threshold-missing cbfb640e3e477c08736ecfcc37e20e1d16639a3b2667f308cef714e00cbbbca8

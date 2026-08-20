@@ -11,10 +11,11 @@ four capabilities: matching Spotify playlists against a 30.000+ track Rekordbox
 Collection (fuzzy-primary pipeline gated by a golden set), a guarded add-only
 write path into `master.db` via pyrekordbox, a missing-tracks-to-store-links
 queue, and hand-designed booking structures fed by app-side genre enrichment.
-The architecture is organised around five seams (see
+The architecture is organised around six seams (see
 `docs/architecture.md`): the `rb` interface over pyrekordbox, the pure matching
-engine, the `GenreSource` enrichment seam, the external-API integrations, and
-the OpenAPI schema between engine and SPA. Three spikes precede feature depth:
+engine, the `GenreSource` enrichment seam, the external-API integrations, the
+OpenAPI schema between engine and SPA, and Suggestions (pure booking-structure
+filtering over the collection index). Three spikes precede feature depth:
 pyrekordbox 7.2.17 write compatibility, enrichment coverage, and the Spotify
 Web Playback SDK on localhost (research R1-R3).
 
@@ -96,9 +97,11 @@ engine/
   pyproject.toml
   src/companion/
     main.py              # app factory, static mount, SSE channel
-    config.py            # paths, env, Rekordbox detection, version pin
+    config.py            # paths, env, version pin (rule 1 moved Rekordbox
+                         #   detection into rb/reader.py, phase 6 build)
     rb/                  # ONLY module importing pyrekordbox (rule 1)
-      reader.py          #   collection snapshot, playlist tree, play counts
+      reader.py          #   collection snapshot, playlist tree, play counts,
+                         #   Rekordbox install/version detection
       writer.py          #   guarded playlist/folder writes, add-only updates
       backup.py          #   timestamped zipped backups, newest 10 (ADR 0016)
       guard.py           #   running-check, version pin, disk headroom
@@ -108,8 +111,7 @@ engine/
       engine.py          # tiered pipeline, scoring, classification (FR-005..008)
     enrichment/
       source.py          # GenreSource seam (ADR 0013)
-      spotify_genres.py  # adapter 1
-      musicbrainz.py     # adapter 2
+      musicbrainz.py     # sole adapter, tags ranked by count (ADR 0018)
       runner.py          # incremental resumable queue
     integrations/
       spotify.py         # OAuth PKCE, playlist fetch, player token
@@ -158,13 +160,13 @@ decision or an explicitly accepted risk with an owner.
 | Playback start unbounded (accepted) | no preloading work in v1; owner accepted |
 | Best-effort availability, restart as recovery | no supervisor, no health-restart logic; documented in quickstart. Risk accepted, owner: Martien |
 | Rotating zipped backups, newest 10 (ADR 0016) | `backup.py` creates zip, verifies readability, then prunes beyond 10 — prune runs only after a verified create; disk headroom check in `guard.py` refuses writes when a backup would not fit |
-| Free-tier-only services (ADR 0011) | GenreSource adapters: Spotify genres + MusicBrainz at 1 req/s; enrichment incremental + resumable (ADR 0013) |
+| Free-tier-only services (ADR 0011) | GenreSource adapter: MusicBrainz at 1 req/s, sole adapter (ADR 0018 supersedes ADR 0013's Spotify-primary ordering -- the R1 spike found Spotify artist genres unavailable to this app); enrichment incremental + resumable (ADR 0013) |
 | No deadline | spikes ordered first anyway: they gate design, not dates |
 | NIS2 logging plan | structured logs from `guard`/`backup`/`writer` + `write_log` table; token/key redaction is a log-formatter property, tested |
 | ASVS V2/V3/V4 (auth, session, access) | no app auth (out of scope, recorded); tokens in `spotify_auth` with owner-only file perms; disconnect endpoint is the deletion path |
 | ASVS V5 (validation) | playlist URL → id parse at the boundary; schema-validated external payloads; SQLAlchemy parameterised throughout |
 | ASVS V6/V12 (secrets, files) | `.env` untracked; stream paths resolved only from `rb_content_id` |
-| ASVS V10/V14 + SSRF | pinned deps + lockfiles; outbound HTTP restricted to api.spotify.com, itunes.apple.com, musicbrainz.org |
+| ASVS V10/V14 + SSRF | pinned deps + lockfiles; outbound HTTP restricted to api.spotify.com, accounts.spotify.com (OAuth token exchange/refresh), itunes.apple.com, musicbrainz.org -- enforced at the transport layer, `security.build_allowlisted_client` (T090), not just by convention |
 | AVG retention/deletion | `spotify_auth` deleted whole on disconnect (contracts); PII inventory carried forward |
 | Unknown #1 pyrekordbox writes | spike gates the write path (R3); failure reopens phase 4 |
 | Unknown #2 enrichment coverage | spike with owner judgement against SC-008 (R1) |
@@ -178,8 +180,10 @@ cuts depth, and the cuts are these, on the record:
 - **E2E breadth**: Playwright covers the two flows that carry the value claim
   (sync→review→apply and missing→link), not every screen.
 - **Player depth**: no waveforms, no gapless, no preload; progress bar + seek.
-- **Enrichment depth**: if the spike shows Spotify-genres-only clears SC-008,
-  the MusicBrainz adapter is deferred behind its seam rather than built.
+- **Enrichment depth**: the spike (T066) found Spotify artist genres
+  unavailable to this app; MusicBrainz tags is the sole adapter built
+  (ADR 0018), not a Spotify-primary/MusicBrainz-conditional pair as
+  originally planned.
 - **Error-path polish**: guard refusals and form errors are complete (they
   carry safety and WCAG); rarer failures (SSE reconnect edge cases, partial
   Spotify outages) get logs and a generic Dutch error toast, not bespoke UX.

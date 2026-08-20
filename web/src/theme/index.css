@@ -1,0 +1,80 @@
+@import "tailwindcss";
+@import "../../design-input/theme.css";
+
+/* The prototype's own global block (prototype-crate-bridge.dc.html's
+   <style>): a black canvas behind the shell, and the scrollbars styled as
+   delivered. Values come from tokens, never literals (project rule 5). */
+body {
+  background: var(--color-void-black);
+  color: var(--color-pure-white);
+  font-family: var(--font-spotifymixui);
+}
+
+::-webkit-scrollbar {
+  width: var(--spacing-10);
+  height: var(--spacing-10);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-iron);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Inter, self-hosted (@fontsource/inter), registered under the design
+   system's own token names (project rule 5): the proprietary
+   SpotifyMixUI/SpotifyMixUITitle fonts never ship, and nothing here
+   references their files -- only Inter's, aliased to the names theme.css's
+   `--font-spotifymixui`/`--font-spotifymixuititle` tokens already expect.
+
+   Only the `latin` unicode-range subset is aliased. That fully covers
+   Dutch UI copy (FR-038; Latin-1 diacritics like é/ë/ï render correctly),
+   but Collection track/artist *data* with Eastern European, Turkish,
+   Cyrillic or Greek characters would fall through to the system-font
+   fallback mid-word once US5 (Browse and play the Collection) renders
+   real track names -- a real, deferred gap (gate-review finding, T017),
+   not one this Foundational task's own scope (Dutch UI copy) needs to
+   close. Add the matching `@fontsource/inter/files/inter-<script>-<weight>-
+   normal.woff2` sources here if/when that's visibly wrong. */
+@font-face {
+  font-family: "SpotifyMixUI";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    url("@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2"),
+    url("@fontsource/inter/files/inter-latin-400-normal.woff") format("woff");
+}
+
+@font-face {
+  font-family: "SpotifyMixUI";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src:
+    url("@fontsource/inter/files/inter-latin-600-normal.woff2") format("woff2"),
+    url("@fontsource/inter/files/inter-latin-600-normal.woff") format("woff");
+}
+
+@font-face {
+  font-family: "SpotifyMixUI";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    url("@fontsource/inter/files/inter-latin-700-normal.woff2") format("woff2"),
+    url("@fontsource/inter/files/inter-latin-700-normal.woff") format("woff");
+}
+
+@font-face {
+  font-family: "SpotifyMixUITitle";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    url("@fontsource/inter/files/inter-latin-700-normal.woff2") format("woff2"),
+    url("@fontsource/inter/files/inter-latin-700-normal.woff") format("woff");
+}

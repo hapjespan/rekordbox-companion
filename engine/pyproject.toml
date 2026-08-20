@@ -1,0 +1,65 @@
+[project]
+name = "companion"
+version = "0.1.0"
+description = "Rekordbox Companion v1 backend"
+authors = [
+    { name = "Martien", email = "martienvb@gmail.com" }
+]
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pyrekordbox>=0.4",
+    "rapidfuzz>=3.10",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "psutil>=6.0",
+    # T097 perf finding: rapidfuzz.process.cdist's batched C-level scoring
+    # is what matching/engine.py's find_best_matches_batch needs to meet
+    # SC-001's time budget at Collection scale (~40k entries) -- previously
+    # only a transitive dependency of rapidfuzz, now used directly.
+    "numpy>=2.0",
+    "defusedxml>=0.7.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pyyaml>=6.0",
+    "ruff>=0.8",
+    # T030 review finding: engine/tests/api/test_events.py uses
+    # @pytest.mark.anyio directly (async SSE tests); previously only a
+    # transitive dependency via fastapi/starlette, not declared.
+    "anyio>=4.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+# T042 (R3 spike): research spikes live in tests/spikes/ under a *_smoke.py
+# name rather than test_*.py, so they read as characterization spikes, not unit
+# tests. They must still be collected by `pytest tests/` so their evidence is
+# re-checked on every CI run (not a one-off). Extending python_files keeps the
+# two pytest defaults and adds the *_smoke.py pattern; nothing else matches it.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py", "*_smoke.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# FastAPI's Depends()/Query()/Body() in argument defaults is the framework's
+# own dependency-injection idiom, not the mutable-default-argument bug B008
+# exists to catch: exempting these calls avoids a noqa on every endpoint.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body"]
+
+[tool.ruff.format]
+quote-style = "double"
