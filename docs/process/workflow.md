@@ -139,16 +139,23 @@ Six rules the machine enforces rather than documents:
    model later. Model boundaries (0 to 1, 4 to 5, 6 to 7, 7 to 8) double as
    budget checkpoints — after a long standard-model batch, prefer starting the
    next heavy phase in a fresh window rather than at the tail of a spent one.
-6. **The one exception to rule 5 is a single-tier fallback on `claude-fable-5`.**
-   A phase pinned to `claude-fable-5` that hits a usage-limit pause may fall
-   back exactly one tier, to `claude-opus-5`, instead of waiting out the
-   window. The fallback is applied the same way any phase override is applied:
-   a `model_phase_<N>:` line in `specs/PROFILE.md`, where `<N>` is the paused
-   phase's number. That override is temporary and is removed again as soon as
-   the usage limit clears or the phase completes, whichever comes first — it
-   never survives past its phase. The fallback is never more than one tier: a
-   phase already on `claude-opus-5` waits out the pause on rule 5 like any
-   other, it does not fall back further.
+6. **The one exception to rule 5 is a single-tier fallback from
+   `claude-opus-5` to `claude-sonnet-5`, and only in phases 2 and 4.** A
+   generative phase pinned to `claude-opus-5` that hits a usage-limit pause may
+   fall back one tier instead of waiting out the window. The fallback is applied
+   the same way any phase override is applied: a `model_phase_<N>:` line in
+   `specs/PROFILE.md`, where `<N>` is the paused phase's number. That override is
+   temporary and is removed again as soon as the usage limit clears or the phase
+   completes, whichever comes first — it never survives past its phase.
+
+   **Phase 7 is explicitly excluded**, and so is every other phase. Phase 7 is a
+   review, the build phases run on `claude-sonnet-5`, and a phase 7 that fell back
+   to `claude-sonnet-5` would have the model reviewing its own work — the one thing
+   rule 1 exists to prevent. A paused phase 7 waits for the window. Phases 1 and 3
+   are elicitation rather than generation and stall on answers only a human has, so
+   a downgrade buys nothing there either; they wait too. The fallback is never more
+   than one tier, and a phase already on `claude-sonnet-5` does not fall back at
+   all.
 
 ## Compliance articles
 
