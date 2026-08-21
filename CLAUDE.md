@@ -68,6 +68,7 @@ before writing code.
 
 Pointers, not copies — read the linked file for the actual content:
 
+- `docs/HANDOVER.md` — phase 8 handover: start here if you were not in the room.
 - `specs/` — the kickoff brief and decision log (`kickoff.md`) and the project
   profile (`PROFILE.md`: gate mode, risk class, deploy target). Read before
   any spec-level question.
@@ -78,6 +79,13 @@ Pointers, not copies — read the linked file for the actual content:
   or resuming any phase.
 - `.workflow/state.json` — the live phase-machine state (current phase, gates
   approved so far). Read to see where the project actually stands right now.
+- `docs/CONTEXT.md` — glossary, every ADR indexed and linked, the deployment
+  statement. Start here to get oriented in the project as a whole.
+- `docs/runbook.md` — incident detection and notification, phase 8 deliverable.
+- `scripts/onboarding-wizard.sh` — run this on the real Mac to set up from
+  scratch: prerequisites, `make setup`, the SQLCipher key, the Spotify
+  Developer app (with the Development Mode gotcha that once broke every real
+  sync), first run, observing, and both rollback paths.
 
 ## Project-specific rules
 

@@ -18,3 +18,15 @@ instead of running the spike; `DualPlayback.tsx` (T040) is built straight
 against the Web Playback SDK, with real playback verified on the owner's
 Mac rather than in this sandbox (same pattern as quickstart.md's
 owner-supplied-fixture tasks).
+
+**Update, phase 7 (ADR 0022), 2026-08-19**: the buy queue now plays a Missing
+Track through the same Web Playback SDK connection, not just the Review Queue
+-- the owner asked for it after using the app, on the reasoning that a Missing
+Track came from a Spotify playlist they already have Premium for. The SDK
+permits exactly one player per page, so
+`web/src/features/playback/useSpotifyPlayer.ts` is a ref-counted singleton both
+`DualPlayback.tsx` and the buy queue subscribe to, rather than a second
+connection. This ADR's title still says "review UI" because that is where the
+decision to embed rather than link out originated; the consequence it names
+(Premium as a runtime dependency, DRM as a named unknown) now applies to both
+surfaces.

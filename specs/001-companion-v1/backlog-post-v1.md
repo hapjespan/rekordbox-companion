@@ -43,14 +43,12 @@ What remains open, and needs the Mac: whether the real Rekordbox 7.2.17 process
 holds a lock or cache that would still make a live snapshot differ from the
 checkpointed one. That is recorded under the owner's open items, not here.
 
-## B3 — Reconcile ADR 0017 with the test-side pyrekordbox imports
+## B3 — Reconcile ADR 0017 with the test-side pyrekordbox imports — CLOSED
 
-`engine/tests/rb/test_writer_integration.py` and
-`engine/tests/bookings/test_structure_apply.py` import `pyrekordbox` directly to
-verify the writer with something other than the writer. That is sound test
-design, but it sits outside ADR 0017's stated exception, so the rule's wording
-and the practice disagree. Widen the ADR, or route the verification through a
-read-only wrapper.
+Closed in phase 8: ADR 0017 now names both test files explicitly as a second,
+narrower exception (read-only verification of what the writer wrote, through a
+different path than the writer itself), so the rule's wording and the practice
+agree.
 
 ## B4 — Render enrichment progress instead of only probing for completion
 

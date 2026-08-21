@@ -14,7 +14,7 @@ statement, the reconciled PII inventory, and validation against the scope note i
 | Criterion | Status |
 |---|---|
 | Phase 6 complete | Yes, `.workflow/state.json` records phase 6 |
-| Every task merged into `release` | **Deviation**: phase 6 landed on `phase-6-implementation` and is under review as PR #165 into `release`. Reviewing the branch rather than the merged `release` reviews the same content the release PR contains, which is what the phase file asks for; the merge was deliberately held until this report's blocking findings were closed, which they now are. |
+| Every task merged into `release` | Yes. Landed via #170 (the two commits release was missing) and #172 (the pre-resolved `release` → `main` promotion, phase 8 step 1); #165, the original PR opened against this branch, was superseded and closed once GitHub retargeted it to `main` mid-review and it could no longer reach `release` directly. |
 | Test suite green | Yes. At review start: 429 pytest, 111 vitest. After the first revision: 458 pytest, 175 vitest. Now: 534 pytest, 346 vitest, 7 Playwright with three axe sweeps, `pnpm build`, `tsc --noEmit`, ESLint and Prettier clean, and CI green on `2b29fe4` after being unable to start jobs for most of the second revision. |
 | Spec, constraints, PII inventory, scope note available | Yes |
 | Session runs the routed model | Yes at the time: phase 7 was pinned to `claude-fable-5` and the review ran there. The pin became `claude-opus-5` afterwards, when the owner dropped fable for costing upwards of three times sonnet's output price; the ledger still records fable as the reviewer, because that is who reviewed. |
