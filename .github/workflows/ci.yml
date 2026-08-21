@@ -11,13 +11,13 @@ jobs:
     name: Backend (pytest, ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
           enable-cache: true
@@ -46,15 +46,15 @@ jobs:
     name: Frontend (vitest, eslint, playwright)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           # The `packageManager` pin lives in web/package.json, not the repo
           # root the action reads by default.
           package_json_file: web/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # pnpm 11 (the packageManager pin) requires Node >= 22.13, and the
           # dev container runs 24; anything lower crashes setup-node's cache
