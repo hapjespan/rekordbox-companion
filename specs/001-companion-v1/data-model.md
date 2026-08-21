@@ -67,7 +67,10 @@ Apply de-duplicates, spec edge case).
 Status transitions: `review → matched` (accept), `review → rejected` (reject;
 spawns missing_track), `missing → matched` (auto, on re-sync per FR-023).
 `unmatchable` is terminal (no identifiers, spec edge case). `matched` never
-transitions away.
+transitions away. Accept/reject (T037) only ever apply to a track currently
+`review`; attempting either from any other status is refused (409
+`not_in_review`), not silently ignored or re-applied -- only `review` has an
+accept/reject transition listed above at all (T036 build finding).
 
 ### missing_track
 
@@ -78,6 +81,9 @@ transitions away.
 | itunes_track_id | text NULL | |
 | itunes_url_auto | text NULL | best-effort pick (FR-022 keeps it) |
 | itunes_url_chosen | text NULL | manual override wins when set |
+| itunes_preview_url | text NULL | the automatic pick's 30s store preview (FR-041, ADR 0021) |
+| itunes_price | real NULL | single-track price of the automatic pick; NULL when the store sells it album-only or streaming-only |
+| itunes_currency | text NULL | ISO code, only ever set alongside a price |
 | status | enum | `open` → `acquired` / `ignored`; `open → closed` via FR-023 auto-match |
 | resolved_at | datetime NULL | |
 
@@ -128,6 +134,13 @@ Per-track queue state that makes runs incremental and resumable (R1, ADR 0013).
 | structure_track | node_id FK, rb_content_id, position, origin enum(`suggestion`,`manual`) | contents of playlist nodes |
 | suggestion_dismissal | node_id FK, rb_content_id | dismissed Suggestions never return for that playlist (FR-034) |
 
+`GET /api/structures/{id}/nodes/{nid}/tracks` (phase 6 gap-close) is the one
+read path for actual `structure_track` membership, in stored `position`
+order, resolving every other field from the Collection index below -- a row
+whose `rb_content_id` the index no longer knows is skipped, same precedent as
+playlist membership below. Suggestions is a different, profile-filtered,
+play-count-ranked query over the whole Collection, never this table.
+
 ### write_log
 
 Audit trail for the guarded write path (constraints: NIS2 logging; SC-006).
@@ -151,11 +164,48 @@ overrides if ever needed.
 
 - **Collection index** (R6/ADR 0012): list of `{rb_content_id, artist, title,
   norm_artist, norm_title, remix_tokens, duration_ms, bpm, isrc, play_count,
-  location}` rebuilt from `master.db` on demand; serves matching, search and
-  suggestions.
+  location, musical_key, label}` rebuilt from `master.db` on demand; serves
+  matching, search, suggestions and the per-playlist track view.
+  `musical_key`/`label` are Rekordbox's own `KeyName`/`LabelName`, both
+  optional and absent for most tracks (7 of the 119 fixture tracks carry a
+  key, 4 a label). `musical_key` is stored verbatim, Camelot (`8m`, `2d`) or
+  the occasional classical spelling (`G m`), never normalised or converted.
+  Rekordbox's `Rating` is deliberately NOT read: nothing asks for it.
+- **Rekordbox playlist membership**: read per request from `master.db` as
+  `{rb_content_id, position}` per row (`DjmdSongPlaylist`, ordered by its
+  `TrackNo`, which pyrekordbox returns unordered), never cached and never
+  duplicated into `app.sqlite`. It is the one thing the collection index
+  cannot answer, which is why `GET /api/playlists/{id}/tracks` reads it there
+  and serves every track field from the index.
 - **Suggestions** are computed, never stored: filter index by profile tags
   (against enriched_genre) and BPM, rank by play count, subtract current
   `structure_track` rows and `suggestion_dismissal` rows.
+- **Matching engine seam** (FR-004..FR-009; T019 review finding, corrected by
+  T020/T021 review): pinned here once so US1's test tasks (T019-T023) and
+  implementation tasks (T024-T025) agree on it independently, instead of
+  each test file deciding it implicitly.
+  `classify_match(spotify: dict, collection: dict) -> MatchResult`:
+  - `spotify`: `{artist, title, duration_ms, isrc?}` — raw, as fetched for one
+    Sync Session track (at most 999 per playlist, D12); `classify_match`
+    normalises it internally, which is cheap once per track.
+  - `collection`: `{norm_artist, norm_title, remix_tokens, duration_ms,
+    isrc?}` — the PRECOMPUTED fields of a Collection index entry (see
+    above), never raw `artist`/`title`. `classify_match` is the hot loop
+    scoring one Spotify track against many Collection entries (up to ~40k,
+    phase-3 grilling) to find the top-3 fuzzy candidates, so re-normalising
+    the collection side per comparison would cost O(tracks x collection)
+    regex work instead of the O(collection) ADR 0012's precomputation
+    already pays for once at index-build time. A caller assembling a
+    `collection` dict from anything other than an `IndexEntry` (the golden
+    fixture's human-authored plain `artist`/`title`, T019) must run it
+    through `normalize()`/`extract_remix_tokens()` itself first — see
+    `test_matching_golden.py`'s `_collection_dict` helper.
+  - `MatchResult` exposes `.status` (`"matched" | "review" | "missing"`, per
+    FR-005..FR-008's tiers) and `.score` (0-100, FR-006/FR-007's fuzzy weight).
+  Plain dicts over typed dataclasses: the caller (sync flow) already holds
+  both shapes as dicts (Spotify API JSON, collection index entries above), so
+  a dataclass would just add a conversion step with no consumer that needs
+  it yet — the "boring" choice per project conventions.
 
 ## Validation rules
 

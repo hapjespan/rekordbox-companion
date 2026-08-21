@@ -21,11 +21,16 @@ code; this is the validation script.
 ## Run
 
 ```bash
-make setup   # uv sync + pnpm install + hooks
+make setup   # uv sync + alembic upgrade head + pnpm install + hooks
 make dev     # uvicorn 127.0.0.1:8787 --reload + vite dev proxy
 make test    # pytest + vitest
 make build && make run   # production mode: SPA served by FastAPI
 ```
+
+`make setup` applies every Alembic migration to `data/app.sqlite` (created if
+absent), so `make dev`/`make run` always start against an up-to-date schema.
+Re-run `make setup` (or, from `engine/`, `uv run alembic upgrade head`
+directly) after pulling changes that add a new migration.
 
 `/api/health` must report `version_pin_ok: true` against the fixture, and
 `ffmpeg_ok: true`.
@@ -55,7 +60,12 @@ Ordered by story priority; each maps to spec acceptance scenarios.
 5. **US5 collection**: `/api/collection?query=` on a 40.000-entry index
    answers < 100ms (perf test); an mp3 and an m4a fixture play with seek; the
    ALAC fixture plays via the ffmpeg fallback; a missing file reports
-   `file_missing`, no crash.
+   `file_missing`, no crash. Also verify `rb/reader.py`'s BPM (stored ×100
+   per pyrekordbox's `anlz/tags.py`) and track-length (assumed whole
+   seconds, unconfirmed against a real file) conversions against a few known
+   tracks in the real fixture Collection once it lands — both were encoded
+   from documentation/convention during phase 6 build, not real data
+   (gate-review finding, T012).
 6. **US6 enrichment**: run enrichment on the fixture collection; status shows
    coverage; interrupt the run and confirm it resumes without redoing done
    tracks (ADR 0013); manually override one track's genres and confirm a

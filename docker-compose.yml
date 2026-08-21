@@ -24,6 +24,13 @@ services:
       # or `pnpm dev -- --port`; uvicorn takes --port ${DEV_PORT} in its script.
       PORT: ${DEV_PORT:-8787}
       VITE_PORT: ${VITE_PORT:-5173}
+      # Bind the in-container processes to all interfaces: the loopback-only
+      # security posture (below) is enforced by the *host*-side publish
+      # binding to 127.0.0.1, not by the process inside the container. A
+      # process bound to 127.0.0.1 inside its own network namespace is
+      # unreachable through Docker's published port, which arrives on the
+      # container's other interface, never its loopback.
+      DEV_HOST: 0.0.0.0
     entrypoint:
       - /bin/sh
       - -c

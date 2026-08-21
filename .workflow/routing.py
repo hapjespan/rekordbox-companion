@@ -131,15 +131,34 @@ def tasks_files():
 
 
 def read_tasks():
-    """task id -> raw complexity marker, None when the line carries no marker."""
+    """task id -> raw complexity marker, None when the task carries no marker.
+
+    A task's own description often wraps onto indented continuation lines
+    (this project's tasks.md does, throughout), and `[complexity: high]`
+    frequently lands on one of those continuation lines rather than the
+    line carrying the checkbox and task id. Scanning only the first line
+    would silently read every wrapped complexity flag as absent -- the
+    marker is searched across the task's full block: its own line plus
+    every following line that continues it (indented, non-blank, not
+    itself a new task line), stopping at the first line that isn't one of
+    those (blank line, heading, list item, or the next task)."""
     tasks = {}
     for path in tasks_files():
-        for line in path.read_text().splitlines():
-            match = TASK_LINE.match(line)
+        lines = path.read_text().splitlines()
+        i = 0
+        while i < len(lines):
+            match = TASK_LINE.match(lines[i])
             if not match:
+                i += 1
                 continue
-            marker = COMPLEXITY.search(line)
-            tasks[match.group(1)] = marker.group(1).lower() if marker else None
+            task_id = match.group(1)
+            block = [lines[i]]
+            i += 1
+            while i < len(lines) and lines[i].strip() and not TASK_LINE.match(lines[i]):
+                block.append(lines[i])
+                i += 1
+            marker = COMPLEXITY.search(" ".join(block))
+            tasks[task_id] = marker.group(1).lower() if marker else None
     return tasks
 
 

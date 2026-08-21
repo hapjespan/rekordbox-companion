@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [release, main]
+  pull_request:
+    branches: [release, main]
+
+jobs:
+  backend:
+    name: Backend (pytest, ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+
+      - name: Install dependencies
+        working-directory: engine
+        run: uv sync --locked
+
+      - name: Lint
+        working-directory: engine
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      # No .env, no owner-supplied fixture master.db, no real Rekordbox
+      # install in this runner -- by design (project rule 3: never commit
+      # real master.db, tokens or data/ contents). Every test that needs
+      # any of those skips gracefully rather than failing (research.md R3's
+      # own precedent: real-file evidence runs wherever the fixture exists).
+      - name: Test
+        working-directory: engine
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend (vitest, eslint, playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # The `packageManager` pin lives in web/package.json, not the repo
+          # root the action reads by default.
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          # pnpm 11 (the packageManager pin) requires Node >= 22.13, and the
+          # dev container runs 24; anything lower crashes setup-node's cache
+          # probe on `node:sqlite`.
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: web
+        run: |
+          pnpm exec eslint src tests --max-warnings=0
+          pnpm exec prettier --check src tests
+
+      - name: Typecheck
+        working-directory: web
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests
+        working-directory: web
+        run: pnpm test -- --run
+
+      - name: Build
+        working-directory: web
+        run: pnpm build
+
+      # T033/T095 (plan.md's proof-of-value e2e budget): the two
+      # value-carrying flows, plus T091's accessibility sweep, are the
+      # CI-facing regression guard -- every spec mocks the API at the
+      # network layer, so this runner needs no backend, no Spotify account,
+      # no Rekordbox fixture (playwright.config.ts's own documented reason).
+      - name: Install Playwright browsers
+        working-directory: web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E tests
+        working-directory: web
+        run: pnpm exec playwright test

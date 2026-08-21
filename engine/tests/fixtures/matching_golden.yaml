@@ -1,0 +1,87 @@
+# Golden Set (spec.md, FR-009, SC-003): a fixed, growing set of real match
+# cases with expected outcomes gating every matching pipeline change. Only
+# ever extended, never weakened (project rule 7).
+#
+# The cases below are illustrative stubs (`stub_example: true`), one per
+# outcome tier, so the schema is exercised before real data lands. The real
+# set — at least 50 cases, at least 10 of them hard (remix, radio edit,
+# featuring variants) — is an owner-supplied input still owed (grilling D10,
+# quickstart.md) and is not required before phase 6 starts. T019 (US1) builds
+# the loader that runs this file for real and enforces the 100%-pass gate;
+# this task only establishes the schema.
+#
+# Schema per case:
+#   id:              unique, stable across edits (never reused)
+#   description:     human-readable note on what the case exercises
+#   hard_case:       true for remix/radio-edit/featuring-variant cases (SC-003)
+#   stub_example:    true for illustrative stubs; absent/false for real cases
+#   spotify:         {artist, title, duration_ms, isrc (optional)}
+#   collection:      {artist, title, duration_ms, isrc (optional)}
+#   expected_status: matched | review | missing (FR-003)
+
+cases:
+  - id: stub-isrc-exact-match
+    description: Exact ISRC match on both sides auto-matches (FR-005).
+    hard_case: false
+    stub_example: true
+    spotify:
+      artist: Example Artist
+      title: Example Title
+      duration_ms: 210000
+      isrc: USRC17607839
+    collection:
+      artist: Example Artist
+      title: Example Title
+      duration_ms: 210000
+      isrc: USRC17607839
+    expected_status: matched
+
+  - id: stub-fuzzy-review-tier
+    description: >-
+      Fuzzy score between 75 and 92 enters the Review Queue (FR-007). Title
+      updated after T024/T025 landed (was "Example Song (feat. Someone)"):
+      normalize() strips featuring credits entirely, so that title became an
+      exact tier-2 text match instead of a fuzzy tier-3 one, no longer
+      illustrating this case's own point (T024/T025 review finding).
+    hard_case: false
+    stub_example: true
+    spotify:
+      artist: Example Artist
+      title: Example Melody
+      duration_ms: 200000
+    collection:
+      artist: Example Artist
+      title: Example Song
+      duration_ms: 201500
+    expected_status: review
+
+  - id: stub-remix-marker-veto
+    description: >-
+      High title similarity (score would clear the 92 auto-match bar) but the
+      remix marker differs, so the veto forces review anyway (FR-008) rather
+      than the score landing in the 75-92 band incidentally (FR-007).
+    hard_case: true
+    stub_example: true
+    spotify:
+      artist: Example Artist
+      title: Example Song (Club Mix)
+      duration_ms: 300000
+    collection:
+      artist: Example Artist
+      title: Example Song
+      duration_ms: 300000
+    expected_status: review
+
+  - id: stub-below-threshold-missing
+    description: Fuzzy score below 75 becomes a Missing Track (FR-007).
+    hard_case: false
+    stub_example: true
+    spotify:
+      artist: Completely Different Artist
+      title: Completely Different Title
+      duration_ms: 180000
+    collection:
+      artist: Example Artist
+      title: Example Song
+      duration_ms: 210000
+    expected_status: missing

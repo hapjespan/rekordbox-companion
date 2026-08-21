@@ -17,9 +17,11 @@ is independently implementable and testable, per `docs/process/05-tasks.md`.
 are written into the specific tasks they affect, not asserted separately:
 Playwright covers only the two value-carrying flows (T033+T052 for
 sync→review→apply, T107 for missing→link), player depth stops at
-progress+seek (T065), the MusicBrainz adapter is conditional on the R1 spike
-(T072), and no task adds optimisation beyond the stated 30s/100ms/40k
-numbers.
+progress+seek (T065), and no task adds optimisation beyond the stated
+30s/100ms/40k numbers. The R1 spike (T066) found Spotify artist genres
+unavailable to this app (ADR 0018): the MusicBrainz adapter (T072) is the
+sole Enriched Genre source, not conditional, and the Spotify adapter task
+(originally T071) is dropped.
 
 **Owner-supplied inputs still owed** (grilling D10, `quickstart.md`): fixture
 `master.db` + SQLCipher key or decrypted export, `SPOTIFY_CLIENT_ID`,
@@ -45,27 +47,35 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `engine/` package skeleton: `engine/pyproject.toml` (uv-managed,
+- [x] T001 Create `engine/` package skeleton: `engine/pyproject.toml` (uv-managed,
       Python 3.12), `engine/src/companion/__init__.py`, dependency pins for
       FastAPI, uvicorn, pyrekordbox, rapidfuzz, SQLAlchemy 2.x, Alembic, httpx
-- [ ] T002 [P] Create `web/` Vite + React 18 + TypeScript project skeleton in
+- [x] T002 [P] Create `web/` Vite + React 18 + TypeScript project skeleton in
       `web/package.json` and `web/vite.config.ts` (pnpm via corepack), wired to
       the existing `web/design-input/theme.css`
-- [ ] T003 Configure Python linting/formatting in `engine/pyproject.toml`
+- [x] T003 Configure Python linting/formatting in `engine/pyproject.toml`
       (ruff). Not [P] with T001: same file (gate-review finding).
-- [ ] T004 [P] Configure TypeScript linting/formatting in `web/.eslintrc.cjs`
-      and `web/.prettierrc` (respect existing `.prettierignore`)
-- [ ] T005 Write `Makefile` targets `setup`, `dev`, `test`, `build`, `run` per
+- [x] T004 [P] Configure TypeScript linting/formatting in `web/eslint.config.js`
+      (ESLint 9 flat config — `.eslintrc.cjs` would need ESLint 8, EOL since
+      2024, a violation of "prefer boring, well-supported dependencies";
+      corrected during phase 6 build, standards-review finding) and
+      `web/.prettierrc` (respect existing `.prettierignore`)
+- [x] T005 Write `Makefile` targets `setup`, `dev`, `test`, `build`, `run` per
       `specs/001-companion-v1/quickstart.md`
-- [ ] T006 Write `scripts/dev.sh` launching `uvicorn 127.0.0.1:8787 --reload`
+- [x] T006 Write `scripts/dev.sh` launching `uvicorn 127.0.0.1:8787 --reload`
       and the Vite dev proxy together
-- [ ] T007 [P] Create `engine/tests/fixtures/` with a `matching_golden.yaml`
+- [x] T007 [P] Create `engine/tests/fixtures/` with a `matching_golden.yaml`
       schema stub (empty/example cases only — the real ≥50-case set with
       ≥10 hard cases is owner-supplied before phase 6 execution, FR-009,
       SC-003)
-- [ ] T008 [P] Set up `web/src/api/` client generation: `openapi-typescript` +
+- [x] T008 [P] Set up `web/src/api/` client generation: `openapi-typescript` +
       `openapi-fetch`, `pnpm openapi` script per project rule 4 (R5);
-      placeholder client until the first OpenAPI schema exists
+      placeholder client until the first OpenAPI schema exists. Commits
+      `web/src/api/generated/schema.d.ts` (reversing T002's `.gitignore`
+      rule for that path): rule 4 treats the generated client like a
+      lockfile, regenerated and re-committed on schema change, not
+      regenerated from a live backend on every checkout (spec-review
+      finding during phase 6 build).
 
 ---
 
@@ -73,51 +83,85 @@ Per plan.md's Project Structure: `engine/src/companion/` (Python backend),
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T009 Set up SQLAlchemy 2.x engine/session + Alembic migrations framework
+- [x] T009 Set up SQLAlchemy 2.x engine/session + Alembic migrations framework
       in `engine/src/companion/db/__init__.py` and `engine/src/companion/db/session.py`
-- [ ] T010 [P] Create `app_config` table and its Alembic migration in
+- [x] T010 [P] Create `app_config` table and its Alembic migration in
       `engine/src/companion/db/models.py` (data-model.md: paths, pinned
       Rekordbox version, auto-match bar overrides)
-- [ ] T011 Implement `engine/src/companion/config.py`: paths, env loading,
-      Rekordbox install detection, pinned version constant `7.2.17` (ADR 0002)
-- [ ] T012 Implement `engine/src/companion/rb/reader.py`: collection snapshot,
-      playlist/folder tree, play counts read via pyrekordbox — the only
-      module (with its `rb/` siblings) permitted to import pyrekordbox
-      (project rule 1)
-- [ ] T013 Implement `engine/src/companion/rb/index.py`: in-memory collection
+- [x] T011 Implement `engine/src/companion/config.py`: paths, env loading,
+      pinned version constant `7.2.17` (ADR 0002). Rekordbox install
+      detection moved to T012: it requires importing pyrekordbox, which
+      project rule 1 confines to `rb/`; `config.py` sits outside `rb/`, so
+      the two clauses in this task's original wording were mutually
+      exclusive. Corrected during phase 6 build, not silently resolved in
+      code.
+- [x] T012 Implement `engine/src/companion/rb/reader.py`: collection snapshot,
+      playlist/folder tree, play counts, and Rekordbox install/version
+      detection (moved from T011) read via pyrekordbox — the only module
+      (with its `rb/` siblings) permitted to import pyrekordbox (project
+      rule 1)
+- [x] T013 Implement `engine/src/companion/rb/index.py`: in-memory collection
       index (`rb_content_id, artist, title, norm_artist, norm_title,
       remix_tokens, duration_ms, bpm, isrc, play_count, location`) rebuilt
       from `reader.py` on demand, serving matching, search and suggestions
-      (R6/ADR 0012)
-- [ ] T014 Implement `engine/src/companion/main.py`: FastAPI app factory,
+      (R6/ADR 0012). `norm_artist`/`norm_title`/`remix_tokens` use a
+      placeholder (lowercase/strip, empty tokens) until T024's FR-004
+      pipeline exists, since T013 lands in Foundational and T024 lands in
+      US1 — the same forward-reference gap T007 already established a
+      stub-and-replace precedent for. `index.py` must import from
+      `matching/normalize.py` once T024 lands, replacing the placeholder.
+- [x] T014 Implement `engine/src/companion/main.py`: FastAPI app factory,
       static SPA mount, binding restricted to `127.0.0.1:8787` (FR-037)
-- [ ] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
+- [x] T015 Implement `GET /api/health` in `engine/src/companion/api/health.py`:
       `{status, rekordbox_version, version_pin_ok, db_path, rekordbox_running,
-      ffmpeg_ok}` (contracts/api.md; guard visibility, FR-015)
-- [ ] T016 [P] Implement `POST /api/collection/reindex` in
+      ffmpeg_ok}` (contracts/api.md; guard visibility, FR-015). The
+      `rekordbox_running` check (`is_rekordbox_running`) lives in
+      `rb/reader.py`, not `health.py`, so `rb/guard.py` (T046) reuses the
+      same implementation instead of a second one that could disagree with
+      it — doesn't need pyrekordbox, but rb/ already owns "facts about the
+      Rekordbox process" (T012). contracts/api.md doesn't enumerate
+      `status`'s values: implemented as `"ok"` when Rekordbox is installed
+      and matches the pinned version, else `"degraded"`, directly from the
+      spec's own edge case wording ("the app starts in a degraded state...
+      instead of erroring per screen") rather than a fresh invention.
+- [x] T016 [P] Implement `POST /api/collection/reindex` in
       `engine/src/companion/api/collection.py` wrapping the `rb/index.py`
       rebuild
-- [ ] T101 Implement `GET /api/playlists` (read-only Rekordbox
+- [x] T101 Implement `GET /api/playlists` (read-only Rekordbox
       playlist/folder tree, `rb/reader.py`) and `GET/PUT /api/config`
       (paths, thresholds, `app_config` table from T010) in
       `engine/src/companion/api/collection.py` and
       `engine/src/companion/api/config.py` (contracts/api.md). Gate-review
       finding: these two contract endpoints had no task. Not [P] with T016:
-      shares `api/collection.py`, and depends on T010.
-- [ ] T108 [P] Test in `engine/tests/rb/test_reader.py`: `reader.py` returns
+      shares `api/collection.py`, and depends on T010. contracts/api.md's
+      "tree" wording for `GET /api/playlists` was clarified to `[PlaylistNode]`
+      (flat, `parent_id`-linked): that has always been `read_playlist_tree`'s
+      shape (T012), the endpoint just exposes it as-is; `PUT /api/config`'s
+      "same" was clarified to mean it echoes the whole table, not only the
+      changed keys (build-time review finding, not a behaviour change).
+- [x] T108 [P] Test in `engine/tests/rb/test_reader.py`: `reader.py` returns
       the documented fields (artist, title, duration, BPM, play count,
       location) from the fixture `master.db` collection snapshot and
-      playlist/folder tree
-- [ ] T109 [P] Test in `engine/tests/rb/test_index.py`: the in-memory index
+      playlist/folder tree. Satisfied by T012's own test suite in that same
+      file (against a duck-typed fake, not the real fixture — owner-supplied
+      fixture still owed, quickstart.md); no separate task needed.
+- [x] T109 [P] Test in `engine/tests/rb/test_index.py`: the in-memory index
       rebuild reflects `reader.py` output, including the normalised
       artist/title and remix-token fields matching consumes (R6/ADR 0012).
       Gate-review finding: Foundational tasks had no test coverage, unlike
-      every story phase.
-- [ ] T017 [P] Wire `web/src/theme/index.css` to consume
+      every story phase. Satisfied by T013's own test suite in that same
+      file (against the T013 placeholder normalisation, not T024's real
+      FR-004 pipeline yet); no separate task needed.
+- [x] T017 [P] Wire `web/src/theme/index.css` to consume
       `web/design-input/theme.css` as the Tailwind v4 `@theme`; no hardcoded
       colour/typography/spacing/radius values anywhere downstream (project
-      rule 5)
-- [ ] T018 [P] Set up structured logging in `engine/src/companion/logging.py`
+      rule 5). Only the `latin` Inter unicode-range subset is aliased under
+      the SpotifyMixUI/SpotifyMixUITitle token names; Dutch UI copy (FR-038)
+      is fully covered, but Collection track/artist data with Eastern
+      European, Turkish, Cyrillic or Greek characters would fall through to
+      a system-font fallback once US5 renders real track names — deferred,
+      not fixed here (gate-review finding).
+- [x] T018 [P] Set up structured logging in `engine/src/companion/logging.py`
       with token/key redaction as a tested formatter property (NIS2 logging
       plan) [complexity: high] — security boundary: a missed redaction path
       would leak the operator's Spotify tokens or the SQLCipher key into logs
@@ -136,79 +180,106 @@ write path or review UI required (spec.md).
 
 ### Tests for User Story 1
 
-- [ ] T019 [P] [US1] Golden-set contract test harness in
+- [x] T019 [P] [US1] Golden-set contract test harness in
       `engine/tests/test_matching_golden.py` loading
       `engine/tests/fixtures/matching_golden.yaml`; asserts 100% pass and that
       the set only ever grows (FR-009). Real fixture data is owner-supplied
       before this can execute against real cases (quickstart.md); the harness
       itself is not blocked.
-- [ ] T020 [P] [US1] Unit tests for normalisation + remix-token extraction in
+- [x] T020 [P] [US1] Unit tests for normalisation + remix-token extraction in
       `engine/tests/matching/test_normalize.py` (FR-004)
-- [ ] T021 [P] [US1] Unit tests for tiered scoring/classification in
+- [x] T021 [P] [US1] Unit tests for tiered scoring/classification in
       `engine/tests/matching/test_engine.py`: ISRC fast lane, exact+duration
       fast lane, 92/75 score bars, 40/60 artist/title weighting, duration
       penalty beyond 5s, remix-marker veto (FR-005..FR-008)
-- [ ] T022 [P] [US1] API contract test for `POST /api/sync/sessions` against a
+- [x] T022 [P] [US1] API contract test for `POST /api/sync/sessions` against a
       fake `rb` adapter in `engine/tests/api/test_sync_sessions.py`: exactly
       one status per track (FR-003), 999-track cap refused before the session
       starts (edge case), duplicate playlist positions reported once each
       (edge case)
-- [ ] T023 [P] [US1] Vitest for the match report table in
+- [x] T023 [P] [US1] Vitest for the match report table in
       `web/tests/features/spotify-sync/MatchReport.test.tsx`: totals and
       per-track status conveyed in text, not colour alone (WCAG)
-- [ ] T097 [P] [US1] Performance test in
+- [x] T097 [P] [US1] Performance test in
       `engine/tests/perf/test_match_report.py`: a 100-track playlist against
       the 40.000-entry index produces a complete match report in under 30
       seconds (SC-001); a 999-track playlist (the cap, D12) completes within
       5 minutes (plan.md constraint-to-decision map). Gate-review finding B3.
-- [ ] T104 [US1] Test in `engine/tests/api/test_sync_sessions.py`: a
+- [x] T104 [US1] Test in `engine/tests/api/test_sync_sessions.py`: a
       Spotify session expiring mid Sync Session fails the session with a
       re-connect prompt and no partial report is presented as complete
       (edge case). Not [P] with T022: same file (gate-review finding).
-- [ ] T105 [P] [US1] Test in `engine/tests/api/test_health.py`: when
+- [x] T105 [P] [US1] Test in `engine/tests/api/test_health.py`: when
       `master.db` is not at the expected path, the app starts in a degraded
       state naming the expected path and blocking Rekordbox-backed features
       instead of erroring per screen (edge case)
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement `engine/src/companion/matching/normalize.py`:
+- [x] T024 [US1] Implement `engine/src/companion/matching/normalize.py`:
       case-insensitive normalisation, featuring/remaster/bracket/punctuation/
       diacritic stripping, remix/edit marker kept as a distinct token (FR-004)
-- [ ] T025 [US1] Implement `engine/src/companion/matching/engine.py`: ISRC
+- [x] T025 [US1] Implement `engine/src/companion/matching/engine.py`: ISRC
       exact-match lane (FR-005), exact-normalised+≤3s-duration lane (FR-006),
       fuzzy scoring 40% artist / 60% title with duration penalty beyond 5s and
       the 92/75 bars (FR-007), remix-marker veto forcing Review Queue
       regardless of score (FR-008)
-- [ ] T026 [US1] Implement `engine/src/companion/integrations/spotify.py`:
+- [x] T026 [US1] Implement `engine/src/companion/integrations/spotify.py`:
       OAuth PKCE login/callback/status/disconnect, playlist fetch with
       pagination, 999-track cap enforced before the session starts (edge
       case) [complexity: high] — security boundary: exchanges and stores the
-      operator's Spotify credentials
-- [ ] T027 [US1] Add `sync_session`, `sync_track` models and Alembic migration
-      in `engine/src/companion/db/models.py` (data-model.md)
-- [ ] T028 [US1] Implement `POST /api/sync/sessions` in
+      operator's Spotify credentials. T022 review finding: T022's contract
+      test only checks the end-effect refusal (422, nothing persisted) at
+      the `api/sync.py` router seam, against a fake that already returns all
+      tracks in one call — it does not exercise pagination stopping early
+      once the cap is exceeded. This task's own build must short-circuit
+      pagination itself (the reason tasks.md puts the cap here rather than
+      in the router) and should add its own unit test for that, since no
+      other task in tasks.md covers it.
+- [x] T027 [US1] Add `playlist_link`, `sync_session`, `sync_track` models and
+      Alembic migration in `engine/src/companion/db/models.py` (data-model.md).
+      `playlist_link` moved here from T049 (build finding): `sync_session`
+      FKs into it, and T028 needs it for FR-010's lineage reuse, both before
+      US3 exists.
+- [x] T028 [US1] Implement `POST /api/sync/sessions` in
       `engine/src/companion/api/sync.py`: fetch playlist, run the matching
       engine, persist `sync_track` rows with status and top-3 candidates,
       classify local/unavailable tracks as `unmatchable` (edge case)
-- [ ] T029 [US1] Implement `GET /api/sync/sessions` and
+- [x] T029 [US1] Implement `GET /api/sync/sessions` and
       `GET /api/sync/sessions/{id}` in `engine/src/companion/api/sync.py`.
       Not [P] with T028: same file (gate-review finding).
-- [ ] T030 [US1] Implement the `sync_progress` SSE event on `GET /api/events`
+- [x] T030 [US1] Implement the `sync_progress` SSE event on `GET /api/events`
       in `engine/src/companion/api/events.py` for the fetch+match run (R4)
-- [ ] T031 [P] [US1] Build `web/src/features/spotify-sync/PlaylistUrlForm.tsx`:
+- [x] T031 [P] [US1] Build `web/src/features/spotify-sync/PlaylistUrlForm.tsx`:
       URL input with field-naming validation errors for invalid/private/
       unreachable playlists (WCAG, edge case)
-- [ ] T102 [P] [US1] Build `web/src/features/spotify-sync/SpotifyConnection.tsx`:
+- [x] T102 [P] [US1] Build `web/src/features/spotify-sync/SpotifyConnection.tsx`:
       connection status, connect action, disconnect action — the AVG
       deletion path (FR-001, pii-inventory.md). Gate-review finding: FR-001
       had no frontend task.
-- [ ] T032 [US1] Build `web/src/features/spotify-sync/MatchReport.tsx`:
+- [x] T032 [US1] Build `web/src/features/spotify-sync/MatchReport.tsx`:
       per-track status and totals, keyboard-operable, focus always visible,
-      AA contrast, 24x24 targets (WCAG acceptance criteria, US1)
-- [ ] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
+      AA contrast, 24x24 targets (WCAG acceptance criteria, US1). Build
+      finding: no task in this decomposition wires any feature component
+      into `web/src/App.tsx` -- every US builds isolated
+      `web/src/features/<name>/*.tsx` files with nothing assembling them
+      into a reachable page, yet T033 (next) needs a real page to click
+      through. This task also does that minimal wiring for US1 only
+      (`PlaylistUrlForm` -> `MatchReport`, plus `SpotifyConnection`, T031/
+      T102): no router, no nav framework -- premature before a second user
+      story's UI exists. A real app shell/navigation is a Polish-phase gap
+      (T093's "seam deltas" or a future gate-review finding), flagged here
+      rather than silently absorbed into one task's scope.
+- [x] T033 [US1] Playwright smoke e2e in `web/tests/e2e/sync-review-apply.spec.ts`
       covering the paste-URL→report-renders slice of the sync→review→apply
-      flow (one of the two flows in the proof-of-value e2e budget, plan.md)
+      flow (one of the two flows in the proof-of-value e2e budget, plan.md).
+      Build finding: `App.tsx` (T032) renders `PlaylistUrlForm`
+      unconditionally, not gated on `SpotifyConnection`'s connected state --
+      submitting while disconnected instead surfaces `PlaylistUrlForm`'s
+      existing `spotify_not_connected` error message. Accepted as-is (a
+      simpler design than a conditional gate, and still spec-compliant: the
+      DJ gets a clear, field-naming error either way), not changed here;
+      recorded so it reads as an intentional choice, not a rediscovered gap.
 
 **Checkpoint**: US1 independently functional and testable (real-data
 execution still needs the owner's fixture `master.db` and golden set).
@@ -223,47 +294,62 @@ local candidate and the full Spotify original.
 **Independent Test**: Seeded Review Queue resolved to accepted/rejected using
 only documented keys; both audio sources playable per item (spec.md).
 
-- [ ] T099 [US2] Implement `GET /api/auth/spotify/player-token` in
+- [x] T099 [US2] Implement `GET /api/auth/spotify/player-token` in
       `engine/src/companion/integrations/spotify.py`: short-lived token for
       the Web Playback SDK (contracts/api.md "Spotify auth"). Must land
       before T034 can run despite the higher ID — the spike depends on it.
       Gate-review finding: the endpoint T034/T040 depend on had no task.
-- [ ] T034 [US2] R2 spike in `web/src/features/review/spotify-playback-spike.tsx`:
+- [x] T034 [US2] R2 spike in `web/src/features/review/spotify-playback-spike.tsx`:
       Spotify Web Playback SDK connect + play one full track on `127.0.0.1`
       from a throwaway page, using T099's player token; record pass/fail. On
       failure, fall back to local preview + a `spotify:track:` deep link and
-      amend ADR 0009 (research.md R2, unknown #3)
+      amend ADR 0009 (research.md R2, unknown #3). Owner decision
+      2026-08-18: the exploratory throwaway spike is skipped -- this dev
+      container has no real Spotify Premium account, no real browser with
+      Widevine/EME, and no guaranteed network path to Spotify's CDN, so no
+      pass/fail here would be genuine evidence either way. Owner committed
+      directly to the SDK-embedded approach (ADR 0009 stands, unchanged, not
+      amended to the fallback); T040 builds `DualPlayback.tsx` straight
+      against the Web Playback SDK using T099's player-token endpoint, with
+      real playback verification left to the owner's Mac (same pattern as
+      T089/quickstart.md's owner-supplied-fixture tasks) rather than
+      simulated here.
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] Vitest for Review Queue keyboard handling in
+- [x] T035 [P] [US2] Vitest for Review Queue keyboard handling in
       `web/tests/features/review/ReviewQueue.test.tsx`: arrows navigate, A
       accepts, R rejects, space previews (FR-011)
-- [ ] T036 [P] [US2] API contract tests in
+- [x] T036 [P] [US2] API contract tests in
       `engine/tests/api/test_sync_review.py`: reject spawns a Missing Track
       (FR-012), accept/reject persist immediately (FR-014)
 
 ### Implementation for User Story 2
 
-- [ ] T037 [US2] Implement
+- [x] T037 [US2] Implement
       `POST /api/sync/sessions/{id}/tracks/{tid}/accept` and
       `.../reject` in `engine/src/companion/api/sync.py`, persisting the
-      resolution immediately (FR-014)
-- [ ] T038 [US2] Implement `engine/src/companion/audio/stream.py`:
+      resolution immediately (FR-014). Build finding: reject must spawn a
+      real `missing_track` row (FR-012; T036 tests this; T058 already says
+      "reject→missing_track spawn (from US2, T037)") -- but `missing_track`
+      was originally modelled in T056 (US4), scheduled well after this task.
+      `missing_track` model + Alembic migration move here, ahead of T056,
+      the same playlist_link-ahead-of-T049 pattern from T027.
+- [x] T038 [US2] Implement `engine/src/companion/audio/stream.py`:
       `GET /api/player/stream/{rb_content_id}` with HTTP Range support for
       local candidate preview, path resolved only from `rb_content_id`
       (ASVS V6/V12) [complexity: high] — security boundary: the stream path
       must never accept a client-supplied file path, only the id lookup
-- [ ] T039 [US2] Build `web/src/features/review/ReviewQueue.tsx`: arrows/A/R/
+- [x] T039 [US2] Build `web/src/features/review/ReviewQueue.tsx`: arrows/A/R/
       space wiring, focus never lost on resolve, candidates and scores in
       text (FR-011, WCAG)
-- [ ] T040 [US2] Build `web/src/features/review/DualPlayback.tsx`: local
+- [x] T040 [US2] Build `web/src/features/review/DualPlayback.tsx`: local
       candidate via `stream.py`, Spotify original via the Web Playback SDK
       (T099 token, or T034's fallback), playing/paused exposed to assistive
       tech (FR-013, WCAG)
-- [ ] T041 [P] [US2] Build `web/src/features/review/QueueComplete.tsx`:
+- [x] T041 [P] [US2] Build `web/src/features/review/QueueComplete.tsx`:
       completion state with updated session totals when the queue empties
-- [ ] T100 [P] [US2] Build `web/src/components/KeymapOverlay.tsx`: an
+- [x] T100 [P] [US2] Build `web/src/components/KeymapOverlay.tsx`: an
       on-screen, discoverable key map (arrows, A, R, space) satisfying US2's
       WCAG criterion that the key map is discoverable from the screen, not
       only documented externally (spec.md US2 accessibility criteria;
@@ -284,7 +370,7 @@ playlist, a backup exists per write, readback confirms content, a second
 apply adds only new tracks, refusals fire when guard conditions fail
 (spec.md).
 
-- [ ] T042 [US3] R3 spike in `engine/tests/spikes/rb_write_smoke.py`:
+- [x] T042 [US3] R3 spike in `engine/tests/spikes/rb_write_smoke.py`:
       pyrekordbox write smoke test against fixture `master.db` — create
       playlist, create folder, add tracks, readback, verify the database
       still opens cleanly [complexity: high] — security boundary: gates
@@ -293,19 +379,19 @@ apply adds only new tracks, refusals fire when guard conditions fail
 
 ### Tests for User Story 3
 
-- [ ] T043 [P] [US3] Integration tests in
+- [x] T043 [P] [US3] Integration tests in
       `engine/tests/rb/test_writer_integration.py` against fixture
       `master.db`: backup created before write, readback verifies every
       accepted match present, a second apply after re-sync adds only new
       tracks (add-only, ADR 0006)
-- [ ] T044 [P] [US3] Contract tests in `engine/tests/api/test_sync_apply.py`
+- [x] T044 [P] [US3] Contract tests in `engine/tests/api/test_sync_apply.py`
       for the three refusal codes (`rekordbox_running`, `version_mismatch`,
       `insufficient_disk`) naming the fix (409, scenarios 2-3, edge case)
-- [ ] T045 [US3] Test in `engine/tests/rb/test_writer_integration.py` that
+- [x] T045 [US3] Test in `engine/tests/rb/test_writer_integration.py` that
       a Target Playlist deleted inside Rekordbox is detected and recreated on
       the next Apply, reported to the DJ (FR-019, scenario 5). Not [P] with
       T043: same file (gate-review finding).
-- [ ] T096 [US3] Contract and integration tests for the two remaining
+- [x] T096 [US3] Contract and integration tests for the two remaining
       apply failure paths, in `engine/tests/api/test_sync_apply.py` and
       `engine/tests/rb/test_writer_integration.py`: a backup that fails
       verification blocks the write and returns `backup_failed` (409, same
@@ -313,41 +399,51 @@ apply adds only new tracks, refusals fire when guard conditions fail
       readback verification fails reports which Backup to restore and does
       not mark the session applied (scenario 7). Not [P] with T043-T045:
       shares both files. Gate-review finding.
-- [ ] T106 [US3] Test in `engine/tests/api/test_sync_apply.py`: a playlist
+- [x] T106 [US3] Test in `engine/tests/api/test_sync_apply.py`: a playlist
       containing the same track twice is reported once per playlist
       position (already covered by T022) but Apply writes it to the Target
       Playlist exactly once (edge case, de-duplication on write)
 
 ### Implementation for User Story 3
 
-- [ ] T046 [US3] Implement `engine/src/companion/rb/guard.py`: running-check,
+- [x] T046 [US3] Implement `engine/src/companion/rb/guard.py`: running-check,
       version-pin (7.2.17) check, disk-headroom check, refusing any write
       before it starts (FR-015) [complexity: high] — security boundary: the
       sole gate protecting the irreplaceable Rekordbox library from a bad
-      write
-- [ ] T047 [US3] Implement `engine/src/companion/rb/backup.py`: timestamped
+      write. If this file imports pyrekordbox directly rather than only
+      calling into `rb/reader.py`, it must also `import companion.rb.reader`
+      (even if otherwise unused) so T018's `configure_logging()` import-time
+      side effect runs before pyrekordbox does — nothing enforces rule 1's
+      "pyrekordbox confined to rb/" mechanically, so the ordering guarantee
+      currently holds by convention only (T018 final-review finding).
+- [x] T047 [US3] Implement `engine/src/companion/rb/backup.py`: timestamped
       zipped Backup, verify readability, prune beyond newest 10 only after a
       verified create (ADR 0016). Standard, not high: the destructive prune
       step only ever runs after a verified create, which bounds the risk
       that guard.py/writer.py carry directly (gate-review finding, recorded
       rather than silently omitted).
-- [ ] T048 [US3] Implement `engine/src/companion/rb/writer.py`: guarded
+- [x] T048 [US3] Implement `engine/src/companion/rb/writer.py`: guarded
       playlist/folder writes, add-only updates, readback verification; never
       edits metadata/cues/beat grids, never deletes or reorders anything it
       did not create (FR-016..FR-018, Principle II/III) [complexity: high] —
       cross-cutting security boundary: the sole write path into `master.db`,
-      shared by US3 and US7 (T086)
-- [ ] T049 [US3] Add `playlist_link`, `write_log` models and Alembic migration
-      in `engine/src/companion/db/models.py`; `write_log` audits every write
-      (SC-006)
-- [ ] T050 [US3] Implement `POST /api/sync/sessions/{id}/apply` in
+      shared by US3 and US7 (T086). Same T018 ordering note as T046: ensure
+      `configure_logging()` has run before this module uses pyrekordbox.
+- [x] T049 [US3] Add `write_log` model and Alembic migration in
+      `engine/src/companion/db/models.py`; audits every write (SC-006).
+      `playlist_link` moved to T027 (T027 build finding): `sync_session`
+      needs `playlist_link_id` for FR-010's "re-use one Sync Session lineage
+      per Spotify playlist URL", which T028 (US1, `POST /api/sync/sessions`)
+      must satisfy — that's before US3 exists, so `playlist_link` cannot wait
+      for T049.
+- [x] T050 [US3] Implement `POST /api/sync/sessions/{id}/apply` in
       `engine/src/companion/api/sync.py`: guard → backup → write → readback →
       `write_log` row → `ApplyResult`, emitting the `apply_done` SSE event on
       `/api/events` on completion (contracts/api.md, R4)
-- [ ] T051 [P] [US3] Build `web/src/features/spotify-sync/ApplyAction.tsx`:
+- [x] T051 [P] [US3] Build `web/src/features/spotify-sync/ApplyAction.tsx`:
       confirmation dialog, result state, refusal/failure messages naming the
       blocking condition and the fix, keyboard-operable (WCAG)
-- [ ] T052 [US3] Extend `web/tests/e2e/sync-review-apply.spec.ts` (T033) to
+- [x] T052 [US3] Extend `web/tests/e2e/sync-review-apply.spec.ts` (T033) to
       cover apply against the fixture `master.db`, completing the first of
       the two proof-of-value e2e flows
 
@@ -366,31 +462,42 @@ statuses persist, an acquired track leaves the queue on re-sync (spec.md).
 
 ### Tests for User Story 4
 
-- [ ] T053 [P] [US4] Contract test in `engine/tests/api/test_missing.py`: at
+- [x] T053 [P] [US4] Contract test in `engine/tests/api/test_missing.py`: at
       least 90% of a 20-track test set resolve to the correct NL store page
       (SC-004)
-- [ ] T054 [US4] Test in `engine/tests/api/test_missing.py`: `ignored` is
+- [x] T054 [US4] Test in `engine/tests/api/test_missing.py`: `ignored` is
       sticky across re-syncs of the same playlist (scenario 3); a re-synced
       acquired track auto-closes (FR-023). Not [P] with T053: same file
       (gate-review finding).
 
 ### Implementation for User Story 4
 
-- [ ] T055 [US4] Implement `engine/src/companion/integrations/itunes.py`:
+- [x] T055 [US4] Implement `engine/src/companion/integrations/itunes.py`:
       iTunes Search API lookup, `country=NL`, outbound restricted to
       `itunes.apple.com` (ASVS V10/V14 SSRF)
-- [ ] T056 [US4] Add `missing_track` model (UNIQUE per `sync_track`) and
-      Alembic migration in `engine/src/companion/db/models.py`
-- [ ] T057 [US4] Implement `GET /api/missing`,
+- [x] T056 [US4] Add `missing_track` model (UNIQUE per `sync_track`) and
+      Alembic migration in `engine/src/companion/db/models.py`. Moved to
+      T037 (build finding): `missing_track` is needed the moment reject
+      spawns one (FR-012, US2), before US4 exists.
+- [x] T057 [US4] Implement `GET /api/missing`,
       `POST /api/missing/{id}/status`, `POST /api/missing/{id}/link`,
       `POST /api/missing/refresh-links` in `engine/src/companion/api/missing.py`
-- [ ] T058 [US4] Wire FR-023 auto-close: reject→missing_track spawn (from
+- [x] T058 [US4] Wire FR-023 auto-close: reject→missing_track spawn (from
       US2, T037) and re-sync match transition back to `matched` in
-      `engine/src/companion/api/sync.py`
-- [ ] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
+      `engine/src/companion/api/sync.py`. Build finding (phase 6): spec.md's
+      own acceptance scenario 1 ("a Match scoring below 75 becomes a Missing
+      Track") requires `create_sync_session`'s automatic `status="missing"`
+      classification to ALSO spawn a `missing_track` row, not only explicit
+      reject (T037) -- no task previously covered this path. Also wires the
+      sticky-ignore lookup (US4 scenario 3): before spawning a new
+      `missing_track` as `open`, check whether a prior session's
+      `missing_track` for the same `playlist_link`+`spotify_track_id` was
+      `ignored`, and if so spawn `ignored` again instead of resetting to
+      `open`.
+- [x] T059 [P] [US4] Build `web/src/features/missing/MissingQueue.tsx`: Store
       Link + copy action, status controls, manual override input with
       field-naming errors (WCAG)
-- [ ] T107 [US4] Playwright smoke e2e in `web/tests/e2e/missing-link.spec.ts`
+- [x] T107 [US4] Playwright smoke e2e in `web/tests/e2e/missing-link.spec.ts`
       covering the missing→link flow: a completed sync with Missing Tracks
       shows the queue, a Store Link resolves and copies (second of the two
       proof-of-value e2e flows, plan.md). Gate-review finding: this flow was
@@ -410,19 +517,25 @@ fixture file (spec.md).
 
 ### Tests for User Story 5
 
-- [ ] T060 [P] [US5] Perf test in `engine/tests/test_collection_perf.py`:
+- [x] T060 [P] [US5] Perf test in `engine/tests/test_collection_perf.py`:
       `/api/collection` search responds <100ms/keystroke at 40.000 indexed
       tracks (SC-005; tested above the 30k target per constraints)
-- [ ] T061 [P] [US5] Test in `engine/tests/audio/test_stream.py`: a missing or
+- [x] T061 [P] [US5] Test in `engine/tests/audio/test_stream.py`: a missing or
       unreadable audio file reports `file_missing` instead of failing
       silently (FR-026)
 
 ### Implementation for User Story 5
 
-- [ ] T062 [US5] Implement `GET /api/collection` in
+- [x] T062 [US5] Implement `GET /api/collection` in
       `engine/src/companion/api/collection.py`: query/sort/limit/offset over
-      the in-memory index (T013), sort by artist/title/BPM/Play Count
-- [ ] T063 [US5] Extend `engine/src/companion/audio/stream.py` (T038) with
+      the in-memory index (T013), sort by artist/title/BPM/Play Count.
+      `CollectionTrack.genres` is `[]` for every track until US6's
+      enrichment lands (contracts/api.md's `[{genre, source}]` shape is
+      vacuously satisfied by an empty list) -- the same stub-and-replace
+      forward-reference pattern T013 used for `norm_artist`/`norm_title`
+      before T024 existed; whichever US6 task first populates
+      `enriched_genre` data must replace this literal `[]` (review finding).
+- [x] T063 [US5] Extend `engine/src/companion/audio/stream.py` (T038) with
       the ffmpeg pipe fallback for non-native formats (ALAC fixture) — no
       waveform, no gapless, no preload (proof-of-value cut, plan.md)
       [complexity: high] — tricky concurrency: Range/seek requests
@@ -430,9 +543,51 @@ fixture file (spec.md).
       corrupt partial reads. Gate-review finding: this risk was originally
       flagged on T038, which doesn't build the pipe; moved to the task that
       actually implements it.
-- [ ] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
-      sortable table, keyboard navigation, AA contrast at dense layout (WCAG)
-- [ ] T065 [P] [US5] Build `web/src/components/PlayerBar.tsx`: progress bar +
+      Spec reconciliation (review finding): FR-025's "with seek support"
+      could be read as covering both the native AND conversion-fallback
+      clauses, which would conflict with "no seek on the transcode path."
+      Resolved as native-only seek, per: US5 acceptance scenario 3 (seek)
+      is scoped to "any mp3 or m4a" specifically, scenario 4 (conversion
+      fallback) states only "streams it transparently" with no seek
+      wording; kickoff.md NG4 ("no pixel-perfect waveforms... basic
+      playback + progress bar first"); and this task's own escalation
+      note above naming live-pipe seeking as exactly the deadlock risk
+      being avoided. Three corroborating documents against one broader
+      reading of a single FR line; recorded here rather than re-litigated,
+      per this project's "update the artifact" process.
+      Security/concurrency review finding, since fixed: the original build
+      relied on Starlette delivering `GeneratorExit` into the transcode
+      generator on early client disconnect to reap the ffmpeg subprocess —
+      verified against the pinned Starlette version that this is NOT
+      guaranteed (no such propagation exists for the sync-generator case,
+      and only eventual GC for the async case). Rebuilt `_iter_transcode`
+      as a genuine async generator (`asyncio.subprocess`) with an
+      independent `_terminate_on_disconnect` watcher task polling
+      `request.is_disconnected()` (Starlette's own documented mechanism
+      for this exact problem), which is what actually closes the "must not
+      deadlock/orphan on disconnect" risk this task was escalated for.
+      Also added: a spawn-failure guard and a one-line warning log on a
+      non-zero ffmpeg exit (previously silently swallowed alongside the
+      necessarily-discarded stderr). A full ASGI-level disconnect
+      integration test was investigated and found impractical with this
+      project's existing test tooling: `httpx.ASGITransport` (which
+      `TestClient` uses) always drives the ASGI app to full completion
+      within one call before returning a response, with no way to abort
+      mid-stream from the test side; verification instead happens directly
+      against `_terminate_on_disconnect`/`_iter_transcode` with a fake
+      `Request`, which exercises the real new mechanism without needing a
+      live socket-level test harness this project doesn't otherwise have.
+- [x] T064 [P] [US5] Build `web/src/components/TrackTable.tsx`: searchable,
+      sortable table, keyboard navigation, AA contrast at dense layout (WCAG).
+      Review finding: a plain `<table>` with one tab stop per row (fine for
+      MatchReport's read-only report, T032) would force tabbing through up
+      to 50 rows to reach a distant one on this actively browsable, playable
+      table -- not real "keyboard navigation" as this task's own wording
+      names it, separately from "searchable, sortable". Built as a roving-
+      tabindex row list instead (ArrowUp/ArrowDown move the active row's
+      focus without re-tabbing, ReviewQueue.tsx/T039's technique), inside a
+      real `<table>` so screen-reader row/column semantics stay intact.
+- [x] T065 [P] [US5] Build `web/src/components/PlayerBar.tsx`: progress bar +
       seek only, playing/paused/seek state exposed to assistive tech (WCAG;
       proof-of-value cut: no waveform, per plan.md)
 
@@ -448,7 +603,7 @@ permanent manual override.
 **Independent Test**: Enrich a fixture Collection, measure coverage, exercise
 manual override, confirm `master.db` bytes unchanged after (spec.md).
 
-- [ ] T066 [US6] R1 spike in `engine/scripts/enrichment_coverage_spike.py`:
+- [x] T066 [US6] R1 spike in `engine/scripts/enrichment_coverage_spike.py`:
       run the Spotify-genres and MusicBrainz adapters over the fixture
       collection, report coverage % and a 50-track sample for owner judgement
       against SC-008 (≥80% coverage, ≥90% sample quality). If Spotify-genres-
@@ -456,38 +611,73 @@ manual override, confirm `master.db` bytes unchanged after (spec.md).
       rather than build it (proof-of-value cut, plan.md; research.md R1,
       unknown #2)
 
+      **Reconciliation (2026-08-18)**: Spotify artist genres turned out to be
+      unavailable to this app at all, verified with three live calls against
+      the real Web API (`/v1/search`'s artist objects and `/v1/artists/{id}`
+      both omit `genres` entirely; `/v1/artists?ids=...` batch returns 403) --
+      a Spotify Development Mode restriction (their Nov 2024 policy change),
+      not something this codebase can fix. MusicBrainz's own curated `genres`
+      field is too sparse to use either (verified live: Daft Punk returns
+      zero), so the script measures its community `tags` field instead,
+      ranked by count -- a real, different design than originally specced.
+      ADR 0018 records this and supersedes ADR 0013's source ordering; the
+      user chose "MusicBrainz tags becomes primary" over adding Last.fm or
+      pursuing a Spotify extended-quota request.
+
+      The script itself is built, respects the 1 req/s limit (ADR 0013) with
+      retry-with-backoff on MusicBrainz's routine 503s, and was run
+      end-to-end against `engine/tests/fixtures/master.db` successfully
+      (16 unique artists, 1 real API round-trip each). Its coverage number
+      from that run (1.1% track-level) is **not a real SC-008 measurement**:
+      the fixture is Rekordbox's own ~119-track demo library (jingles, a
+      "rekordbox"-attributed sample track, one multi-artist string
+      "Zombie Nation, James Hype, Sean Paul" that the adapter will need to
+      split on comma before lookup), not the owner's real collection. A real
+      go/no-go against SC-008's ≥80%/≥90% thresholds is still owed on the
+      owner's Mac against the full ~30k+ track library (research.md R3
+      precedent: anything needing the real install is verified there).
+
 ### Tests for User Story 6
 
-- [ ] T067 [P] [US6] Test in `engine/tests/enrichment/test_source.py`: a
+- [x] T067 [P] [US6] Test in `engine/tests/enrichment/test_source.py`: a
       manual genre override is never overwritten by a later enrichment run
       (FR-028)
-- [ ] T068 [P] [US6] Test in `engine/tests/enrichment/test_runner.py`: an
+- [x] T068 [P] [US6] Test in `engine/tests/enrichment/test_runner.py`: an
       enrichment run leaves `master.db` byte-for-byte unchanged (FR-030,
       Principle III)
-- [ ] T069 [US6] Test in `engine/tests/enrichment/test_runner.py`: an
+- [x] T069 [US6] Test in `engine/tests/enrichment/test_runner.py`: an
       interrupted enrichment run resumes without redoing done tracks
       (ADR 0013). Not [P] with T068: same file (gate-review finding).
 
 ### Implementation for User Story 6
 
-- [ ] T070 [US6] Implement `engine/src/companion/enrichment/source.py`:
+- [x] T070 [US6] Implement `engine/src/companion/enrichment/source.py`:
       `GenreSource` seam (ADR 0013)
-- [ ] T071 [P] [US6] Implement `engine/src/companion/enrichment/spotify_genres.py`
-      adapter
-- [ ] T072 [P] [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
-      adapter at 1 req/s, only if T066's spike keeps it in scope
-      (proof-of-value cut, plan.md)
-- [ ] T073 [US6] Implement `engine/src/companion/enrichment/runner.py`:
+- [x] T071 [P] [US6] ~~Implement `engine/src/companion/enrichment/spotify_genres.py`
+      adapter~~ Dropped, not built: T066's spike found Spotify artist genres
+      unavailable to this app (ADR 0018). No code path would make this start
+      working without an external, uncontrollable Spotify extended-quota
+      approval.
+- [x] T072 [US6] Implement `engine/src/companion/enrichment/musicbrainz.py`
+      adapter at 1 req/s (ADR 0013), reading the community `tags` field
+      ranked by count (ADR 0018 -- not the curated `genres` field, which is
+      too sparse). Sole adapter behind the `GenreSource` seam, no longer
+      conditional. Split Rekordbox's comma-joined multi-artist `Artist.Name`
+      strings (e.g. "Zombie Nation, James Hype, Sean Paul") before lookup --
+      found in T066's spike run, MusicBrainz has no artist by that combined
+      name. Not [P]: was paired with the now-dropped T071 for parallel
+      writing to different files; alone, no longer applicable.
+- [x] T073 [US6] Implement `engine/src/companion/enrichment/runner.py`:
       incremental, resumable queue over `enrichment_state` (data-model.md)
-- [ ] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
+- [x] T074 [US6] Add `enriched_genre`, `enrichment_state` models and Alembic
       migration in `engine/src/companion/db/models.py`
-- [ ] T075 [US6] Implement `POST /api/enrichment/run`,
+- [x] T075 [US6] Implement `POST /api/enrichment/run`,
       `GET /api/enrichment/status`, `GET /api/enrichment/unenriched`,
       `PUT /api/collection/{rb_content_id}/genres` (manual override wins
       forever, FR-028) in `engine/src/companion/api/enrichment.py`
-- [ ] T076 [US6] Implement the `enrichment_progress` SSE event on
+- [x] T076 [US6] Implement the `enrichment_progress` SSE event on
       `GET /api/events` (R4)
-- [ ] T077 [P] [US6] Build `web/src/features/enrichment/EnrichmentPanel.tsx`:
+- [x] T077 [P] [US6] Build `web/src/features/enrichment/EnrichmentPanel.tsx`:
       coverage status, unenriched work list, manual genre editor with
       field-naming errors, manual/automatic origin conveyed in text not
       colour (WCAG)
@@ -512,14 +702,14 @@ the one documented exception to story independence in this feature.
 
 ### Tests for User Story 7
 
-- [ ] T078 [P] [US7] Test in `engine/tests/bookings/test_suggestions.py`:
+- [x] T078 [P] [US7] Test in `engine/tests/bookings/test_suggestions.py`:
       suggestions honour a profile's genre tags and BPM filters, rank by Play
       Count descending, exclude tracks with missing BPM from BPM filters
       while reporting the excluded count (edge case)
-- [ ] T079 [P] [US7] Test in `engine/tests/bookings/test_structures.py`:
+- [x] T079 [P] [US7] Test in `engine/tests/bookings/test_structures.py`:
       dismissed suggestions never return for that playlist (FR-034); a node
       already applied to Rekordbox is rename-locked (FR-032, edge case)
-- [ ] T080 [P] [US7] Integration test in
+- [x] T080 [P] [US7] Integration test in
       `engine/tests/bookings/test_structure_apply.py`: apply writes the full
       folder/playlist tree to fixture `master.db` through the same guard/
       backup/readback path as US3; re-apply after edits is add-only
@@ -527,39 +717,63 @@ the one documented exception to story independence in this feature.
 
 ### Implementation for User Story 7
 
-- [ ] T081 [US7] Add `booking_profile`, `booking_profile_genre_tag`,
+- [x] T081 [US7] Add `booking_profile`, `booking_profile_genre_tag`,
       `structure`, `structure_node`, `structure_track`,
       `suggestion_dismissal` models and Alembic migration in
       `engine/src/companion/db/models.py`, seeded profiles (horeca,
       bruiloft, prive, thema, FR-031)
-- [ ] T082 [P] [US7] Implement `GET/POST /api/profiles`,
+- [x] T082 [P] [US7] Implement `GET/POST /api/profiles`,
       `PUT/DELETE /api/profiles/{id}` in `engine/src/companion/api/profiles.py`
       (FR-031)
-- [ ] T083 [US7] Implement `engine/src/companion/bookings/models.py`:
+- [x] T083 [US7] Implement `engine/src/companion/bookings/models.py`:
       suggestions query — filter index (T013) by profile genre tags against
       `enriched_genre` and BPM, rank by play count, subtract
       `structure_track` and `suggestion_dismissal` rows (FR-033, replaces the
       old generator per ADR 0008)
-- [ ] T084 [US7] Implement `GET/POST /api/structures`,
+
+      **Reconciliation**: this task's own wording ("subtract structure_track
+      ... rows") and contracts/api.md's endpoint contract ("flags
+      already_in_playlist") describe different behaviour for tracks already
+      in the target playlist. Followed contracts/api.md, the more specific,
+      testable interface a client depends on: a track already in the
+      playlist is still returned, flagged `already_in_playlist`, not
+      excluded -- the DJ can see what's already there. Only
+      `suggestion_dismissal` rows (FR-034: "dismissed Suggestions never
+      return") are a hard exclude. `data-model.md`'s "subtract" reads as
+      loose wording for "compare against", not a second exclusion rule.
+- [x] T084 [US7] Implement `GET/POST /api/structures`,
       `PUT/DELETE /api/structures/{id}`,
       `POST/PUT/DELETE /api/structures/{id}/nodes` in
       `engine/src/companion/api/structures.py` (tree editing, FR-032,
       rename-lock on applied nodes)
-- [ ] T085 [US7] Implement
+- [x] T085 [US7] Implement
       `GET /api/structures/{id}/nodes/{nid}/suggestions`,
       `POST .../tracks`, `DELETE .../tracks/{rb_content_id}`,
       `POST .../dismissals` in `engine/src/companion/api/structures.py`
       (FR-033, FR-034). Not [P] with T084/T086: same file (gate-review
       finding).
-- [ ] T086 [US7] Implement `POST /api/structures/{id}/apply` in
+- [x] T086 [US7] [complexity: high] Implement `POST /api/structures/{id}/apply` in
       `engine/src/companion/api/structures.py`, reusing `rb/writer.py` +
       `rb/guard.py` + `rb/backup.py` from US3 (T046-T048); per-node
       `ApplyResult`, add-only re-apply, emitting `apply_done` on
       `/api/events` (FR-018, FR-035, R4)
-- [ ] T087 [P] [US7] Build `web/src/components/Tree.tsx`: folder/playlist
+
+      **Escalated during phase 6 build** (not originally flagged in phase 5
+      decomposition): `rb/writer.py`'s existing `apply_playlist` (T048) only
+      creates a single playlist at the tree root (`parent=None`) -- it has
+      no folder-creation or nested-parent logic at all. Writing a whole
+      Structure (folders + nested playlists per `structure_node.parent_id`)
+      is new write-path logic against the DJ's real, irreplaceable database
+      (project rule 2's own security boundary), not a thin reuse of an
+      existing function -- exactly the "security boundary" criterion
+      `docs/process/workflow.md`'s model routing names for this flag. T080's
+      RED integration test (`engine/tests/bookings/test_structure_apply.py`)
+      already pins the target interface (`writer.apply_structure`,
+      `NodeSpec`, `NodeWriteResult`) against the real fixture `master.db`.
+- [x] T087 [P] [US7] Build `web/src/components/Tree.tsx`: folder/playlist
       tree editor (create/rename/nest/move/delete), Set Phase labels,
       Run-of-Show folder, keyboard-operable (WCAG)
-- [ ] T088 [P] [US7] Build `web/src/features/bookings/BookingWorkspace.tsx`:
+- [x] T088 [P] [US7] Build `web/src/features/bookings/BookingWorkspace.tsx`:
       profile editor, suggestion list (accept/dismiss, already-in-playlist
       flag), apply action and result state, naming-error inputs (WCAG)
 
@@ -573,29 +787,99 @@ the one documented exception to story independence in this feature.
       end to end once owner inputs (fixture `master.db` + key,
       `SPOTIFY_CLIENT_ID`, audio samples) land — blocked on the owner, not on
       this decomposition (grilling D10)
-- [ ] T090 [P] ASVS-mapped security pass in
+
+      **Status (2026-08-18), left unchecked -- genuinely partial**: the
+      owner-supplied fixture `master.db` and `SPOTIFY_CLIENT_ID` landed
+      during phase 6 build (both now present); a live Spotify session was
+      also connected during this session. Against that real data, phase 6's
+      own test suite already exercises most of quickstart.md's 7 scenarios
+      with real evidence, not mocks: US3's apply/backup/readback
+      (`test_writer_integration.py`), US6's enrichment run/resume/manual-
+      override/byte-unchanged (`test_runner.py`'s `db_copy` fixture), and
+      US7's structure/suggestions/apply (`test_structure_apply.py`) all run
+      against the real fixture file, not a fake. US5's collection-perf
+      (`test_collection_perf.py`, 40k synthetic entries, since the fixture
+      itself is only ~119 tracks) and player-stream tests (real ffmpeg
+      transcode) are real too.
+      Genuinely still owed, and still owner-only: (a) mp3/m4a/ALAC *sample
+      files* for a from-scratch transcode-fixture walkthrough (the existing
+      transcode tests use real ffmpeg but not owner-supplied samples
+      specifically); (b) SC-001's 100-track-playlist timing against a real
+      Spotify playlist (needs the owner's own playlist URL); (c) US2's
+      Spotify Web Playback SDK local-vs-original comparison (needs a human
+      with Premium in a real browser, per R2's own spike scope); (d) BPM/
+      track-length conversion verification against tracks with *known*
+      ground truth (the fixture's own demo tracks have no independently-
+      known BPM to check `rb/reader.py`'s conversion against -- this needs
+      the owner's domain knowledge, not just the file). Left unchecked
+      rather than falsely marked done: real end-to-end scenario 2's human
+      playback comparison and scenario 1's real-playlist timing haven't run.
+- [x] T090 [P] ASVS-mapped security pass in
       `engine/tests/security/test_asvs_boundaries.py`: outbound HTTP
       allowlist enforcement (`api.spotify.com`, `itunes.apple.com`,
       `musicbrainz.org` only; ASVS V10/V14 SSRF), `.env`/token file
       permission check (ASVS V6/V12)
-- [ ] T091 [P] Accessibility sweep in `web/tests/e2e/accessibility.spec.ts`
+
+      **Reconciliation**: the allowlist is a real transport-level
+      enforcement layer (`companion/security.py`), not just tests, per an
+      explicit forward-reference already committed in `integrations/
+      itunes.py`. Includes a fourth host, `accounts.spotify.com`, beyond
+      this task's original three: `integrations/spotify.py`'s OAuth token
+      exchange/refresh genuinely needs it, and plan.md's own ASVS table was
+      missing it too (fixed alongside).
+- [x] T091 [P] Accessibility sweep in `web/tests/e2e/accessibility.spec.ts`
       across all seven stories: keyboard-only pass, focus visibility, AA
       contrast, 24x24 targets, form-error announcements (WCAG 2.2 AA, phase 7
       review checklist input)
-- [ ] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
+
+      **Reconciliation**: automated coverage via `@axe-core/playwright`,
+      scanning the default page state and the match-report/apply flow (no
+      router exists to navigate to seven separate per-story screens, per
+      App.tsx's own documented one-page assembly). Found and fixed a real
+      violation: the app's root was a bare `<div>`, flagged
+      `page-has-main`/`landmark-one-main`/`region`; changed to `<main>`.
+      Scope note: axe automates contrast/landmark/label/ARIA checks but
+      cannot perform a genuine keyboard-only navigation walkthrough or
+      verify 24x24 targets by measurement -- those remain phase 7 review-
+      checklist items, exactly as this task's own text anticipates ("phase
+      7 review checklist input"), not something this automated sweep alone
+      closes out.
+- [x] T092 Test in `engine/tests/api/test_readonly_during_run.py`: read-only
       features (collection browse, playback) stay usable while a Sync
       Session or enrichment run is in progress (FR-040, edge case)
-- [ ] T093 [P] Update `docs/architecture.md` with any seam deltas discovered
+- [x] T093 [P] Update `docs/architecture.md` with any seam deltas discovered
       during build, keeping it in sync with plan.md's seam list
 - [ ] T094 Verify `engine/tests/fixtures/matching_golden.yaml` holds ≥50
       cases with ≥10 hard cases and passes at 100% (SC-003) — execution
       depends on the owner-supplied real cases; this task records the gate
-- [ ] T095 [P] Run the Playwright suite
+
+      **Gate recorded (2026-08-18), left unchecked -- does not pass**:
+      `matching_golden.yaml` currently holds exactly 4 cases, all
+      `stub_example: true` (illustrative, not real match data), 1 of them
+      `hard_case: true`. SC-003 needs ≥50 cases with ≥10 hard ones. The gate
+      is 4/50 cases and 1/10 hard cases -- 8% and 10% of the requirement
+      respectively. `pytest -k golden` passes 100% today only because every
+      case currently in the file is a stub the pipeline was built to satisfy;
+      that is not the same claim as SC-003, which is specifically about real
+      match cases the DJ's own library and playlists produce. Owner-supplied
+      real cases (grilling D10) are still owed before this can be re-checked
+      for real.
+- [x] T095 [P] Run the Playwright suite
       (`web/tests/e2e/sync-review-apply.spec.ts`,
       `web/tests/e2e/missing-link.spec.ts` from T107) as the CI-facing
       regression guard for the two core flows (proof-of-value e2e budget,
       plan.md)
-- [ ] T098 [P] Verify all user-facing SPA copy is Dutch (FR-038) across every
+
+      **Reconciliation**: "run as the CI-facing regression guard" read as
+      establishing actual CI wiring, not a one-off manual run (this session
+      already ran the suite constantly; that alone doesn't make it
+      "CI-facing"). Added `.github/workflows/ci.yml` (backend + frontend
+      jobs, on push/PR to release and main) and filled in dependabot.yml's
+      already-anticipated npm/uv entries. Verified locally that the full
+      suite is CI-safe (passes with `.env` removed); not yet verified
+      against a real GitHub Actions run, which this session has no way to
+      trigger.
+- [x] T098 [P] Verify all user-facing SPA copy is Dutch (FR-038) across every
       component in `web/src/features/` and `web/src/components/`: labels,
       button text, empty states, toasts and error messages; only `code`
       values in API errors and code identifiers stay English (contracts/api.md
@@ -605,6 +889,12 @@ the one documented exception to story independence in this feature.
       with the app; a manual sign-off, not a code deliverable — log the
       outcome in `docs/CONTEXT.md`. Gate-review finding: SC-009 had no
       recorded validation step.
+
+      **Status (2026-08-18), left unchecked**: added a "Validation log"
+      section to `docs/CONTEXT.md` for this sign-off to land in, so it has
+      a real place to go once it exists -- there is nothing to record yet.
+      This is not a code-completable task at all: it requires the owner to
+      have actually prepared a real booking with the finished app first.
 
 ---
 

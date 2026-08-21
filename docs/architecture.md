@@ -28,15 +28,20 @@ FastAPI routers (thin; orchestration only)
 ## Seam 1 — the `rb` interface (`engine/src/companion/rb/`)
 
 **Interface**: `snapshot() → CollectionIndex`, `playlist_tree()`,
-`create_playlist(name, parent) → rb_id`, `create_folder(name, parent) → rb_id`,
-`add_tracks(rb_id, content_ids) → added`, `guard_check() → ok | refusal`,
-`backup() → path`, `readback(rb_id) → track_ids`. Nothing else: no metadata
-mutation exists on this interface, which makes constitution Principle III
-unrepresentable rather than merely forbidden.
+`guard_check() → ok | refusal`, `backup() → path`, plus two write entry
+points sharing the same guard/backup/readback discipline: `apply_playlist(rb_id,
+name, content_ids) → WriteResult` (one playlist at the tree root or a known
+existing id, US3) and `apply_structure(nodes: [NodeSpec]) → [NodeWriteResult]`
+(a whole folder/playlist tree in one open/write/commit/close cycle, resolving
+each node's real parent id itself before creating it, US7). Nothing else: no
+metadata mutation exists on this interface, which makes constitution
+Principle III unrepresentable rather than merely forbidden.
 
-**Depth**: very deep. Behind those eight calls sit SQLCipher, pyrekordbox's
-session and update-sequence bookkeeping, version pinning, process detection,
-disk-headroom checks and rotating zipped backups (ADR 0016). Callers know none
+**Depth**: very deep. Behind those calls sit SQLCipher, pyrekordbox's session
+and update-sequence bookkeeping, version pinning, process detection,
+disk-headroom checks, rotating zipped backups (ADR 0016), and — for
+`apply_structure` — the topological parent-resolution pass and per-node
+readback that a single flat playlist write never needed. Callers know none
 of it.
 
 **Adapters**: (1) the real pyrekordbox implementation, integration-tested
@@ -69,10 +74,11 @@ runner's `enqueue_pending()`, `run(budget) → progress`. Manual overrides are
 not a source: they live in the db module and the runner refuses to touch any
 track that has one (FR-028), so the precedence rule sits in one place.
 
-**Adapters**: `spotify_genres` (primary), `musicbrainz` (secondary,
-1 req/s). The coverage spike (research R1) decides whether the second adapter
-ships in v1 or stays a stub behind the seam — either way the seam exists
-because two adapters are already designed against it.
+**Adapters**: `musicbrainz` (sole adapter, 1 req/s, tags ranked by count).
+The coverage spike (research R1) found Spotify artist genres unavailable to
+this app (ADR 0018 supersedes ADR 0013's Spotify-primary ordering); the seam
+still exists so a reserve adapter (Last.fm) can be added without a redesign
+if MusicBrainz's real-collection coverage falls short of SC-008.
 
 **Locality**: free-tier rate limiting, retry and resumability (ADR 0011/0013)
 are runner implementation; a new source is a new adapter, not a redesign.
@@ -96,6 +102,25 @@ refusal codes of the two apply endpoints because they encode the guard.
 
 **Why the seam sits here** and not at a BFF or per-feature API layer: one
 process, one consumer; anything thicker fails the deletion test.
+
+## Seam 6 — Suggestions (`engine/src/companion/bookings/models.py`)
+
+**Interface**: `suggestions_for_node(entries, node_id, genre_tags, bpm_min,
+bpm_max, limit) → ([Suggestion], excluded_missing_bpm_count)`. Pure function
+over the in-memory Collection index (seam 2's `IndexEntry`) plus three db
+reads (`enriched_genre`, `structure_track`, `suggestion_dismissal`): no IO of
+its own, no clock, no write.
+
+**Depth**: genre-tag and BPM filtering, missing-BPM exclusion-with-a-reported-
+count (an edge case, not a silent drop), and the already-in-playlist flag
+(FR-033: a track already accepted into the target playlist stays visible,
+flagged, not subtracted — only a genuinely dismissed Suggestion, FR-034, is a
+hard exclude) are all implementation. A caller asks once per playlist node;
+nothing about ranking or filtering leaks into the router.
+
+**Locality**: replaces ADR 0008's rejected generator entirely — the DJ
+designs the tree by hand (seam 1's `apply_structure`), this seam only ever
+proposes candidates for one playlist at a time, computed fresh, never stored.
 
 ## Modules without their own seam
 
