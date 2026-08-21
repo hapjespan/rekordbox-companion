@@ -1,5 +1,7 @@
 # A Missing Track is previewed from the store, not from Spotify
 
+**Status: superseded by ADR 0022** (2026-08-19, later the same day): the owner used the buy queue and asked for Spotify playback instead, on the reasoning that the tracks came from a Spotify playlist they already had Premium for. Kept for the record; do not cite.
+
 FR-041 needs a Missing Track audible before the DJ buys it. Two sources could
 serve that, and the store's own preview wins.
 
