@@ -494,9 +494,15 @@ def parse_playlist_id(value: str) -> str:
 
 def _extract_track(item: dict) -> dict:
     """One playlist item -> the track dict. Local/unavailable items keep a row
-    with null identifiers rather than being dropped (spec.md edge case)."""
+    with null identifiers rather than being dropped (spec.md edge case).
+
+    Spotify's March 2026 API migration renamed the wrapped track/episode field
+    from `track` to `item` on every entry (and, one level up, the playlist's
+    own `tracks` object to `items`) without changing anything else about the
+    shape. `_fetch_tracks_page` and `fetch_playlist_tracks` below read the new
+    names; this is the one place that reads the per-entry wrapper."""
     is_local = bool(item.get("is_local"))
-    track = item.get("track")
+    track = item.get("item")
     if not isinstance(track, dict):
         return {
             "spotify_track_id": None,
@@ -520,15 +526,20 @@ def _extract_track(item: dict) -> dict:
 
 
 def _fetch_tracks_page(client: httpx.Client, headers: dict, playlist_id: str) -> dict:
-    """First page of a playlist's items from the dedicated tracks endpoint.
+    """First page of a playlist's items from the dedicated items endpoint.
 
-    The fallback for a playlist response that carries no embedded `tracks`
+    The fallback for a playlist response that carries no embedded `items`
     object. Spotify answers this endpoint with a bare 403 when it will not give
     an app a playlist's contents, and the caller must hear about that rather
     than see an empty playlist, so every non-2xx becomes an error here.
+
+    `/playlists/{id}/tracks` itself is gone: Spotify's March 2026 migration
+    renamed it to `/playlists/{id}/items`, and development-mode apps may only
+    call it for a playlist they own or collaborate on -- calling the old path
+    now answers a 403 unconditionally, which is what surfaced this rename.
     """
     response = client.get(
-        f"{API_BASE}/playlists/{playlist_id}/tracks",
+        f"{API_BASE}/playlists/{playlist_id}/items",
         headers=headers,
         params={"limit": _PAGE_LIMIT},
     )
@@ -549,10 +560,11 @@ def fetch_playlist_tracks(
 ) -> SpotifyPlaylistFetch:
     """Fetch a playlist's tracks, paginating, with the 999-cap short-circuit.
 
-    The first request returns `tracks.total`; if that exceeds the cap the
+    The first request returns `items.total`; if that exceeds the cap the
     function raises `PlaylistTooLargeError` immediately, WITHOUT fetching any
     further page (T022 review finding). Only within the cap does it follow
-    `tracks.next` to completion.
+    `items.next` to completion. (Spotify's March 2026 migration renamed the
+    embedded `tracks` object to `items`; see `_fetch_tracks_page`.)
     """
     playlist_id = parse_playlist_id(playlist_url_or_id)
     access_token = _get_valid_access_token(db, client)
@@ -577,18 +589,19 @@ def fetch_playlist_tracks(
     first.raise_for_status()
     body = first.json()
 
-    # Spotify does not always embed the tracks object in the playlist response:
-    # this account gets a playlist object with no `tracks` key at all, and a bare
-    # 403 on the dedicated tracks endpoint. Reading a MISSING object as an empty
-    # playlist is the difference between "you own none of these" and "we could
-    # not read the playlist", and the app used to report the first while meaning
-    # the second: a session went `ready` with zero tracks and no error. An
-    # absent object is therefore an error, while an object that is present and
-    # says zero is a genuinely empty playlist and stays fine.
-    if "tracks" not in body:
+    # Spotify does not always embed the items object in the playlist response:
+    # a playlist this app may not read the contents of comes back with no
+    # `items` key at all, and a bare 403 on the dedicated items endpoint.
+    # Reading a MISSING object as an empty playlist is the difference between
+    # "you own none of these" and "we could not read the playlist", and the
+    # app used to report the first while meaning the second: a session went
+    # `ready` with zero tracks and no error. An absent object is therefore an
+    # error, while an object that is present and says zero is a genuinely
+    # empty playlist and stays fine.
+    if "items" not in body:
         tracks_page = _fetch_tracks_page(client, headers, playlist_id)
     else:
-        tracks_page = body.get("tracks") or {}
+        tracks_page = body.get("items") or {}
     total = int(tracks_page.get("total", 0))
     if total > PLAYLIST_TRACK_CAP:
         logger.info(
