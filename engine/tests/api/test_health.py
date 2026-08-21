@@ -1,0 +1,112 @@
+"""T015: GET /api/health -- guard visibility (FR-015, contracts/api.md)."""
+
+from fastapi.testclient import TestClient
+
+from companion.main import create_app
+
+
+def _client():
+    return TestClient(create_app())
+
+
+def test_health_returns_the_documented_shape():
+    response = _client().get("/api/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body.keys()) == {
+        "status",
+        "rekordbox_version",
+        "version_pin_ok",
+        "db_path",
+        "rekordbox_running",
+        "ffmpeg_ok",
+    }
+
+
+def test_health_reports_degraded_when_rekordbox_is_not_installed():
+    # Real assertion, not mocked: this dev container genuinely has no
+    # Rekordbox install (edge case: degraded state, not a crash).
+    body = _client().get("/api/health").json()
+
+    assert body["status"] == "degraded"
+    assert body["rekordbox_version"] is None
+    assert body["version_pin_ok"] is False
+    assert body["db_path"] is None
+    assert body["rekordbox_running"] is False
+
+
+def test_degraded_status_matches_rekordbox_backed_endpoints_refusing_outright():
+    # T105: "blocking Rekordbox-backed features instead of erroring per
+    # screen" -- /api/health reporting "degraded" must correspond to
+    # Rekordbox-backed endpoints (api/collection.py's `get_database`
+    # dependency) refusing the request up front with a typed 503, not the
+    # frontend discovering the same problem separately, one screen at a
+    # time. Real assertion, no mocking: this dev container genuinely has no
+    # Rekordbox install, so both the health check and the real dependency
+    # observe the same missing install.
+    client = _client()
+
+    health_body = client.get("/api/health").json()
+    reindex_response = client.post("/api/collection/reindex")
+
+    assert health_body["status"] == "degraded"
+    assert reindex_response.status_code == 503
+    assert reindex_response.json()["code"] == "rekordbox_not_found"
+
+
+def test_health_reports_ok_when_rekordbox_matches_the_pinned_version_and_db_file_exists(
+    monkeypatch, tmp_path
+):
+    from companion.rb.reader import RekordboxDetection
+
+    db_path = tmp_path / "master.db"
+    db_path.write_bytes(b"")
+    monkeypatch.setattr(
+        "companion.api.health.detect_rekordbox",
+        lambda: RekordboxDetection(
+            installed=True,
+            version="7.2.17",
+            version_pin_ok=True,
+            db_path=db_path,
+            db_file_exists=True,
+        ),
+    )
+
+    body = _client().get("/api/health").json()
+
+    assert body["status"] == "ok"
+    assert body["rekordbox_version"] == "7.2.17"
+    assert body["version_pin_ok"] is True
+
+
+def test_health_reports_degraded_when_the_db_file_has_moved_or_been_deleted(monkeypatch):
+    # Spec edge case: Rekordbox is installed and pinned, but its configured
+    # database file no longer exists at that path.
+    from companion.rb.reader import RekordboxDetection
+
+    monkeypatch.setattr(
+        "companion.api.health.detect_rekordbox",
+        lambda: RekordboxDetection(
+            installed=True,
+            version="7.2.17",
+            version_pin_ok=True,
+            db_path="/some/path/master.db",
+            db_file_exists=False,
+        ),
+    )
+
+    body = _client().get("/api/health").json()
+
+    assert body["status"] == "degraded"
+    # T105: the degraded state must name the expected path, not just say
+    # "degraded" -- that's what lets the frontend tell the DJ where it
+    # looked, per spec.md's edge case wording.
+    assert body["db_path"] == "/some/path/master.db"
+
+
+def test_health_reports_ffmpeg_availability_from_the_real_container():
+    # ffmpeg ships in the dev image (CLAUDE.md); real assertion, no mocking.
+    body = _client().get("/api/health").json()
+
+    assert body["ffmpeg_ok"] is True

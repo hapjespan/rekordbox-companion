@@ -4,8 +4,9 @@
 # three of them were a full major behind within weeks of being written. This is
 # what keeps them honest without anyone remembering to check.
 #
-# npm (web/) and uv (engine/) entries are added once those manifests exist;
-# until then an entry would only open pull requests against nothing.
+# npm (web/) and uv (engine/) entries added now that those manifests exist
+# (T095, phase 6 build: .github/workflows/ci.yml is the first thing that
+# actually installs from them).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -14,4 +15,18 @@ updates:
       interval: weekly
     groups:
       actions:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+  - package-ecosystem: uv
+    directory: /engine
+    schedule:
+      interval: weekly
+    groups:
+      uv:
         patterns: ['*']

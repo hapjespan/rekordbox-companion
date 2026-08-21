@@ -1,10 +1,11 @@
 {
   "gate_mode": "standard",
-  "last_completed_phase": 5,
+  "last_completed_phase": 7,
   "gates_approved": [
     2,
-    4
+    4,
+    7
   ],
   "last_hook_advance": 5,
-  "last_model_stall": 4
+  "last_model_stall": 6
 }

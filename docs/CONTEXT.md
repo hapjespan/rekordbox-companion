@@ -137,3 +137,22 @@ A Collection Track the companion proposes for one playlist in a Booking
 Structure, ranked by Play Count and filtered by Enriched Genre and BPM. The DJ
 curates Suggestions before anything is Applied.
 _Avoid_: recommendation, auto-fill
+
+## Validation log
+
+**Phase 7 review** (2026-08-18): the two-axis review, the ten OWASP verdicts,
+the WCAG conformance statement with its three recorded deviations, the
+reconciled PII inventory and the scope validation all live in
+`specs/001-companion-v1/review-phase-7.md`. Eleven blocking findings were
+found and fixed inside the phase; what was recorded rather than fixed is
+carried in `specs/001-companion-v1/backlog-post-v1.md`. Three success criteria
+stay unproven because they need the owner rather than code: SC-002 and SC-003
+(the Golden Set holds four illustrative stubs, not 50 real cases, T094) and
+SC-009 below.
+
+**SC-009** (booking-prep time under 30 minutes, where it took hours): a
+manual sign-off, not a code deliverable (T103, gate-review finding: SC-009
+had no recorded validation step). Not yet recorded -- pending the owner
+preparing a real booking with the app and judging the actual time against
+the pre-companion baseline. Nothing to log here until that first real
+booking happens.

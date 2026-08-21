@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" />
+<style>
+  html, body { margin: 0; padding: 0; background: #000000; }
+  * { box-sizing: border-box; }
+  a { color: #ffffff; text-decoration: none; }
+  a:hover { color: #1ed760; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #333333; border-radius: 500px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</helmet>
+
+<div style="display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 64px 1fr; height: 100vh; background: #000000; font-family: Inter, system-ui, sans-serif; color: #ffffff; overflow: hidden">
+
+  <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 24px; background: #000000; border-bottom: 1px solid #1f1f1f">
+    <div style="display: flex; align-items: center; gap: 10px; width: 252px">
+      <div style="width: 26px; height: 26px; border-radius: 500px; background: #1ed760; display: grid; place-items: center; color: #000000; font-size: 13px; font-weight: 700">R</div>
+      <span style="font-size: 14px; font-weight: 700; letter-spacing: -0.01em">Crate Bridge</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; background: #1f1f1f; border-radius: 500px; width: 340px; color: #c5c5c5; font-size: 13px">
+      <span style="opacity: 0.7">⌕</span>
+      <span>Zoek in collectie of playlist</span>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #b3b3b3">
+      <span style="width: 7px; height: 7px; border-radius: 500px; background: #1ed760"></span>
+      <span>Rekordbox 6.8 verbonden</span>
+      <span style="color: #333333; padding: 0 4px">|</span>
+      <span>Spotify · djmarijn</span>
+    </div>
+    <button style="height: 32px; padding: 0 16px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">Sync</button>
+  </div>
+
+  <div style="background: #121212; padding: 20px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #73777c; padding: 0 12px 8px">WORKSPACE</span>
+      <div onClick="{{ goMatch }}" style="{{ navMatch }}" style-hover="background: #292929">
+        <span>Match-overzicht</span>
+        <span style="font-size: 11px; color: #b3b3b3">128</span>
+      </div>
+      <div onClick="{{ goBuy }}" style="{{ navBuy }}" style-hover="background: #292929">
+        <span>Koop-wachtrij</span>
+        <span style="font-size: 11px; font-weight: 700; color: #1ed760">{{ buyCount }}</span>
+      </div>
+      <div onClick="{{ goBuild }}" style="{{ navBuild }}" style-hover="background: #292929">
+        <span>Playlist builder</span>
+        <span style="font-size: 11px; color: #b3b3b3">4 fases</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #73777c; padding: 0 12px">SPOTIFY PLAYLISTS</span>
+      <sc-for list="{{ playlists }}" as="pl" hint-placeholder-count="4">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 6px; cursor: pointer" style-hover="background: #1f1f1f">
+          <div style="width: 40px; height: 40px; border-radius: 6px; background: #292929; flex: none; display: grid; place-items: center; font-size: 15px; color: #535353">♫</div>
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 3px">
+            <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ pl.name }}</span>
+            <span style="font-size: 11px; color: #b3b3b3">{{ pl.meta }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top: auto; background: #1f1f1f; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 13px; font-weight: 700">Collectie-scan</span>
+      <span style="font-size: 11px; color: #b3b3b3; line-height: 1.5">Laatste scan 12 min geleden · 8.412 tracks in Rekordbox.</span>
+      <button style="height: 30px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer">Opnieuw scannen</button>
+    </div>
+  </div>
+
+  <div style="overflow-y: auto; background: #121212; margin: 0; padding: 28px 32px 48px">
+
+    <sc-if value="{{ isMatch }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 28px; max-width: 1180px">
+        <div style="display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap">
+          <div style="width: 132px; height: 132px; border-radius: 6px; background: linear-gradient(135deg, #af2896, #509bf5); flex: none"></div>
+          <div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 4px">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #b3b3b3">SPOTIFY PLAYLIST · MATCH-RAPPORT</span>
+            <span style="font-size: 24px; font-weight: 700; line-height: 1.2">Warehouse Winter 2026</span>
+            <span style="font-size: 13px; color: #b3b3b3">128 tracks · 96 in collectie · 14 twijfelgevallen · 18 ontbreken</span>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+            <button style="height: 34px; padding: 0 16px; border: 1px solid #333333; border-radius: 9999px; background: transparent; color: #ffffff; font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="border-color: #ffffff">Exporteer XML</button>
+            <button onClick="{{ goBuy }}" style="height: 34px; padding: 0 16px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">Ontbrekende naar wachtrij</button>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px">
+          <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; color: #b3b3b3; letter-spacing: 0.04em">IN COLLECTIE</span>
+            <span style="font-size: 24px; font-weight: 700; color: #1ed760">96</span>
+            <span style="font-size: 11px; color: #73777c">75% van de playlist</span>
+          </div>
+          <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; color: #b3b3b3; letter-spacing: 0.04em">TWIJFEL</span>
+            <span style="font-size: 24px; font-weight: 700">14</span>
+            <span style="font-size: 11px; color: #73777c">remix of edit onduidelijk</span>
+          </div>
+          <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; color: #b3b3b3; letter-spacing: 0.04em">ONTBREEKT</span>
+            <span style="font-size: 24px; font-weight: 700">18</span>
+            <span style="font-size: 11px; color: #73777c">16 te koop gevonden</span>
+          </div>
+          <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; color: #b3b3b3; letter-spacing: 0.04em">GEEN ANALYSE</span>
+            <span style="font-size: 24px; font-weight: 700">7</span>
+            <span style="font-size: 11px; color: #73777c">BPM/key ontbreekt</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; align-items: center">
+          <span style="height: 30px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9999px; background: #ffffff; color: #000000; font-size: 12px; font-weight: 700">Alles</span>
+          <span style="height: 30px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9999px; background: #1f1f1f; color: #ffffff; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #292929">Ontbreekt</span>
+          <span style="height: 30px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9999px; background: #1f1f1f; color: #ffffff; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #292929">Twijfel</span>
+          <span style="height: 30px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 9999px; background: #1f1f1f; color: #ffffff; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #292929">In collectie</span>
+          <div style="flex: 1"></div>
+          <span style="font-size: 12px; color: #b3b3b3">Sorteer op zekerheid</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 8px; height: 8px; border-radius: 500px; background: #b85850"></span>
+            <span style="font-size: 14px; font-weight: 700">Ontbreekt in Rekordbox</span>
+            <span style="font-size: 12px; color: #b3b3b3">18 tracks</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 32px minmax(0, 1fr) 110px 60px 52px 180px; gap: 16px; padding: 0 16px 8px; font-size: 11px; letter-spacing: 0.06em; color: #73777c; border-bottom: 1px solid #1f1f1f">
+            <span>#</span><span>TRACK</span><span>LABEL</span><span>BPM</span><span>KEY</span><span>ACTIE</span>
+          </div>
+          <sc-for list="{{ missing }}" as="t" hint-placeholder-count="4">
+            <div style="display: grid; grid-template-columns: 32px minmax(0, 1fr) 110px 60px 52px 180px; gap: 16px; align-items: center; padding: 10px 16px; border-radius: 6px; background: #1f1f1f" style-hover="background: #292929">
+              <span style="font-size: 12px; color: #73777c">{{ t.n }}</span>
+              <div style="display: flex; align-items: center; gap: 12px; min-width: 0">
+                <div style="width: 40px; height: 40px; border-radius: 6px; background: #292929; flex: none"></div>
+                <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.title }}</span>
+                  <span style="font-size: 12px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.artist }}</span>
+                </div>
+              </div>
+              <span style="font-size: 12px; color: #b3b3b3">{{ t.label }}</span>
+              <span style="font-size: 12px; color: #b3b3b3">{{ t.bpm }}</span>
+              <span style="font-size: 12px; color: #b3b3b3">{{ t.key }}</span>
+              <div style="display: flex; align-items: center; gap: 8px; justify-content: flex-end">
+                <span style="font-size: 11px; color: #73777c">{{ t.store }}</span>
+                <button onClick="{{ t.add }}" style="height: 30px; padding: 0 14px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">{{ t.cta }}</button>
+              </div>
+            </div>
+          </sc-for>
+
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 18px">
+            <span style="width: 8px; height: 8px; border-radius: 500px; background: #c5c5c5"></span>
+            <span style="font-size: 14px; font-weight: 700">Twijfelgevallen — jouw beslissing</span>
+            <span style="font-size: 12px; color: #b3b3b3">14 tracks</span>
+          </div>
+          <sc-for list="{{ uncertain }}" as="t" hint-placeholder-count="3">
+            <div style="background: #1f1f1f; border-radius: 6px; padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr) 180px; gap: 16px; align-items: center">
+              <div style="display: flex; align-items: center; gap: 12px; min-width: 0">
+                <div style="width: 40px; height: 40px; border-radius: 6px; background: #292929; flex: none"></div>
+                <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 11px; color: #73777c; letter-spacing: 0.06em">SPOTIFY</span>
+                  <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.title }}</span>
+                  <span style="font-size: 12px; color: #b3b3b3">{{ t.artist }} · {{ t.spotMeta }}</span>
+                </div>
+              </div>
+              <div style="display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #1ed760">{{ t.score }}</div>
+              <div style="display: flex; align-items: center; gap: 12px; min-width: 0">
+                <div style="width: 40px; height: 40px; border-radius: 6px; background: #292929; flex: none"></div>
+                <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <span style="font-size: 11px; color: #73777c; letter-spacing: 0.06em">REKORDBOX</span>
+                  <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.rbTitle }}</span>
+                  <span style="font-size: 12px; color: #b3b3b3">{{ t.rbMeta }}</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; justify-content: flex-end">
+                <button style="height: 30px; padding: 0 14px; border: 1px solid #333333; border-radius: 9999px; background: transparent; color: #ffffff; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="border-color: #ffffff">Andere</button>
+                <button style="height: 30px; padding: 0 14px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">Bevestig</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isBuy }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px; max-width: 1180px">
+        <div style="display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #b3b3b3">KOOP-WACHTRIJ</span>
+            <span style="font-size: 24px; font-weight: 700">Ontbrekende tracks afrekenen</span>
+            <span style="font-size: 13px; color: #b3b3b3">Per winkel gegroepeerd. Na aankoop landen bestanden in je watch-folder en importeert Rekordbox ze automatisch.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 24px; align-items: start">
+          <div style="display: flex; flex-direction: column; gap: 20px">
+            <sc-for list="{{ stores }}" as="s" hint-placeholder-count="2">
+              <div style="background: #1f1f1f; border-radius: 6px; overflow: hidden">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #292929">
+                  <span style="font-size: 14px; font-weight: 700">{{ s.name }}</span>
+                  <span style="font-size: 11px; color: #b3b3b3; padding: 3px 10px; border-radius: 9999px; background: #292929">{{ s.count }} tracks</span>
+                  <div style="flex: 1"></div>
+                  <span style="font-size: 13px; font-weight: 700">{{ s.total }}</span>
+                  <span style="font-size: 11px; color: #73777c">{{ s.format }}</span>
+                </div>
+                <sc-for list="{{ s.items }}" as="i" hint-placeholder-count="3">
+                  <div style="display: grid; grid-template-columns: 22px minmax(0, 1fr) 90px 70px 80px; gap: 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #292929" style-hover="background: #292929">
+                    <span style="width: 15px; height: 15px; border-radius: 2px; background: #1ed760; display: grid; place-items: center; color: #000000; font-size: 10px; font-weight: 700">✓</span>
+                    <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                      <span style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ i.title }}</span>
+                      <span style="font-size: 12px; color: #b3b3b3">{{ i.artist }}</span>
+                    </div>
+                    <span style="font-size: 12px; color: #b3b3b3">{{ i.bpmKey }}</span>
+                    <span style="font-size: 12px; color: #b3b3b3">{{ i.quality }}</span>
+                    <span style="font-size: 13px; font-weight: 600; text-align: right">{{ i.price }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0">
+            <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+              <span style="font-size: 14px; font-weight: 700">Overzicht</span>
+              <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #b3b3b3">
+                <div style="display: flex; justify-content: space-between"><span>16 tracks</span><span style="color: #ffffff">€ 26,84</span></div>
+                <div style="display: flex; justify-content: space-between"><span>2 niet vindbaar</span><span>uitgesloten</span></div>
+                <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 1px solid #333333; font-weight: 700; color: #ffffff"><span>Totaal</span><span>€ 26,84</span></div>
+              </div>
+              <button style="height: 36px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">Afrekenen per winkel</button>
+              <span style="font-size: 11px; color: #73777c; line-height: 1.5">Je wordt per winkel doorgestuurd; de wachtrij houdt bij wat al is voldaan.</span>
+            </div>
+            <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+              <span style="font-size: 13px; font-weight: 700">Na aankoop</span>
+              <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #b3b3b3; line-height: 1.5">
+                <span>Bestanden naar ~/Music/Rekordbox Inbox</span>
+                <span>Automatisch analyseren (BPM + key)</span>
+                <span>Toevoegen aan playlist Warehouse Winter 2026</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isBuild }}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; flex-direction: column; gap: 24px; max-width: 1180px">
+        <div style="display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #b3b3b3">PLAYLIST BUILDER</span>
+            <span style="font-size: 24px; font-weight: 700">Warehouse Winter 2026 — setstructuur</span>
+            <span style="font-size: 13px; color: #b3b3b3">Vier fases, 2u14 speelduur, harmonisch geordend op Camelot.</span>
+          </div>
+          <div style="flex: 1"></div>
+          <button style="height: 34px; padding: 0 16px; border: 0; border-radius: 9999px; background: #ffffff; color: #000000; font-family: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="background: #e6e6e6">Naar Rekordbox sturen</button>
+        </div>
+
+        <div style="background: #1f1f1f; border-radius: 6px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span style="font-size: 14px; font-weight: 700">Energiecurve</span>
+            <span style="font-size: 12px; color: #b3b3b3">122 → 138 BPM</span>
+            <div style="flex: 1"></div>
+            <span style="font-size: 11px; color: #73777c">Elke balk is één track</span>
+          </div>
+          <div style="display: flex; align-items: flex-end; gap: 3px; height: 120px">
+            <sc-for list="{{ curve }}" as="c" hint-placeholder-count="30">
+              <div style="{{ c.bar }}" style-hover="background: #1ed760"></div>
+            </sc-for>
+          </div>
+          <div style="display: grid; grid-template-columns: 22% 30% 30% 18%; gap: 3px; font-size: 11px; color: #b3b3b3">
+            <span>Warmup</span><span>Build</span><span>Peak</span><span>Outro</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: start">
+          <sc-for list="{{ phases }}" as="p" hint-placeholder-count="4">
+            <div style="background: #1f1f1f; border-radius: 6px; display: flex; flex-direction: column">
+              <div style="padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #292929">
+                <div style="display: flex; align-items: center; justify-content: space-between">
+                  <span style="font-size: 14px; font-weight: 700">{{ p.name }}</span>
+                  <span style="font-size: 11px; color: #b3b3b3">{{ p.dur }}</span>
+                </div>
+                <span style="font-size: 11px; color: #73777c">{{ p.rule }}</span>
+              </div>
+              <sc-for list="{{ p.tracks }}" as="t" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #292929; cursor: grab" style-hover="background: #292929">
+                  <span style="font-size: 11px; color: #535353; width: 14px">{{ t.n }}</span>
+                  <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1">
+                    <span style="font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.title }}</span>
+                    <span style="font-size: 11px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.artist }}</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none">
+                    <span style="font-size: 11px; color: #ffffff">{{ t.bpm }}</span>
+                    <span style="font-size: 10px; color: #1ed760">{{ t.key }}</span>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="padding: 10px 14px; font-size: 11px; color: #73777c">+ track slepen</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background: #1f1f1f; border-radius: 6px; padding: 16px; display: flex; align-items: center; gap: 20px">
+          <span style="font-size: 13px; font-weight: 700">Controles</span>
+          <span style="font-size: 12px; color: #b3b3b3">3 key-conflicten tussen Build en Peak</span>
+          <span style="font-size: 12px; color: #b3b3b3">1 track zonder cue-points</span>
+          <span style="font-size: 12px; color: #b3b3b3">2 tracks nog niet gekocht</span>
+          <div style="flex: 1"></div>
+          <button style="height: 30px; padding: 0 14px; border: 1px solid #333333; border-radius: 9999px; background: transparent; color: #ffffff; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer" style-hover="border-color: #ffffff">Voorstel automatisch herordenen</button>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { view: "match", buy: 16 };
+
+  nav(active) {
+    return {
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "9px 12px", borderRadius: 6, cursor: "pointer",
+      fontSize: 13, fontWeight: 700,
+      background: active ? "#292929" : "transparent",
+      color: active ? "#ffffff" : "#b3b3b3"
+    };
+  }
+
+  renderVals() {
+    const v = this.state.view;
+    const mk = (n, title, artist, label, bpm, key, store, cta) => ({
+      n, title, artist, label, bpm, key, store, cta,
+      add: () => this.setState(s => ({ buy: s.buy + 1 }))
+    });
+
+    const curve = [];
+    const shape = [22, 26, 30, 34, 38, 42, 44, 48, 52, 56, 60, 64, 70, 74, 78, 82, 88, 92, 96, 100, 98, 94, 90, 86, 80, 72, 64, 54, 44, 34];
+    shape.forEach((h, i) => curve.push({
+      bar: {
+        flex: 1, height: h + "%", borderRadius: 2,
+        background: i > 15 && i < 22 ? "#1ed760" : "#535353"
+      }
+    }));
+
+    return {
+      isMatch: v === "match", isBuy: v === "buy", isBuild: v === "build",
+      navMatch: this.nav(v === "match"), navBuy: this.nav(v === "buy"), navBuild: this.nav(v === "build"),
+      goMatch: () => this.setState({ view: "match" }),
+      goBuy: () => this.setState({ view: "buy" }),
+      goBuild: () => this.setState({ view: "build" }),
+      buyCount: this.state.buy,
+
+      playlists: [
+        { name: "Warehouse Winter 2026", meta: "128 tracks · gematcht" },
+        { name: "Sunday Terrace", meta: "64 tracks · 12 ontbreken" },
+        { name: "Peak Time Weapons", meta: "41 tracks · nieuw" },
+        { name: "Discover Weekly", meta: "30 tracks · niet gescand" }
+      ],
+
+      missing: [
+        mk("01", "Hydraulic (Original Mix)", "Anna Kovač", "Ostgut Ton", "134", "7A", "Beatport € 1,79", "In wachtrij"),
+        mk("02", "Static Bloom", "Tolga Ergün", "Dystopian", "132", "11B", "Bandcamp € 2,10", "In wachtrij"),
+        mk("03", "Concrete Sunrise — Vertigo Edit", "Marit de Vries", "Kompakt", "128", "4A", "Traxsource € 2,49", "In wachtrij"),
+        mk("04", "Nightbus", "Ferro & Lien", "Eigen release", "126", "9B", "Niet gevonden", "Zoek handmatig"),
+        mk("05", "Untitled B2", "Kamera", "White label", "137", "2A", "Discogs € 14,00", "Bekijk")
+      ],
+
+      uncertain: [
+        { title: "Falling Light (Extended)", artist: "Sora Watanabe", spotMeta: "7:12 · 2024", score: "84%", rbTitle: "Falling Light (Original Mix)", rbMeta: "6:48 · 130 BPM · 5A" },
+        { title: "Ember", artist: "Bas Hollander", spotMeta: "5:30 · 2025", score: "71%", rbTitle: "Ember (Rework)", rbMeta: "6:02 · 128 BPM · 8B" },
+        { title: "Ritual Machine", artist: "VETA", spotMeta: "6:44 · 2023", score: "68%", rbTitle: "Ritual Machine (VETA Live Dub)", rbMeta: "8:10 · 136 BPM · 1A" }
+      ],
+
+      stores: [
+        {
+          name: "Beatport", count: 9, total: "€ 15,21", format: "WAV 24-bit",
+          items: [
+            { title: "Hydraulic (Original Mix)", artist: "Anna Kovač", bpmKey: "134 · 7A", quality: "WAV", price: "€ 1,79" },
+            { title: "Deep Field", artist: "Nour Haddad", bpmKey: "130 · 3B", quality: "WAV", price: "€ 1,79" },
+            { title: "Cold Room Dub", artist: "Jesper Lund", bpmKey: "133 · 10A", quality: "WAV", price: "€ 1,79" }
+          ]
+        },
+        {
+          name: "Bandcamp", count: 5, total: "€ 9,14", format: "FLAC",
+          items: [
+            { title: "Static Bloom", artist: "Tolga Ergün", bpmKey: "132 · 11B", quality: "FLAC", price: "€ 2,10" },
+            { title: "Sub Vessel", artist: "Ada Pryce", bpmKey: "127 · 6A", quality: "FLAC", price: "€ 1,80" }
+          ]
+        },
+        {
+          name: "Traxsource", count: 2, total: "€ 4,98", format: "AIFF",
+          items: [
+            { title: "Concrete Sunrise — Vertigo Edit", artist: "Marit de Vries", bpmKey: "128 · 4A", quality: "AIFF", price: "€ 2,49" },
+            { title: "Halcyon Tools", artist: "Rui Barbosa", bpmKey: "125 · 12B", quality: "AIFF", price: "€ 2,49" }
+          ]
+        }
+      ],
+
+      curve,
+
+      phases: [
+        { name: "Warmup", dur: "28 min", rule: "122–126 BPM · lage energie", tracks: [
+          { n: "1", title: "Halcyon Tools", artist: "Rui Barbosa", bpm: "125", key: "12B" },
+          { n: "2", title: "Sub Vessel", artist: "Ada Pryce", bpm: "127", key: "6A" },
+          { n: "3", title: "Nightbus", artist: "Ferro & Lien", bpm: "126", key: "9B" },
+          { n: "4", title: "Slow Tide", artist: "Merel Boon", bpm: "124", key: "9A" }
+        ]},
+        { name: "Build", dur: "41 min", rule: "128–132 BPM · +1 key per stap", tracks: [
+          { n: "5", title: "Concrete Sunrise", artist: "Marit de Vries", bpm: "128", key: "4A" },
+          { n: "6", title: "Deep Field", artist: "Nour Haddad", bpm: "130", key: "3B" },
+          { n: "7", title: "Ember (Rework)", artist: "Bas Hollander", bpm: "128", key: "8B" },
+          { n: "8", title: "Falling Light", artist: "Sora Watanabe", bpm: "130", key: "5A" }
+        ]},
+        { name: "Peak", dur: "46 min", rule: "133–138 BPM · hoge energie", tracks: [
+          { n: "9", title: "Cold Room Dub", artist: "Jesper Lund", bpm: "133", key: "10A" },
+          { n: "10", title: "Hydraulic", artist: "Anna Kovač", bpm: "134", key: "7A" },
+          { n: "11", title: "Untitled B2", artist: "Kamera", bpm: "137", key: "2A" },
+          { n: "12", title: "Ritual Machine", artist: "VETA", bpm: "136", key: "1A" }
+        ]},
+        { name: "Outro", dur: "19 min", rule: "afbouw naar 126 BPM", tracks: [
+          { n: "13", title: "Static Bloom", artist: "Tolga Ergün", bpm: "132", key: "11B" },
+          { n: "14", title: "Afterglow", artist: "Ilse Renard", bpm: "128", key: "11A" },
+          { n: "15", title: "Last Signal", artist: "Duo Perlon", bpm: "126", key: "4B" }
+        ]}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -8,40 +8,114 @@
   --color-smoke: #292929;
   --color-iron: #333333;
   --color-steel: #535353;
+  /* The prototype puts Fog on small muted text (section labels, stat-card
+     notes). It is 4.16:1 on #121212 and 3.66:1 on #1f1f1f, so it fails WCAG
+     2.2 AA for text at those sizes: that text renders in Mist instead
+     (ADR 0020). Fog stays defined for non-text use. */
   --color-fog: #73777c;
   --color-mist: #b3b3b3;
   --color-bone: #c5c5c5;
   --color-pure-white: #ffffff;
+  /* The delivered prototype's hover shade for the white primary pill
+     (HANDOFF.md: "Hover background #e6e6e6"), the one colour the shell
+     needs that the delivered palette above does not name. Added under the
+     same convention so no call site hardcodes it (project rule 5). */
+  --color-chalk: #e6e6e6;
   --color-promo-gradient: #509bf5;
   --color-magenta-glow: #af2896;
 
   /* Typography */
-  --font-spotifymixui: 'SpotifyMixUI', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-spotifymixuititle: 'SpotifyMixUITitle', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-spotifymixui:
+    "SpotifyMixUI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  --font-spotifymixuititle:
+    "SpotifyMixUITitle", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
 
-  /* Typography — Scale */
+  /* Typography — Scale
+     ADR 0020: the delivered shell prototype (prototype-crate-bridge.dc.html)
+     styles almost everything at 10, 12, 13 and 15px, which this file did not
+     define. Those four sizes are added here under the same role-based
+     naming, so that a pixel-accurate rebuild still reads every type size
+     from a token (project rule 5) instead of hardcoding one. */
+  --text-micro: 10px;
+  --leading-micro: 1.2;
   --text-caption: 11px;
   --leading-caption: 1.2;
+  --text-body-sm: 12px;
+  --leading-body-sm: 1.33;
+  --text-body: 13px;
+  --leading-body: 1.5;
   --text-body-lg: 14px;
   --leading-body-lg: 1.33;
+  --text-body-xl: 15px;
+  --leading-body-xl: 1.33;
   --text-link: 16px;
   --leading-link: 1.2;
   --text-heading: 24px;
   --leading-heading: 1.2;
 
-  /* Spacing */
+  /* Typography — Tracking (HANDOFF.md: 0.08em on eyebrow labels, 0.06em on
+     table headers, 0.04em on stat labels, -0.01em on the wordmark). Letter
+     spacing is typography, so it is a token too, not a call-site value. */
+  --tracking-eyebrow: 0.08em;
+  --tracking-table: 0.06em;
+  --tracking-stat: 0.04em;
+  --tracking-wordmark: -0.01em;
+
+  /* Spacing
+     The 4px scale below is the delivered one. The off-scale values are the
+     shell's own fixed dimensions, taken verbatim from the prototype (300px
+     sidebar column, 64px top bar, 1180px content column, 252px logo lockup,
+     340px search field, 132px hero artwork, 26px logo, 34/30px pill
+     heights, 7px status dot, and its 2/6/9/10/14px paddings and gaps), so
+     that those too resolve from a token rather than a hardcoded length. */
+  --spacing-2: 2px;
   --spacing-4: 4px;
+  --spacing-6: 6px;
+  --spacing-7: 7px;
   --spacing-8: 8px;
+  --spacing-9: 9px;
+  --spacing-10: 10px;
   --spacing-12: 12px;
+  --spacing-14: 14px;
   --spacing-16: 16px;
   --spacing-20: 20px;
   --spacing-24: 24px;
+  --spacing-26: 26px;
   --spacing-28: 28px;
+  --spacing-30: 30px;
   --spacing-32: 32px;
+  --spacing-34: 34px;
   --spacing-36: 36px;
   --spacing-40: 40px;
   --spacing-48: 48px;
+  --spacing-64: 64px;
+  --spacing-132: 132px;
   --spacing-172: 172px;
+  --spacing-252: 252px;
+  --spacing-300: 300px;
+  --spacing-340: 340px;
+  --spacing-1180: 1180px;
+  --spacing-3: 3px;
+  --spacing-15: 15px;
+  --spacing-22: 22px;
+  --spacing-52: 52px;
+  --spacing-60: 60px;
+  --spacing-70: 70px;
+  --spacing-80: 80px;
+  --spacing-90: 90px;
+  --spacing-110: 110px;
+  --spacing-120: 120px;
+  --spacing-180: 180px;
+  --spacing-240: 240px;
+
+  /* Breakpoints — the two stacking widths the handoff names (HANDOFF.md:
+     "should stack below roughly 1100px", "below ~1280px the phase grid should
+     drop to two columns"). Named tokens rather than arbitrary values at the call
+     site, so the same two numbers cannot drift apart across views. */
+  --breakpoint-stack: 1100px;
+  --breakpoint-phases: 1280px;
 
   /* Border Radius */
   --radius-sm: 2px;
