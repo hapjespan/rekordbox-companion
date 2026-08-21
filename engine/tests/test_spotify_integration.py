@@ -67,7 +67,7 @@ def _client(handler) -> httpx.Client:
 def _track_item(track_id, name, artist, isrc=None, duration_ms=200_000):
     return {
         "is_local": False,
-        "track": {
+        "item": {
             "id": track_id,
             "name": name,
             "artists": [{"name": artist}],
@@ -186,7 +186,7 @@ def test_expired_token_is_refreshed_before_the_api_call(session, monkeypatch):
             assert request.headers.get("Authorization") == "Bearer fresh-access"
             return httpx.Response(
                 200,
-                json={"name": "P", "snapshot_id": "s", "tracks": {"total": 0, "items": []}},
+                json={"name": "P", "snapshot_id": "s", "items": {"total": 0, "items": []}},
             )
         raise AssertionError(f"unexpected {request.url}")
 
@@ -204,7 +204,7 @@ def test_valid_token_is_not_refreshed(session):
         assert request.url.path != "/api/token", "must not refresh a valid token"
         return httpx.Response(
             200,
-            json={"name": "P", "snapshot_id": "s", "tracks": {"total": 0, "items": []}},
+            json={"name": "P", "snapshot_id": "s", "items": {"total": 0, "items": []}},
         )
 
     spotify.fetch_playlist_tracks(session, _client(handler), PLAYLIST_ID)
@@ -247,7 +247,7 @@ def test_access_token_rejected_mid_fetch_raises_session_expired(session):
 
 def test_access_token_rejected_mid_pagination_raises_session_expired(session):
     _store_auth(session, expires_in_seconds=3600)
-    tracks_path = f"/v1/playlists/{PLAYLIST_ID}/tracks"
+    items_path = f"/v1/playlists/{PLAYLIST_ID}/items"
 
     def handler(request):
         if request.url.path == f"/v1/playlists/{PLAYLIST_ID}":
@@ -256,14 +256,14 @@ def test_access_token_rejected_mid_pagination_raises_session_expired(session):
                 json={
                     "name": "P",
                     "snapshot_id": "s",
-                    "tracks": {
+                    "items": {
                         "total": 150,
                         "items": [_track_item(f"t{i}", f"T{i}", "A") for i in range(100)],
-                        "next": f"https://api.spotify.com{tracks_path}?offset=100",
+                        "next": f"https://api.spotify.com{items_path}?offset=100",
                     },
                 },
             )
-        if request.url.path == tracks_path:
+        if request.url.path == items_path:
             return httpx.Response(401, json={"error": {"status": 401}})
         raise AssertionError(f"unexpected {request.url}")
 
@@ -326,11 +326,11 @@ def test_pagination_short_circuits_once_total_exceeds_cap(session):
                 json={
                     "name": "Huge",
                     "snapshot_id": "s",
-                    "tracks": {
+                    "items": {
                         "total": 2000,
                         "items": [_track_item(f"t{i}", f"T{i}", "A") for i in range(100)],
                         # A next page exists; the cap check must fire before it.
-                        "next": f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?offset=100",
+                        "next": f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/items?offset=100",
                     },
                 },
             )
@@ -365,7 +365,7 @@ def test_within_cap_playlist_follows_pagination_to_completion(session):
     _store_auth(session, expires_in_seconds=3600)
 
     calls = []
-    tracks_path = f"/v1/playlists/{PLAYLIST_ID}/tracks"
+    items_path = f"/v1/playlists/{PLAYLIST_ID}/items"
 
     def handler(request):
         calls.append(request.url.path)
@@ -375,17 +375,17 @@ def test_within_cap_playlist_follows_pagination_to_completion(session):
                 json={
                     "name": "Set",
                     "snapshot_id": "snap-9",
-                    "tracks": {
+                    "items": {
                         "total": 3,
                         "items": [
                             _track_item("t1", "One", "Artist A", isrc="USABC1234567"),
                             _track_item("t2", "Two", "Artist B"),
                         ],
-                        "next": f"https://api.spotify.com{tracks_path}?offset=2",
+                        "next": f"https://api.spotify.com{items_path}?offset=2",
                     },
                 },
             )
-        if request.url.path == tracks_path:
+        if request.url.path == items_path:
             return httpx.Response(
                 200,
                 json={"items": [_track_item("t3", "Three", "Artist C")], "next": None},
@@ -401,7 +401,7 @@ def test_within_cap_playlist_follows_pagination_to_completion(session):
     assert result.tracks[0]["artist"] == "Artist A"
     assert result.tracks[0]["duration_ms"] == 200_000
     # First page + one follow of `next`.
-    assert calls == [f"/v1/playlists/{PLAYLIST_ID}", tracks_path]
+    assert calls == [f"/v1/playlists/{PLAYLIST_ID}", items_path]
 
 
 def test_local_and_unavailable_tracks_are_kept_as_unmatchable_rows(session):
@@ -413,12 +413,12 @@ def test_local_and_unavailable_tracks_are_kept_as_unmatchable_rows(session):
             json={
                 "name": "Mixed",
                 "snapshot_id": "s",
-                "tracks": {
+                "items": {
                     "total": 3,
                     "items": [
                         _track_item("t1", "Real", "Artist"),
-                        {"is_local": True, "track": None},  # local file
-                        {"is_local": False, "track": None},  # unavailable
+                        {"is_local": True, "item": None},  # local file
+                        {"is_local": False, "item": None},  # unavailable
                     ],
                     "next": None,
                 },
@@ -500,14 +500,14 @@ def test_a_playlist_response_without_a_tracks_object_falls_back_to_the_tracks_en
 
     def handler(request):
         paths.append(request.url.path)
-        if request.url.path.endswith("/tracks"):
+        if request.url.path.endswith("/items"):
             return httpx.Response(
                 200,
                 json={
                     "total": 1,
                     "items": [
                         {
-                            "track": {
+                            "item": {
                                 "id": "sp1",
                                 "name": "One More Time",
                                 "artists": [{"name": "Daft Punk"}],
@@ -526,7 +526,7 @@ def test_a_playlist_response_without_a_tracks_object_falls_back_to_the_tracks_en
 
     assert [track["title"] for track in result.tracks] == ["One More Time"]
     assert result.name == "Bruiloft"
-    assert any(path.endswith("/tracks") for path in paths)
+    assert any(path.endswith("/items") for path in paths)
 
 
 def test_a_forbidden_tracks_endpoint_is_an_error_not_an_empty_playlist(session):
@@ -536,7 +536,7 @@ def test_a_forbidden_tracks_endpoint_is_an_error_not_an_empty_playlist(session):
     _store_auth(session, expires_in_seconds=3600)
 
     def handler(request):
-        if request.url.path.endswith("/tracks"):
+        if request.url.path.endswith("/items"):
             return httpx.Response(403, json={"error": {"status": 403, "message": "Forbidden"}})
         return httpx.Response(200, json={"name": "Bruiloft", "snapshot_id": "snap-1"})
 
@@ -559,7 +559,7 @@ def test_a_genuinely_empty_playlist_still_fetches_as_empty(session):
             json={
                 "name": "Nog leeg",
                 "snapshot_id": "snap-1",
-                "tracks": {"total": 0, "items": [], "next": None},
+                "items": {"total": 0, "items": [], "next": None},
             },
         )
 
