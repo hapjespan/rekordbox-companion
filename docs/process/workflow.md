@@ -23,6 +23,13 @@ One phase file per node, `00-` through `08-`, all in this directory. A phase end
 only by running `python3 .workflow/complete-phase.py <N>`. Nothing else ends a
 phase, and no phase starts before its predecessor is marked complete.
 
+**A phase file's numbered action list is the default order for an unattended
+run, not a fixed sequence.** When the owner gives an explicit different order
+for this run (for example: "do the release-to-main promotion last, after the
+rest of this phase's work"), that instruction wins over the document's literal
+order. Re-read the owner's own sequencing words before starting a phase's first
+action, not just its content.
+
 ## Deduplication, binding
 
 Several installed tools cover the same ground. This table decides which one owns
