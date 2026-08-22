@@ -24,7 +24,7 @@ section 5 for the full table):
 - Backend: Python 3.12, FastAPI, uvicorn in `engine/` (uv-managed; the image
   ships uv, not Python 3.12 itself). pyrekordbox for `master.db`, rapidfuzz for
   matching, SQLite via SQLAlchemy 2.x + Alembic for own data.
-- Frontend: React 18, TypeScript, Vite, Tailwind v4 in `web/` (pnpm via corepack).
+- Frontend: React 19, TypeScript, Vite, Tailwind v4 in `web/` (pnpm via corepack).
 - ffmpeg is in the image for the audio transcode fallback.
 - The central Postgres database `rekordbox-companion` exists but is unused in v1;
   it is reserved for the P2 read-only analytics mirror.

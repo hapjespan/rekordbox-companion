@@ -17,13 +17,13 @@ describe("web project skeleton", () => {
     expect(pkg.packageManager).toMatch(/^pnpm@/);
   });
 
-  it("declares React 18, Vite and TypeScript as dependencies", () => {
+  it("declares React 19, Vite and TypeScript as dependencies", () => {
     const allDeps = {
       ...(pkg.dependencies as object),
       ...(pkg.devDependencies as object),
     } as Record<string, string>;
-    expect(allDeps.react).toMatch(/^\^?18\./);
-    expect(allDeps["react-dom"]).toMatch(/^\^?18\./);
+    expect(allDeps.react).toMatch(/^\^?19\./);
+    expect(allDeps["react-dom"]).toMatch(/^\^?19\./);
     expect(allDeps.vite).toBeDefined();
     expect(allDeps.typescript).toBeDefined();
   });
