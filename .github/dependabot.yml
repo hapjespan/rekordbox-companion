@@ -16,17 +16,27 @@ updates:
     groups:
       actions:
         patterns: ['*']
+  # Minor and patch updates travel together, because a batch of those is one
+  # review and one CI run. Majors are deliberately left out of the group so each
+  # arrives as its own pull request: the grouped npm PR of 2026-08-22 carried
+  # TypeScript 5 -> 7, ESLint 9 -> 10 and Vite 5 -> 8 at once, and was
+  # unmergeable as a unit because typescript-eslint refuses TS 7, ESLint 10 adds
+  # 17 errors in existing code, and Vite 8 moved `test` out of its config type.
+  # Three separate migrations behind one green-or-red check is a PR nobody can
+  # act on.
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
     groups:
-      npm:
+      npm-minor-patch:
         patterns: ['*']
+        update-types: ['minor', 'patch']
   - package-ecosystem: uv
     directory: /engine
     schedule:
       interval: weekly
     groups:
-      uv:
+      uv-minor-patch:
         patterns: ['*']
+        update-types: ['minor', 'patch']
