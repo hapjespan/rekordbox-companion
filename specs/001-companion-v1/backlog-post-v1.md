@@ -158,3 +158,19 @@ couple of playlists have been scanned: the owner's dev queue reached 158 rows fo
 11 distinct tracks. Grouping the queue by track, with the playlists it is missing
 from as detail and one purchase closing all of them, changes no requirement and
 only the presentation. Raised with the owner 2026-08-19; theirs to decide.
+
+## B15 — The frontend toolchain majors need one deliberate migration
+
+Dependabot's grouped npm pull request of 2026-08-22 carried TypeScript 5.7 to 7.0,
+ESLint 9 to 10 and Vite 5 to 8 in one batch, and it cannot be merged as a unit.
+Each major brings its own work: `typescript-eslint` 8 refuses TypeScript 7 outright
+and points at the TS 6 API instead, ESLint 10 reports 17 errors in existing code
+from rules that did not exist before (`react-hooks/refs` among them), and Vite 8
+removed `test` from its config type, so the Vitest configuration has to move out of
+`vite.config.ts`. Verified by holding TypeScript at 5.7 and running the rest: lint
+still failed on ESLint 10 and the build still failed on the Vite config, so no
+subset of that batch is a quick win. The grouping is now split so minors and
+patches keep flowing on their own; these three want a dedicated branch, in the
+order Vite, ESLint, then TypeScript once typescript-eslint supports it
+(typescript-eslint#10940 tracks that).
+
