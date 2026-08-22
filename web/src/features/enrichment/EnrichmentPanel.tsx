@@ -147,6 +147,8 @@ export function EnrichmentPanel() {
   }
 
   useEffect(() => {
+    // Fetching on mount; nothing here is derivable during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshStatus();
     void refreshUnenriched();
   }, []);

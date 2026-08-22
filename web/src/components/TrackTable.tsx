@@ -133,12 +133,18 @@ export function TrackTable({
   }
 
   useEffect(() => {
+    // Resets the active row when the track list itself changes underneath
+    // the table; intentional, not a derivable render value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveRowIndex(0);
   }, [tracks]);
 
   // A search submitted in the shell's top bar lands here.
   useEffect(() => {
     if (seedToken === 0) return;
+    // Applies an external seed (a new search token from the shell) to local
+    // state; intentional, not a derivable render value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery(seedQuery);
     setPage(0);
   }, [seedQuery, seedToken]);

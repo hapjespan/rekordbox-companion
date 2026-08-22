@@ -54,6 +54,10 @@ export function CollectionScanCard({ onScanned }: CollectionScanCardProps) {
   }, []);
 
   useEffect(() => {
+    // Fetching on mount, not deriving a value from render: react-hooks 7
+    // flags the setState inside `loadTotal`, but there is nothing to compute
+    // during render here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTotal();
   }, [loadTotal]);
 

@@ -43,6 +43,9 @@ export function PlayerBar({ track }: PlayerBarProps) {
   const seekId = useId();
 
   useEffect(() => {
+    // Resets playback UI state when the track identity changes underneath
+    // this player; intentional, not a derivable render value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);

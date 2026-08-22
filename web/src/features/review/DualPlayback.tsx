@@ -55,6 +55,7 @@ export function DualPlayback({
   // give implicitly, by clearing a stale failure from the previous item
   // without disconnecting the one shared device.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveSource(null);
     retry();
     // `retry` is stable (useCallback with no deps in useSpotifyPlayer), but
@@ -104,6 +105,7 @@ export function DualPlayback({
   // single-source-at-a-time path the buttons take.
   useEffect(() => {
     if (!previewRequestId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void toggle("local");
     // `toggle` is re-created on every render; depending on it would restart
     // playback on each render instead of on each new space press.
