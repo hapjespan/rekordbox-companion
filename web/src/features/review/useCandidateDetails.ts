@@ -62,10 +62,18 @@ export function useCandidateDetails(
   // re-runs when the set of still-unknown ids changes and not on every render
   // of the parent.
   const pendingIdsRef = useRef<string[]>([]);
+  // Deliberate render-time write, read back on the next line and in the
+  // effect below: this is what lets the effect key off the *signature* of
+  // the still-unknown ids instead of re-running on every render of the
+  // parent. react-hooks 7's refs rule flags any ref read during render, but
+  // there is no re-render loop here -- the ref is fully recomputed before
+  // being read, every render, not carried over stale from a previous one.
+  /* eslint-disable react-hooks/refs */
   pendingIdsRef.current = [
     ...new Set(items.flatMap((item) => item.candidates.map((c) => c.rb_content_id))),
   ].filter((id) => !details.has(id) && !answeredIds.current.has(id));
   const pendingSignature = pendingIdsRef.current.join(",");
+  /* eslint-enable react-hooks/refs */
 
   useEffect(() => {
     const ids = pendingIdsRef.current;

@@ -268,6 +268,9 @@ function MissingTrackRow({
       audio.pause();
       return;
     }
+    // Clears a stale error before a new play() attempt on the actual <audio>
+    // element; intentional, not a derivable render value.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewError(null);
     // A rejected play() (autoplay policy, an unreachable preview host, a
     // withdrawn preview) must say so and release the control, never leave a
@@ -605,6 +608,7 @@ export function MissingQueue() {
     // page; this reset is what clears the STATE so the next filter's rows
     // start clean.
     playingRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlaying(null);
     void refresh(statusFilter);
   }, [statusFilter]);
