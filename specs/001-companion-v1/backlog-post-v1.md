@@ -174,3 +174,25 @@ patches keep flowing on their own; these three want a dedicated branch, in the
 order Vite, ESLint, then TypeScript once typescript-eslint supports it
 (typescript-eslint#10940 tracks that).
 
+**Two more majors found this way, 2026-08-22**, each in its own PR despite the
+split groups, because dependabot's own semver classification put them there,
+not this project's grouping:
+
+- **PR #183** (react, react-dom, @types/react): resolves to React 19.2.8, not
+  a minor of 18. `web/tests/setup.test.ts`'s own guardrail
+  (`expected '^19.2.8' to match /^\^?18\./`) caught it correctly. React 18 is
+  a named project decision (`CLAUDE.md`'s tech stack line), so this needs the
+  same deliberate treatment as the toolchain trio above, not a merge.
+- **PR #185** (`eslint-plugin-react-hooks` 5.2.0 to 7.1.1): a major on the
+  plugin alone, independent of ESLint's own version. It ships two new rules,
+  `react-hooks/set-state-in-effect` and `react-hooks/refs`, and they fail on
+  16 pre-existing call sites across the app (`CollectionScanCard.tsx`,
+  `PlayerBar.tsx`, `SpotifyPlaylistList.tsx`, `TrackTable.tsx`,
+  `BookingWorkspace.tsx`, `EnrichmentPanel.tsx`, `MissingQueue.tsx`,
+  `DualPlayback.tsx`, `ReviewView.tsx` and others) — real findings about
+  `setState` inside effects and refs read during render, not lint noise.
+  Fixing those is its own piece of work before this plugin bump can land.
+
+Both PRs are left open, red, and unmerged rather than closed, so dependabot
+does not regenerate them under a new number.
+
