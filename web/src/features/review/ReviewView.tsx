@@ -58,6 +58,7 @@ export function ReviewView({ session, onResolved, sort = "score" }: ReviewViewPr
   // A different session is a different queue: whatever this one resolved
   // must not make the next session look finished (see `showComplete`).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setResolvedCount(0);
     setError(null);
   }, [session.id]);
