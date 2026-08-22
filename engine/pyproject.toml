@@ -8,7 +8,7 @@ authors = [
 requires-python = "==3.12.*"
 dependencies = [
     "fastapi>=0.115",
-    "uvicorn[standard]>=0.52.3",
+    "uvicorn[standard]>=0.52.4",
     "pyrekordbox>=0.4",
     "rapidfuzz>=3.10",
     "sqlalchemy>=2.0",
