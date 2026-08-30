@@ -28,7 +28,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pyyaml>=6.0",
-    "ruff>=0.8",
+    "ruff>=0.16.4",
     # T030 review finding: engine/tests/api/test_events.py uses
     # @pytest.mark.anyio directly (async SSE tests); previously only a
     # transitive dependency via fastapi/starlette, not declared.
