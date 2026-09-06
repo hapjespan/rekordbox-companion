@@ -10,7 +10,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.52.4",
     "pyrekordbox>=0.4",
-    "rapidfuzz>=3.10",
+    "rapidfuzz>=3.14.6",
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "httpx>=0.27",
@@ -28,11 +28,11 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pyyaml>=6.0",
-    "ruff>=0.8",
+    "ruff>=0.16.5",
     # T030 review finding: engine/tests/api/test_events.py uses
     # @pytest.mark.anyio directly (async SSE tests); previously only a
     # transitive dependency via fastapi/starlette, not declared.
-    "anyio>=4.0",
+    "anyio>=4.15.0",
 ]
 
 [build-system]
